@@ -36,6 +36,7 @@ test('instructions plus all tool descriptions and input schemas stay within the 
 
   expect(instructions).toContain('search');
   expect(instructions).toContain('execute');
+  expect(instructions).toContain('`confirm`');
   expect(tools.length).toBeGreaterThan(0);
   expect(tools.find((tool) => tool.name === 'execute')?.inputSchema.properties).toHaveProperty(
     'account.enum',

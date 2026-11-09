@@ -9,9 +9,9 @@ JavaScript snippets that run in a local sandbox against the sevDesk API ("Code M
 > specification and curated recipes for offers, tax rules, dates and sending) and `execute`
 > (reads and reversible writes such as drafts, with a token from `SEVDESK_API_TOKEN` or from a
 > profile in the OS keychain, PDFs and exports saved to disk; every result lists the writes it
-> sent). Irreversible calls (delete, send, enshrine, book, cancel, reset, status changes) are
-> refused until the confirmation flow lands, and `setup` is not there yet. Do not use it with a
-> real sevDesk account yet.
+> sent). Irreversible calls (delete, send, enshrine, book, cancel, reset, status changes) are held
+> until you confirm them. Read-only mode, the audit log and `setup` are not there yet. Do not use
+> it with a real sevDesk account yet.
 
 > Not developed or endorsed by sevDesk. (Nicht von sevDesk entwickelt oder unterstützt.)
 
@@ -72,6 +72,28 @@ The server never guesses which account a call is for:
 3. Otherwise, with exactly one profile, `execute` uses it.
 4. With several, `execute` needs `account`; without it, it answers `account_required` with the
    profile names and companies.
+
+## Irreversible calls
+
+Reading and creating or changing drafts run directly. Anything that cannot be undone (deleting,
+sending, enshrining, booking, cancelling, resetting, changing a document's status, `getPdf`
+without `preventSendBy=true`, and any write path the sevDesk specification does not know) is held
+instead of sent:
+
+1. The code's call resolves to `{ held: true }` and the code goes on, so drafts before and after it
+   are created as usual.
+2. If the run succeeds, its result carries `confirmation`: a token and a preview of every held
+   call (the exact method, path, query and body; for an order, invoice, credit note or voucher its
+   kind, number, date, net and gross amount with the currency, and the recipient; the mail
+   subject; the profile and its company). The assistant shows you the preview.
+3. Only after your yes does it call `execute` with `confirm` set to the token, and no code. The
+   server then sends exactly the held calls, in order, each once and never retried. It stops at
+   the first failure and reports every call as `sent`, `failed` or `not_sent`.
+
+A token works once, for 10 minutes, for the profile that held the calls, and only until the server
+restarts. If the run fails, its held calls are dropped and no token is issued. Held calls, and the
+reads of the documents they act on for the preview, count towards `limits.callsPerRun`. The profile
+of `SEVDESK_API_TOKEN` has no company in the config file, so its preview names only the profile.
 
 ## Files
 

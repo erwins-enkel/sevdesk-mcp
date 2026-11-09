@@ -3,7 +3,7 @@ import { connect, envelopeOf } from './connect.ts';
 import { type MockRequest, type MockRoutes, startMockSevdesk } from './mock-sevdesk.ts';
 
 // Writes through `execute` (PRD §6, decisions 6, 7 and 11): reversible writes run and enter the
-// ledger (`writes`), every irreversible call is refused before it reaches the mock sevDesk.
+// ledger (`writes`), every irreversible call is held before it reaches the mock sevDesk.
 
 const TOKEN = 'test-token-3d8b6f';
 const CHECK = '/Tools/bookkeepingSystemVersion';
@@ -242,29 +242,34 @@ const irreversible: { name: string; calls: [string, string, object?][] }[] = [
   },
 ];
 
-test.each(irreversible)('$name is refused without reaching sevDesk', async ({ calls }) => {
-  const sevdesk = await mock();
+// The preview reads the document each held call acts on (`GET /{Type}/1`), so the mock has them.
+const documents: MockRoutes = Object.fromEntries(
+  ['Order', 'Invoice', 'CreditNote', 'Voucher'].map((type) => [
+    `GET /${type}/1`,
+    () => ({ json: { objects: [{ id: '1', objectName: type }] } }),
+  ]),
+);
+
+test.each(irreversible)('$name is held without reaching sevDesk', async ({ calls }) => {
+  const sevdesk = await mock(documents);
 
   const { isError, envelope } = await executeOnce(`
-    const errors = [];
-    for (const call of ${JSON.stringify(calls)}) {
-      try { await sevdesk.request(...call); errors.push('sent'); }
-      catch (e) {
-        errors.push({ kind: e.kind, method: e.method, path: e.path, nothingSent: e.message.endsWith('Nothing was sent.') });
-      }
-    }
-    return errors;`);
+    const results = [];
+    for (const call of ${JSON.stringify(calls)}) results.push(await sevdesk.request(...call));
+    return results;`);
 
   expect(isError).toBe(false);
-  expect(envelope).toEqual({
-    result: calls.map(([method, path]) => ({
-      kind: 'needs_confirmation',
-      method: method.toUpperCase(),
-      path,
-      nothingSent: true,
-    })),
-  });
-  expect(snippetCalls(sevdesk.requests)).toEqual([]);
+  expect(envelope.result).toEqual(calls.map(() => ({ held: true })));
+  const { held } = envelope.confirmation as { held: { method: string; path: string }[] };
+  expect(held.map(({ method, path }) => `${method} ${path}`)).toEqual(
+    calls.map(([method, path]) => `${method.toUpperCase()} ${path}`),
+  );
+  // Only the preview's reads of the documents reached sevDesk, never a held call.
+  expect(
+    snippetCalls(sevdesk.requests).filter(
+      (call) => !/^GET \/(?:Order|Invoice|CreditNote|Voucher)\/1$/.test(call),
+    ),
+  ).toEqual([]);
 });
 
 test('getPdf with preventSendBy=true and an export that does not enshrine run as reads', async () => {

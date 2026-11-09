@@ -11,10 +11,10 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - Status: early development. `search` runs in the QuickJS sandbox with the patched spec and the
   guides; `execute` reads sevDesk and runs reversible writes (listed in the result's `writes`
   ledger) with the profile from `SEVDESK_API_TOKEN` or a config-file profile whose token is in the
-  OS keychain, refuses every irreversible call (`needs_confirmation`), and saves PDFs (`savePdf`)
-  and non-JSON responses in the profile's download directory; both use the limits and base URL of
-  the optional config file. Every other feature (confirmation flow, read-only mode, audit log,
-  setup) arrives as a backlog slice.
+  OS keychain, holds every irreversible call and sends it only with the confirmation token
+  (`execute({ confirm })`), and saves PDFs (`savePdf`) and non-JSON responses in the profile's
+  download directory; both use the limits and base URL of the optional config file. Every other
+  feature (read-only mode, audit log, setup) arrives as a backlog slice.
 
 ## Orientation
 
@@ -37,18 +37,25 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `timeout`/`memory_limit`/`snippet_error`). Host functions (`HostFunction`) return promises to
   the code; a `HostError` is catchable there and, uncaught, ends the run with its structured
   error; a fatal one ends the run at once. `src/envelope.ts`: `toToolResult()`, the JSON result
-  envelope (`result`, `error`, `console`, `writes`, `notes`; results over the output limit, by
-  default 20,000 characters, are cut). `src/search.ts`: the `search` tool. `src/guides.ts`: `GUIDES`, the
-  curated recipes `search` offers as `guides` (system 2.0 only; endpoints written `METHOD /path`,
-  checked against the patched spec by `test/guides.test.ts`).
-- `src/execute.ts`: the `execute` tool (bookkeeping-system check per profile and session,
-  destructive annotation). `src/sevdesk.ts`: `createClient()`, the host side of `sevdesk.request`,
-  `sevdesk.paginate` and `sevdesk.savePdf` (HTTPS base URL, relative paths only, JSON bodies,
-  token added host-side, shared call budget, pages of 1,000, structured errors; `request` saves a
-  non-JSON response, `savePdf` the PDF of a `PDF_TYPES` document with `preventSendBy=true`;
-  `writes` is the run's ledger of sent writes with status and object id); `send()`
-  resolves to the 2xx response and retries per decision 10 (`retry: false` sends once, for
-  confirmed calls). `src/downloads.ts`: `fileStem()` (a file name that cannot leave its
+  envelope (`result`, `error`, `console`, `writes`, `confirmation`, `notes`; results over the
+  output limit, by default 20,000 characters, are cut), and `confirmedResult()`, the result of a
+  confirmation run (`confirmed`, one outcome per held call). `src/search.ts`: the `search` tool.
+  `src/guides.ts`: `GUIDES`, the curated recipes `search` offers as `guides` (system 2.0 only;
+  endpoints written `METHOD /path`, checked against the patched spec by `test/guides.test.ts`).
+- `src/execute.ts`: the `execute` tool (`code` or `confirm`, bookkeeping-system check per profile
+  and session, destructive annotation; a run with held calls gets their previews and a token, a
+  failed run or preview read drops them). `src/sevdesk.ts`: `createClient()`, the host side of
+  `sevdesk.request`, `sevdesk.paginate` and `sevdesk.savePdf` (HTTPS base URL, relative paths only,
+  JSON bodies, token added host-side, shared call budget, pages of 1,000, structured errors;
+  `request` saves a non-JSON response and holds an irreversible call in `held` as `{ held: true }`,
+  `savePdf` the PDF of a `PDF_TYPES` document with `preventSendBy=true`; `writes` is the run's
+  ledger of sent writes with status and object id; `readDocument()` is the preview's counted read);
+  `send()` resolves to the 2xx response and retries per decision 10 (`retry: false` sends once);
+  `replay()` sends confirmed calls once each, in order, stopping at the first failure.
+  `src/confirm.ts`: `previewHeld()`, the structured English preview of held calls (decision 9;
+  document kind, number, ISO date, amount with currency, recipient, subject), and
+  `createConfirmations()`, the in-memory token store (single use, 10 minutes, bound to the profile
+  and the exact stored calls). `src/downloads.ts`: `fileStem()` (a file name that cannot leave its
   directory) and `saveFile()` (temp file, then rename; replace or next free name;
   `download_error`). `src/profile.ts`: tenant resolution (decision 1):
   `reachableProfiles()` (env profile or config profiles, narrowed by `--profile`) and
