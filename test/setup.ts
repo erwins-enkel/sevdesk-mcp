@@ -15,7 +15,8 @@ vi.mock('@napi-rs/keyring', () => import('./fake-keychain.ts'));
 // their home-based fallbacks, so a spawned server that inherits only HOME (POSIX) or USERPROFILE,
 // APPDATA and LOCALAPPDATA (Windows), as the MCP SDK's stdio client passes them, resolves the
 // same paths.
-// A sevDesk token from the developer's shell is unset, and the fake keychain starts empty.
+// A sevDesk token and read-only switch from the developer's shell are unset, and the fake keychain
+// starts empty.
 let home: string | undefined;
 
 beforeEach(() => {
@@ -28,6 +29,7 @@ beforeEach(() => {
   vi.stubEnv('LOCALAPPDATA', join(home, 'AppData', 'Local'));
   vi.stubEnv('SEVDESK_API_TOKEN', undefined);
   vi.stubEnv('SEVDESK_PROFILE', undefined);
+  vi.stubEnv('SEVDESK_READONLY', undefined);
   fakeKeychain.tokens.clear();
   fakeKeychain.accesses.length = 0;
   fakeKeychain.unavailable = false;

@@ -10,8 +10,8 @@ JavaScript snippets that run in a local sandbox against the sevDesk API ("Code M
 > (reads and reversible writes such as drafts, with a token from `SEVDESK_API_TOKEN` or from a
 > profile in the OS keychain, PDFs and exports saved to disk; every result lists the writes it
 > sent). Irreversible calls (delete, send, enshrine, book, cancel, reset, status changes) are held
-> until you confirm them. Read-only mode, the audit log and `setup` are not there yet. Do not use
-> it with a real sevDesk account yet.
+> until you confirm them; read-only mode blocks every change. The audit log and `setup` are not
+> there yet. Do not use it with a real sevDesk account yet.
 
 > Not developed or endorsed by sevDesk. (Nicht von sevDesk entwickelt oder unterstützt.)
 
@@ -46,7 +46,7 @@ and `execute` run.
 | `limits.outputChars`    | `20000`                        | characters of result and of console output, 1 or more    |
 | `profiles.<name>`       | none                           | a profile: name of 1 to 32 characters `a-z`, `0-9`, `-`  |
 | `….company`             | required                       | the sevDesk company name, a non-empty string             |
-| `….readonly`            | `false`                        | `true` or `false` (not enforced yet)                     |
+| `….readonly`            | `false`                        | `true` or `false` ([read-only mode](#read-only-mode))    |
 | `….downloadDir`         | `~/Downloads/sevdesk/<name>`   | where its files are saved, an absolute path              |
 
 The server reads the file when it starts, so restart it (or your MCP client) after a change. If the
@@ -95,6 +95,25 @@ A token works once, for 10 minutes, for the profile that held the calls, and onl
 restarts. If the run fails, its held calls are dropped and no token is issued. Held calls, and the
 reads of the documents they act on for the preview, count towards `limits.callsPerRun`. The profile
 of `SEVDESK_API_TOKEN` has no company in the config file, so its preview names only the profile.
+
+## Read-only mode
+
+Read-only mode makes `execute` unable to change anything in sevDesk. It is on for a call when
+either switch is on; neither can turn the other off:
+
+- `SEVDESK_READONLY` in the environment of the MCP server turns it on for every profile. Any value
+  but empty, `false` or `0` (case ignored) counts as on.
+- `"readonly": true` in a profile of the config file turns it on for that profile, even with
+  `SEVDESK_READONLY=false`. The profile of `SEVDESK_API_TOKEN` has no such flag; only
+  `SEVDESK_READONLY` applies to it.
+
+In read-only mode every call that is not a GET, and every call that would be held for confirmation
+(including a GET such as `getPdf` without `preventSendBy=true`), fails with a `read_only` error.
+Such a call is rejected outright, never held, so no confirmation token can get it through, and
+`execute` with `confirm` is rejected as well. Reads and `sevdesk.savePdf` keep working (`savePdf`
+always sets `preventSendBy=true`). When `SEVDESK_READONLY` is on, or the server is pinned with
+`--profile` to a read-only profile, `execute` carries the MCP `readOnlyHint` annotation. The server
+reads both switches when it starts, so restart it after a change.
 
 ## Files
 
