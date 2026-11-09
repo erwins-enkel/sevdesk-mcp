@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { afterEach, expect, test, vi } from 'vitest';
+import { GUIDES } from '../src/guides.ts';
 import { connect, envelopeOf } from './connect.ts';
 
 const pkg = createRequire(import.meta.url)('../package.json') as { files: string[] };
@@ -22,6 +23,57 @@ test('search is registered with the read-only annotation', async () => {
   await client.close();
 
   expect(tools.find((tool) => tool.name === 'search')?.annotations?.readOnlyHint).toBe(true);
+});
+
+test('the description points the model to the guides', async () => {
+  const client = await connect();
+  const { tools } = await client.listTools();
+  await client.close();
+
+  expect(tools.find((tool) => tool.name === 'search')?.description).toContain('`guides`');
+});
+
+test('a snippet lists the guide titles and returns a guide text', async () => {
+  const titles = await search(
+    'return Object.entries(guides).map(([id, guide]) => ({ id, title: guide.title }))',
+  );
+  const text = await search('return guides.offer.text');
+
+  expect(titles.isError).toBe(false);
+  expect(titles.envelope.result).toEqual(
+    Object.entries(GUIDES).map(([id, { title }]) => ({ id, title })),
+  );
+  expect(text.envelope.result).toBe(GUIDES.offer?.text);
+});
+
+test('the offer guide names saveOrder, every required field of the patched spec and orderType AN', async () => {
+  const { isError, envelope } = await search(`
+    const text = guides.offer.text;
+    const { Model_Order, Model_OrderPos } = spec.components.schemas;
+    const required = [...Model_Order.required, ...Model_OrderPos.required];
+    return {
+      required: required.length,
+      missing: required.filter((field) => !text.includes(field)),
+      saveOrder: text.includes('POST /Order/Factory/saveOrder'),
+      offerType: text.includes('"orderType": "AN"'),
+    };`);
+
+  const result = envelope.result as { required: number };
+  expect(isError).toBe(false);
+  expect(result).toMatchObject({ missing: [], saveOrder: true, offerType: true });
+  expect(result.required).toBeGreaterThan(0);
+});
+
+test('a guide covers the date formats and the time zone of sevDesk documents', async () => {
+  const { envelope } = await search('return guides.dates');
+
+  expect(envelope.result).toEqual({
+    title: 'Date formats and time zone',
+    text: expect.stringContaining('Europe/Berlin') as string,
+  });
+  for (const fact of ['dd.mm.yyyy', 'ISO 8601', '+01:00', '+02:00', 'Unix timestamps in seconds']) {
+    expect(GUIDES.dates?.text).toContain(fact);
+  }
 });
 
 test('a snippet reading a $ref-backed schema sees it resolved', async () => {

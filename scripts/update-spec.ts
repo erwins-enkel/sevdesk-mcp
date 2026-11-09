@@ -1,12 +1,15 @@
-// `bun run update-spec`: fetches the official sevDesk OpenAPI file, inlines its `$ref`s and writes
-// the result to spec/sevdesk-openapi.json, the spec the `search` tool embeds. Fails on a non-2xx
-// response or a document that is not an OpenAPI 3 spec with paths, never writing a partial file.
-import { writeFileSync } from 'node:fs';
+// `bun run update-spec`: fetches the official sevDesk OpenAPI file, applies the corrections of
+// spec/patches.json, inlines its `$ref`s and writes the result to spec/sevdesk-openapi.json, the
+// spec the `search` tool embeds. Fails on a non-2xx response, a document that is not an OpenAPI 3
+// spec with paths or a patch that no longer applies, never writing a partial or unpatched file.
+import { readFileSync, writeFileSync } from 'node:fs';
 import { parse } from 'yaml';
-import { resolveRefs } from './resolve-refs.ts';
+import { applyPatches } from './patch-spec.ts';
+import { resolveRefs, type Json } from './resolve-refs.ts';
 
 const source = 'https://api.sevdesk.de/openapi.yaml';
 const target = new URL('../spec/sevdesk-openapi.json', import.meta.url);
+const patchFile = new URL('../spec/patches.json', import.meta.url);
 
 const response = await fetch(source);
 if (!response.ok) throw new Error(`GET ${source} failed: ${String(response.status)}`);
@@ -26,12 +29,11 @@ if (
   throw new Error(`${source} is not an OpenAPI 3 document with paths`);
 }
 
-const spec = resolveRefs(document as Parameters<typeof resolveRefs>[0]) as {
-  info: { version: string };
-  paths: object;
-};
+const patches = JSON.parse(readFileSync(patchFile, 'utf8')) as unknown[];
+const patched = applyPatches(document as Json, patches);
+const spec = resolveRefs(patched) as { info: { version: string }; paths: object };
 const text = `${JSON.stringify(spec, null, 2)}\n`;
 writeFileSync(target, text);
 console.log(
-  `spec: sevDesk API ${spec.info.version}, ${String(Object.keys(spec.paths).length)} paths, ${String(text.length)} characters`,
+  `spec: sevDesk API ${spec.info.version}, ${String(Object.keys(spec.paths).length)} paths, ${String(patches.length)} patches applied, ${String(text.length)} characters`,
 );

@@ -8,10 +8,11 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - Product source of truth: `docs/prd/PRD-sevdesk.md` (German).
 - Foundation decisions and their rationale: `docs/decisions/0001-foundation.md`.
 - Product decisions and their rationale: `docs/decisions/0002-product-decisions.md`.
-- Status: early development. `search` runs in the QuickJS sandbox; `execute` reads sevDesk
-  (GET only) with the profile from `SEVDESK_API_TOKEN` or a config-file profile whose token is in
-  the OS keychain, and saves PDFs (`savePdf`) and non-JSON responses in the profile's download
-  directory; both use the limits and base URL of the optional config file. Every other feature
+- Status: early development. `search` runs in the QuickJS sandbox with the patched spec and the
+  guides; `execute` reads sevDesk (GET only) with the profile from `SEVDESK_API_TOKEN` or a
+  config-file profile whose token is in the OS keychain, and saves PDFs (`savePdf`) and non-JSON
+  responses in the profile's download directory; both use the limits and base URL of the optional
+  config file. Every other feature
   (writes, confirmation flow, audit log, setup) arrives as a backlog slice.
 
 ## Orientation
@@ -36,7 +37,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   the code; a `HostError` is catchable there and, uncaught, ends the run with its structured
   error; a fatal one ends the run at once. `src/envelope.ts`: `toToolResult()`, the JSON result
   envelope (`result`, `error`, `console`, `notes`; results over the output limit, by default
-  20,000 characters, are cut). `src/search.ts`: the `search` tool.
+  20,000 characters, are cut). `src/search.ts`: the `search` tool. `src/guides.ts`: `GUIDES`, the
+  curated recipes `search` offers as `guides` (system 2.0 only; endpoints written `METHOD /path`,
+  checked against the patched spec by `test/guides.test.ts`).
 - `src/execute.ts`: the `execute` tool (bookkeeping-system check per profile and session).
   `src/sevdesk.ts`: `createClient()`, the host side of `sevdesk.request`, `sevdesk.paginate` and
   `sevdesk.savePdf` (HTTPS base URL, relative paths only, token added host-side, shared call
@@ -52,7 +55,10 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `sevdesk-mcp`, account = profile name, Linux Secret Service only), loaded lazily on first use.
 - `spec/sevdesk-openapi.json`: the embedded sevDesk OpenAPI spec (`$ref`s resolved, © sevDesk,
   not MIT). Never edit it by hand: `bun run update-spec` regenerates it
-  (`scripts/update-spec.ts`, `scripts/resolve-refs.ts`).
+  (`scripts/update-spec.ts`, `scripts/resolve-refs.ts`). It applies `spec/patches.json` first, the
+  corrections of known spec errors (`scripts/patch-spec.ts`): every change names the upstream value
+  it expects (`from`), so a patch that no longer applies stops `update-spec`. A new or changed
+  patch takes effect only after `bun run update-spec`; `test/patch-spec.test.ts` fails until then.
 - `src/i18n/`: human-facing CLI messages. `en.json` is the reference catalog, `de.json`
   mirrors it, `index.ts` exposes `resolveLocale()` and `t()`.
 - `test/`: vitest; `test/budget.test.ts` is the 1,500-token gate for instructions and tool
