@@ -302,6 +302,110 @@ test('a run that exceeds the call budget stops with a structured error, even whe
   expect(snippetCalls(sevdesk.requests)).toHaveLength(50);
 });
 
+/** A mock list of `total` contacts (ids 1 to `total`) that honours `limit` and `offset`. */
+function contactList(total: number) {
+  return ({ query }: MockRequest) => {
+    const offset = Number(query.get('offset') ?? 0);
+    const end = Math.min(total, offset + Number(query.get('limit') ?? 100));
+    const objects = Array.from({ length: Math.max(0, end - offset) }, (_, i) => ({
+      id: String(offset + i + 1),
+      objectName: 'Contact',
+    }));
+    return { json: { objects } };
+  };
+}
+
+test('sevdesk.paginate returns every object of a list that spans several pages', async () => {
+  const sevdesk = await mock({ 'GET /Contact': contactList(2345) });
+
+  const { isError, envelope } = await executeOnce(`
+    const all = await sevdesk.paginate('/Contact', { depth: 1 });
+    return { count: all.length, inOrder: all.every((c, i) => c.id === String(i + 1)) };`);
+
+  expect(isError).toBe(false);
+  expect(envelope.result).toEqual({ count: 2345, inOrder: true });
+  expect(
+    sevdesk.requests.filter((r) => r.path === '/Contact').map((r) => Object.fromEntries(r.query)),
+  ).toEqual(
+    [0, 1000, 2000, 2345].map((offset) => ({
+      depth: '1',
+      limit: '1000',
+      offset: String(offset),
+    })),
+  );
+});
+
+test('sevdesk.paginate rejects paging parameters and irreversible reads unsent, and a non-list', async () => {
+  const sevdesk = await mock({
+    'GET /Invoice/1/getIsPartiallyPaid': () => ({ json: { objects: false } }),
+  });
+
+  const { envelope } = await executeOnce(`
+    const calls = [
+      ['/Contact', { limit: 10 }],
+      ['/Contact', { offset: 5, depth: 1 }],
+      ['/Invoice/1/getPdf'],
+      ['/Invoice/1/getIsPartiallyPaid'],
+    ];
+    const errors = [];
+    for (const call of calls) {
+      try { await sevdesk.paginate(...call); errors.push('returned'); }
+      catch (e) { errors.push({ kind: e.kind, message: e.message }); }
+    }
+    return errors;`);
+
+  const paging = (key: string) =>
+    `sevdesk.paginate sets limit and offset itself; leave out ${key}. Use sevdesk.request for a single page.`;
+  expect(envelope.result).toEqual([
+    { kind: 'invalid_request', message: paging('limit') },
+    { kind: 'invalid_request', message: paging('offset') },
+    { kind: 'not_enabled', message: expect.stringContaining('getPdf') as string },
+    {
+      kind: 'invalid_request',
+      message:
+        'GET /Invoice/1/getIsPartiallyPaid did not return a list (an objects array); use sevdesk.request for it.',
+    },
+  ]);
+  expect(snippetCalls(sevdesk.requests)).toEqual(['GET /Invoice/1/getIsPartiallyPaid']);
+});
+
+test('sevdesk.paginate that exhausts the call budget ends the run, never with a partial list', async () => {
+  const fullPage = { objects: Array.from({ length: 1000 }, (_, i) => ({ id: String(i) })) };
+  const sevdesk = await mock({ 'GET /Contact': () => ({ json: fullPage }) });
+
+  const { isError, envelope } = await executeOnce(`
+    await sevdesk.request('GET', '/Contact', { query: { limit: 1 } });
+    try { return await sevdesk.paginate('/Contact'); } catch { return 'partial'; }`);
+
+  expect(isError).toBe(true);
+  expect(envelope).toEqual({
+    error: {
+      kind: 'call_budget',
+      message:
+        "The run reached the limit of 50 sevDesk calls and was stopped; sevdesk.paginate('/Contact') had fetched 49000 objects and its list is incomplete, so none of it is returned.",
+      hint: expect.stringContaining('query parameters') as string,
+    },
+  });
+  expect(snippetCalls(sevdesk.requests)).toHaveLength(50);
+});
+
+test('a GET is retried on 429 and 5xx and succeeds on a later attempt', async () => {
+  const retryNow = { 'retry-after': '0' };
+  const failures = [
+    { status: 429, headers: retryNow, json: { objects: null, error: { message: 'Slow down' } } },
+    { status: 503, headers: retryNow, json: { objects: null } },
+  ];
+  const sevdesk = await mock({ 'GET /Contact': () => failures.shift() ?? { json: contacts } });
+
+  const { isError, envelope } = await executeOnce(
+    "return (await sevdesk.request('GET', '/Contact')).objects",
+  );
+
+  expect(isError).toBe(false);
+  expect(envelope.result).toEqual(contacts.objects);
+  expect(snippetCalls(sevdesk.requests)).toEqual(Array<string>(3).fill('GET /Contact'));
+});
+
 test('writes and irreversible reads are rejected and never sent', async () => {
   const pdf = { objects: { filename: 'RE-1.pdf', mimeType: 'application/pdf' } };
   const exportJob = { objects: { id: 'job-1' } };

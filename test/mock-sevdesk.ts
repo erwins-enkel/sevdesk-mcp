@@ -4,11 +4,13 @@ import { vi } from 'vitest';
 import { DEFAULT_BASE_URL } from '../src/sevdesk.ts';
 
 /** What a mock route answers: `json` by default, or `text` with its own content type. */
-interface MockResponse {
+export interface MockResponse {
   status?: number;
   json?: unknown;
   text?: string;
   contentType?: string;
+  /** Further response headers, e.g. `retry-after`. */
+  headers?: Record<string, string>;
 }
 
 /** A request the mock received; `path` is relative to the API base. */
@@ -52,6 +54,7 @@ export async function startMockSevdesk(routes: MockRoutes = {}) {
       : { status: 404, json: { objects: null, error: { message: 'Not found' } } };
     response.writeHead(answer.status ?? 200, {
       'content-type': answer.contentType ?? 'application/json',
+      ...answer.headers,
     });
     response.end(answer.text ?? JSON.stringify(answer.json));
   });

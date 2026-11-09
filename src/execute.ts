@@ -7,9 +7,10 @@ import {
   createClient,
   DEFAULT_BASE_URL,
   DEFAULT_CALL_BUDGET,
+  PAGE_SIZE,
 } from './sevdesk.ts';
 
-const description = `Call the sevDesk REST API. \`code\` is the body of an async JavaScript function, run in a sandbox with \`console.log\` and \`sevdesk.request(method, path, { query })\`; no other network or file access. \`path\` is relative to the API base (e.g. '/Contact'); the call resolves to the parsed JSON or throws an Error with \`status\`, \`sevdeskMessage\` and \`hint\`. Only GET is enabled so far, at most ${String(DEFAULT_CALL_BUDGET)} calls per run. Find paths and parameters with \`search\` first. Only the return value and console output come back, each cut at ${String(DEFAULT_LIMITS.outputChars)} characters, so return just what you need, e.g.:
+const description = `Call the sevDesk REST API. \`code\` is the body of an async JavaScript function, run in a sandbox with \`console.log\`, \`sevdesk.request(method, path, { query })\` and \`sevdesk.paginate(path, query)\`; no other network or file access. \`path\` is relative to the API base (e.g. '/Contact'); a request resolves to the parsed JSON or throws an Error with \`status\`, \`sevdeskMessage\` and \`hint\`. \`paginate\` resolves to all objects of a list as one array, fetched in pages of ${String(PAGE_SIZE)} (each page is a call). Rate limits (429) and GET server errors (5xx) are retried automatically. Only GET is enabled so far, at most ${String(DEFAULT_CALL_BUDGET)} calls per run. Find paths and parameters with \`search\` first. Only the return value and console output come back, each cut at ${String(DEFAULT_LIMITS.outputChars)} characters, so return just what you need, e.g.:
 const r = await sevdesk.request('GET', '/Contact', { query: { depth: 1, limit: 10 } });
 return r.objects.map((c) => ({ id: c.id, name: c.name }))`;
 
@@ -22,9 +23,10 @@ function errorResult(error: SnippetError): CallToolResult {
 }
 
 /**
- * Registers `execute`: the model's code runs in the sandbox with `sevdesk.request` against the
- * profile's sevDesk account. The bookkeeping system is checked on the first call per profile and
- * remembered for the session (this server instance), never at startup.
+ * Registers `execute`: the model's code runs in the sandbox with `sevdesk.request` and
+ * `sevdesk.paginate` against the profile's sevDesk account. The bookkeeping system is checked on
+ * the first call per profile and remembered for the session (this server instance), never at
+ * startup.
  */
 export function registerExecuteTool(server: McpServer): void {
   const resolved = resolveEnvProfile();
@@ -35,7 +37,7 @@ export function registerExecuteTool(server: McpServer): void {
   function checkAccount(profile: Profile): Promise<SnippetError | undefined> {
     let check = checks.get(profile.name);
     if (check === undefined) {
-      const request = createClient({
+      const { request } = createClient({
         baseUrl: DEFAULT_BASE_URL,
         token: profile.token,
         maxCalls: 1,
@@ -76,12 +78,12 @@ export function registerExecuteTool(server: McpServer): void {
         if (!(error instanceof HostError)) throw error;
         return errorResult(error.error);
       }
-      const request = createClient({
+      const sevdesk = createClient({
         baseUrl: DEFAULT_BASE_URL,
         token: profile.token,
         maxCalls: DEFAULT_CALL_BUDGET,
       });
-      const outcome = await runSnippet(code, {}, DEFAULT_LIMITS, { sevdesk: { request } });
+      const outcome = await runSnippet(code, {}, DEFAULT_LIMITS, { sevdesk });
       return toToolResult(outcome, DEFAULT_LIMITS.outputChars);
     },
   );
