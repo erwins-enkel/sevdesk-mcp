@@ -3,7 +3,7 @@
 // the ref, so a changed upstream spec stops `update-spec` instead of shipping half-resolved.
 // Sibling keys of a `$ref` are dropped, as OpenAPI 3.0's Reference Object prescribes.
 
-type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
 function pointerTarget(document: Json, ref: string): Json {
   if (!ref.startsWith('#/')) throw new Error(`unsupported $ref (only local refs): ${ref}`);

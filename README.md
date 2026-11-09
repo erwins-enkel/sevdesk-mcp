@@ -6,9 +6,10 @@ through just `search` and `execute`: instead of one tool per endpoint, the model
 JavaScript snippets that run in a local sandbox against the sevDesk API ("Code Mode").
 
 > **Status: early development.** The server offers `search` (explore the sevDesk API
-> specification) and a read-only `execute` (GET calls with a token from `SEVDESK_API_TOKEN` or
-> from a profile in the OS keychain, PDFs and exports saved to disk); writing and `setup` are not
-> there yet. Do not use it with a real sevDesk account yet.
+> specification and curated recipes for offers, tax rules, dates and sending) and a read-only
+> `execute` (GET calls with a token from `SEVDESK_API_TOKEN` or from a profile in the OS keychain,
+> PDFs and exports saved to disk); writing and `setup` are not there yet. Do not use it with a real
+> sevDesk account yet.
 
 > Not developed or endorsed by sevDesk. (Nicht von sevDesk entwickelt oder unterstützt.)
 
@@ -102,8 +103,9 @@ foundation decisions in [`docs/decisions/0001-foundation.md`](docs/decisions/000
 ## sevDesk API specification
 
 [`spec/sevdesk-openapi.json`](spec/README.md) is the official sevDesk OpenAPI specification,
-fetched from <https://api.sevdesk.de/openapi.yaml> with all `$ref`s resolved. `search` runs the
-model's code against it. **© sevDesk, not covered by the MIT licence.**
+fetched from <https://api.sevdesk.de/openapi.yaml> with all `$ref`s resolved and known errors
+corrected by [`spec/patches.json`](spec/README.md#corrections). `search` runs the model's code
+against it. **© sevDesk, not covered by the MIT licence.**
 
 ## License
 

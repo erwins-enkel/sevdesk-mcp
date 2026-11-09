@@ -1,0 +1,751 @@
+[
+  {
+    "why": "The factory save bodies list a positions property that does not exist as required (e.g. saveOrder requires 'orderPos', but its positions property is 'orderPosSave'). Evidence: the spec's own properties.",
+    "changes": [
+      {
+        "path": "/components/schemas/saveOrder/required",
+        "from": ["order", "orderPos"],
+        "to": ["order", "orderPosSave"]
+      },
+      {
+        "path": "/components/schemas/saveInvoice/required",
+        "from": ["invoice", "invoicePos"],
+        "to": ["invoice", "invoicePosSave"]
+      },
+      {
+        "path": "/components/schemas/saveVoucher/required",
+        "from": ["voucher", "voucherPos"],
+        "to": ["voucher", "voucherPosSave"]
+      },
+      {
+        "path": "/components/schemas/saveCreditNote/required",
+        "from": ["creditNote", "creditNotePos"],
+        "to": ["creditNote", "creditNotePosSave"]
+      }
+    ]
+  },
+  {
+    "why": "The factory saves answer { objects: { <document>, <positions> } }, as sevDesk wraps its responses, not the bare save response the spec shows. Evidence: the community-maintained spec github.com/j-mastr/sevdesk-api (used by the sevdesk-php-sdk against the live API, changelog entry #28 for saveVoucher).",
+    "changes": [
+      {
+        "path": "/paths/~1Order~1Factory~1saveOrder/post/responses/201/content/application~1json/schema",
+        "from": {
+          "$ref": "#/components/schemas/saveOrderResponse"
+        },
+        "to": {
+          "type": "object",
+          "properties": {
+            "objects": {
+              "$ref": "#/components/schemas/saveOrderResponse"
+            }
+          }
+        }
+      },
+      {
+        "path": "/paths/~1Invoice~1Factory~1saveInvoice/post/responses/201/content/application~1json/schema",
+        "from": {
+          "$ref": "#/components/schemas/saveInvoiceResponse"
+        },
+        "to": {
+          "type": "object",
+          "properties": {
+            "objects": {
+              "$ref": "#/components/schemas/saveInvoiceResponse"
+            }
+          }
+        }
+      },
+      {
+        "path": "/paths/~1Voucher~1Factory~1saveVoucher/post/responses/201/content/application~1json/schema",
+        "from": {
+          "$ref": "#/components/schemas/saveVoucherResponse"
+        },
+        "to": {
+          "type": "object",
+          "properties": {
+            "objects": {
+              "$ref": "#/components/schemas/saveVoucherResponse"
+            }
+          }
+        }
+      },
+      {
+        "path": "/paths/~1CreditNote~1Factory~1saveCreditNote/post/responses/201/content/application~1json/schema",
+        "from": {
+          "$ref": "#/components/schemas/saveCreditNoteResponse"
+        },
+        "to": {
+          "type": "object",
+          "properties": {
+            "objects": {
+              "$ref": "#/components/schemas/saveCreditNoteResponse"
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "why": "sevdesk-mcp supports only bookkeeping system 2.0, yet the document models require fields sevDesk's own descriptions rule out there: taxType ('Use this in sevdesk-Update 1.0 (instead of taxRule)'), the document-level taxRate ('This is not used anymore. Use the taxRate of the individual positions instead.'), addressCountry ('Can be omitted as complete address is defined in address attribute') and, for voucher positions, accountingType (accountDatev: 'Use this in sevdesk-Update 2.0 (replaces accountingType)'). The order model also misses orderType, which the Order docs mark as necessary ('you will need to provide the order type when creating an order').",
+    "changes": [
+      {
+        "path": "/components/schemas/Model_Order/required",
+        "from": [
+          "orderNumber",
+          "orderDate",
+          "contact",
+          "status",
+          "addressCountry",
+          "contactPerson",
+          "taxRate",
+          "taxRule",
+          "taxText",
+          "taxType",
+          "currency",
+          "header",
+          "version",
+          "mapAll"
+        ],
+        "to": [
+          "orderNumber",
+          "orderDate",
+          "contact",
+          "status",
+          "contactPerson",
+          "taxRule",
+          "taxText",
+          "currency",
+          "header",
+          "version",
+          "mapAll",
+          "orderType"
+        ]
+      },
+      {
+        "path": "/components/schemas/Model_Invoice/required",
+        "from": [
+          "invoiceDate",
+          "contact",
+          "discount",
+          "status",
+          "addressCountry",
+          "contactPerson",
+          "taxRate",
+          "taxRule",
+          "taxText",
+          "taxType",
+          "invoiceType",
+          "currency",
+          "mapAll"
+        ],
+        "to": [
+          "invoiceDate",
+          "contact",
+          "discount",
+          "status",
+          "contactPerson",
+          "taxRule",
+          "taxText",
+          "invoiceType",
+          "currency",
+          "mapAll"
+        ]
+      },
+      {
+        "path": "/components/schemas/Model_creditNote/required",
+        "from": [
+          "creditNoteNumber",
+          "creditNoteDate",
+          "contact",
+          "status",
+          "deliveryDate",
+          "addressCountry",
+          "contactPerson",
+          "taxRate",
+          "taxRule",
+          "taxText",
+          "taxType",
+          "bookingCategory",
+          "invoiceType",
+          "currency",
+          "header",
+          "mapAll",
+          "objectName"
+        ],
+        "to": [
+          "creditNoteNumber",
+          "creditNoteDate",
+          "contact",
+          "status",
+          "deliveryDate",
+          "contactPerson",
+          "taxRule",
+          "taxText",
+          "bookingCategory",
+          "invoiceType",
+          "currency",
+          "header",
+          "mapAll",
+          "objectName"
+        ]
+      },
+      {
+        "path": "/components/schemas/Model_Voucher/required",
+        "from": [
+          "creditDebit",
+          "taxType",
+          "taxRule",
+          "status",
+          "voucherType",
+          "mapAll",
+          "objectName"
+        ],
+        "to": ["creditDebit", "taxRule", "status", "voucherType", "mapAll", "objectName"]
+      },
+      {
+        "path": "/components/schemas/Model_VoucherPos/required",
+        "from": [
+          "accountDatev",
+          "accountingType",
+          "voucher",
+          "taxRate",
+          "sumGross",
+          "sumNet",
+          "net",
+          "mapAll",
+          "objectName"
+        ],
+        "to": [
+          "accountDatev",
+          "voucher",
+          "taxRate",
+          "sumGross",
+          "sumNet",
+          "net",
+          "mapAll",
+          "objectName"
+        ]
+      }
+    ]
+  },
+  {
+    "why": "getPdf answers { objects: { filename, mimeType, base64encoded, content } } with content as base64 text, not the bare object with binary content the spec shows. Evidence: github.com/j-mastr/sevdesk-php-sdk/issues/70 ('the actual response nests them under an objects key'), github.com/j-mastr/sevdesk-api changelog #66; the response's own base64encoded flag.",
+    "changes": [
+      {
+        "path": "/paths/~1Order~1{orderId}~1getPdf/get/responses/200/content/application~1json/schema",
+        "from": {
+          "properties": {
+            "filename": {
+              "type": "string",
+              "example": "OR-1001.pdf"
+            },
+            "mimeType": {
+              "type": "string",
+              "example": "application/pdf"
+            },
+            "base64encoded": {
+              "type": "boolean",
+              "example": true
+            },
+            "content": {
+              "type": "string",
+              "format": "binary"
+            }
+          },
+          "type": "object"
+        },
+        "to": {
+          "type": "object",
+          "properties": {
+            "objects": {
+              "properties": {
+                "filename": {
+                  "type": "string",
+                  "example": "OR-1001.pdf"
+                },
+                "mimeType": {
+                  "type": "string",
+                  "example": "application/pdf"
+                },
+                "base64encoded": {
+                  "type": "boolean",
+                  "example": true
+                },
+                "content": {
+                  "description": "The PDF, base64-encoded",
+                  "type": "string",
+                  "format": "byte"
+                }
+              },
+              "type": "object"
+            }
+          }
+        }
+      },
+      {
+        "path": "/paths/~1Invoice~1{invoiceId}~1getPdf/get/responses/200/content/application~1json/schema",
+        "from": {
+          "properties": {
+            "filename": {
+              "type": "string",
+              "example": "RE-101.pdf"
+            },
+            "mimeType": {
+              "type": "string",
+              "example": "application/pdf"
+            },
+            "base64encoded": {
+              "type": "boolean",
+              "example": true
+            },
+            "content": {
+              "type": "string",
+              "format": "binary"
+            }
+          },
+          "type": "object"
+        },
+        "to": {
+          "type": "object",
+          "properties": {
+            "objects": {
+              "properties": {
+                "filename": {
+                  "type": "string",
+                  "example": "RE-101.pdf"
+                },
+                "mimeType": {
+                  "type": "string",
+                  "example": "application/pdf"
+                },
+                "base64encoded": {
+                  "type": "boolean",
+                  "example": true
+                },
+                "content": {
+                  "description": "The PDF, base64-encoded",
+                  "type": "string",
+                  "format": "byte"
+                }
+              },
+              "type": "object"
+            }
+          }
+        }
+      },
+      {
+        "path": "/paths/~1CreditNote~1{creditNoteId}~1getPdf/get/responses/200/content/application~1json/schema",
+        "from": {
+          "properties": {
+            "filename": {
+              "type": "string",
+              "example": "GU-1001.pdf"
+            },
+            "mimeType": {
+              "type": "string",
+              "example": "application/pdf"
+            },
+            "base64encoded": {
+              "type": "boolean",
+              "example": true
+            },
+            "content": {
+              "type": "string",
+              "format": "binary"
+            }
+          },
+          "type": "object"
+        },
+        "to": {
+          "type": "object",
+          "properties": {
+            "objects": {
+              "properties": {
+                "filename": {
+                  "type": "string",
+                  "example": "GU-1001.pdf"
+                },
+                "mimeType": {
+                  "type": "string",
+                  "example": "application/pdf"
+                },
+                "base64encoded": {
+                  "type": "boolean",
+                  "example": true
+                },
+                "content": {
+                  "description": "The PDF, base64-encoded",
+                  "type": "string",
+                  "format": "byte"
+                }
+              },
+              "type": "object"
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "why": "List filters that sevDesk's docs ('How to filter for certain contacts' / '… orders' in the Contact and Order tag descriptions) document but the operations do not declare: name on GET /Contact, orderType on GET /Order.",
+    "changes": [
+      {
+        "path": "/paths/~1Contact/get/parameters/2",
+        "to": {
+          "name": "name",
+          "in": "query",
+          "description": "Retrieve all contacts with this name as name, surename or familyname",
+          "required": false,
+          "explode": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "path": "/paths/~1Order/get/parameters/6",
+        "to": {
+          "name": "orderType",
+          "in": "query",
+          "description": "Retrieve all orders of this type: AN (estimate / proposal), AB (order confirmation), LI (delivery note)",
+          "required": false,
+          "explode": true,
+          "schema": {
+            "type": "string",
+            "enum": ["AN", "AB", "LI"]
+          }
+        }
+      }
+    ]
+  },
+  {
+    "why": "Read endpoints that sevDesk's docs reference or that required fields depend on, missing from the spec: GET /StaticCountry, GET /Category and GET /SevSequence/Factory/getByType are named in the spec's own descriptions; contactPerson needs a SevUser and positions a Unity. Evidence they exist in the live API: Pipedream's sevDesk app (GET /SevUser, GET /StaticCountry), chift.eu's sevDesk integration notes (StaticCountry, SevSequence/Factory/getByType) and github.com/j-mastr/sevdesk-api (Category, SevSequence, SevUser, Unity).",
+    "changes": [
+      {
+        "path": "/paths/~1SevUser",
+        "to": {
+          "get": {
+            "tags": ["Basics"],
+            "summary": "Retrieve users",
+            "description": "Returns the users of the sevdesk account. The contactPerson of an order, invoice or credit note is one of them: { \"id\": <id>, \"objectName\": \"SevUser\" }.",
+            "operationId": "getSevUsers",
+            "responses": {
+              "200": {
+                "description": "Successful operation",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "objects": {
+                          "description": "The users",
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "objectName": {
+                                "type": "string",
+                                "example": "SevUser"
+                              },
+                              "username": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "401": {
+                "description": "Authentication required"
+              }
+            },
+            "security": [
+              {
+                "api_key": []
+              }
+            ]
+          }
+        }
+      },
+      {
+        "path": "/paths/~1StaticCountry",
+        "to": {
+          "get": {
+            "tags": ["Basics"],
+            "summary": "Retrieve countries",
+            "description": "Returns the countries sevdesk knows. A country is referenced as { \"id\": <id>, \"objectName\": \"StaticCountry\" }, e.g. the country of a contact address or an order's addressCountry.",
+            "operationId": "getStaticCountries",
+            "responses": {
+              "200": {
+                "description": "Successful operation",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "objects": {
+                          "description": "The countries",
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "objectName": {
+                                "type": "string",
+                                "example": "StaticCountry"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "401": {
+                "description": "Authentication required"
+              }
+            },
+            "security": [
+              {
+                "api_key": []
+              }
+            ]
+          }
+        }
+      },
+      {
+        "path": "/paths/~1Category",
+        "to": {
+          "get": {
+            "tags": ["Basics"],
+            "summary": "Retrieve categories",
+            "description": "Returns categories, referenced as { \"id\": <id>, \"objectName\": \"Category\" }. Contact categories (Contact docs): Supplier 2, Customer 3, Partner 4, Prospect Customer 28. Contact address categories: objectType=ContactAddress.",
+            "operationId": "getCategories",
+            "parameters": [
+              {
+                "name": "objectType",
+                "in": "query",
+                "description": "Only retrieve categories for this object type, e.g. Contact or ContactAddress",
+                "required": false,
+                "explode": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful operation",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "objects": {
+                          "description": "The categories",
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "objectName": {
+                                "type": "string",
+                                "example": "Category"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "401": {
+                "description": "Authentication required"
+              }
+            },
+            "security": [
+              {
+                "api_key": []
+              }
+            ]
+          }
+        }
+      },
+      {
+        "path": "/paths/~1Unity",
+        "to": {
+          "get": {
+            "tags": ["Basics"],
+            "summary": "Retrieve units",
+            "description": "Returns the units of positions and parts, the predefined ones and those created in the account. A position's unity is { \"id\": <id>, \"objectName\": \"Unity\" }.",
+            "operationId": "getUnities",
+            "responses": {
+              "200": {
+                "description": "Successful operation",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "objects": {
+                          "description": "The units",
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "objectName": {
+                                "type": "string",
+                                "example": "Unity"
+                              },
+                              "name": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "401": {
+                "description": "Authentication required"
+              }
+            },
+            "security": [
+              {
+                "api_key": []
+              }
+            ]
+          }
+        }
+      },
+      {
+        "path": "/paths/~1SevSequence~1Factory~1getByType",
+        "to": {
+          "get": {
+            "tags": ["Basics"],
+            "summary": "Retrieve the number sequence of a document type",
+            "description": "Returns the number sequence sevdesk uses for a document type: its format and the next number, e.g. for the orderNumber of a new offer (objectType=Order, type=AN) or the invoiceNumber of a new invoice (objectType=Invoice, type=RE).",
+            "operationId": "getSevSequenceByType",
+            "parameters": [
+              {
+                "name": "objectType",
+                "in": "query",
+                "description": "Object type, e.g. Order, Invoice or CreditNote",
+                "required": true,
+                "explode": true,
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "type",
+                "in": "query",
+                "description": "Document type, e.g. AN (offer), RE (invoice) or CN (credit note)",
+                "required": false,
+                "explode": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "responses": {
+              "200": {
+                "description": "Successful operation",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "objects": {
+                          "type": "object",
+                          "properties": {
+                            "format": {
+                              "description": "Number format; %NUMBER stands for nextSequence",
+                              "type": "string",
+                              "example": "AN-%NUMBER"
+                            },
+                            "nextSequence": {
+                              "description": "The next number of the sequence",
+                              "type": "integer",
+                              "example": 1042
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "401": {
+                "description": "Authentication required"
+              }
+            },
+            "security": [
+              {
+                "api_key": []
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  {
+    "why": "uploadTempFile declares its request body as 'form-data', which is not a media type; a file upload is multipart/form-data (RFC 7578).",
+    "changes": [
+      {
+        "path": "/paths/~1Voucher~1Factory~1uploadTempFile/post/requestBody/content/form-data",
+        "from": {
+          "schema": {
+            "properties": {
+              "file": {
+                "description": "The file to upload",
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "type": "object"
+          }
+        }
+      },
+      {
+        "path": "/paths/~1Voucher~1Factory~1uploadTempFile/post/requestBody/content/multipart~1form-data",
+        "to": {
+          "schema": {
+            "properties": {
+              "file": {
+                "description": "The file to upload",
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    ]
+  }
+]

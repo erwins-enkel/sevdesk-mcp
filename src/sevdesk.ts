@@ -378,7 +378,8 @@ function documentNumber(response: unknown, field: string): string | undefined {
 
 /**
  * The PDF of a getPdf response: its base64 `content` (with `base64encoded: true`), under `objects`
- * as sevDesk wraps its responses, or at the top level as the spec documents it. Anything else fails.
+ * as sevDesk wraps its responses, or at the top level as the official spec documents it. Anything
+ * else fails.
  */
 function pdfBytes({ method, path }: Call, response: unknown): Buffer {
   const file = isRecord(response) && isRecord(response.objects) ? response.objects : response;
