@@ -109,8 +109,14 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - `test/`: vitest; `test/budget.test.ts` is the 1,500-token gate for instructions and tool
   descriptions. `test/mock-sevdesk.ts` starts a mock sevDesk on port 0 with per-test routes
   (JSON, text or raw bytes), records each request with its body, and stubs the global `fetch` to
-  send calls for the real HTTPS base URL there (any other URL throws), so the code under test keeps
-  its HTTPS rule and tests never reach sevDesk. `test/setup.ts` (vitest `setupFiles`) gives every test a fresh `mkdtemp` home
+  send calls for the real HTTPS base URL there (any other URL throws, `test/redirect-fetch.ts`), so
+  the code under test keeps its HTTPS rule and tests never reach sevDesk. The mock follows the
+  embedded spec (PRD §8): a route that is no spec operation fails its start, and a request that is
+  none answers 404 without reaching a route; the one exception is the undocumented
+  `GET /SevClient`. A spawned server reaches the mock with `node --import <serverImport>`.
+  `test/priority-a.test.ts` drives PRD §4 Priority A over stdio with the guides' templates as
+  `search` returns them, and checks after each test that no send or delete reached the mock
+  outside an accepted `confirm`. `test/setup.ts` (vitest `setupFiles`) gives every test a fresh `mkdtemp` home
   and points `HOME`, `USERPROFILE`, `XDG_*` and `APPDATA`/`LOCALAPPDATA` there, so in-process and
   spawned servers never touch the real local directories or `~/Downloads`; it also unsets
   `SEVDESK_API_TOKEN` and mocks `@napi-rs/keyring` with the in-memory `test/fake-keychain.ts`

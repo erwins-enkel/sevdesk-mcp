@@ -157,42 +157,42 @@ test('settled resolves to the audit failure of a sent write that nobody awaited'
 });
 
 test('a 429 is retried for any method and the call succeeds on a later attempt', async () => {
-  const methods = ['GET', 'POST', 'PUT', 'DELETE'];
+  const sent = ['GET /Contact', 'POST /Contact', 'PUT /Contact/1', 'DELETE /Contact/1'];
   const sevdesk = await mock(
-    Object.fromEntries(
-      methods.map((method) => [`${method} /Contact`, answers(tooMany, { json: contacts })]),
-    ),
+    Object.fromEntries(sent.map((call) => [call, answers(tooMany, { json: contacts })])),
   );
 
   const results: unknown[] = [];
-  for (const method of methods) results.push(await sendTo(method, '/Contact'));
+  for (const [method = '', path = ''] of sent.map((call) => call.split(' '))) {
+    results.push(await sendTo(method, path));
+  }
 
-  expect(results).toEqual(methods.map(() => contacts));
-  expect(calls(sevdesk.requests)).toEqual(
-    methods.flatMap((method) => [`${method} /Contact`, `${method} /Contact`]),
-  );
+  expect(results).toEqual(sent.map(() => contacts));
+  expect(calls(sevdesk.requests)).toEqual(sent.flatMap((call) => [call, call]));
 });
 
-test('POST, PUT, PATCH and DELETE are never retried on 5xx, and no method on another 4xx', async () => {
-  const writes = ['POST', 'PUT', 'PATCH', 'DELETE'];
+test('POST, PUT and DELETE are never retried on 5xx, and no method on another 4xx', async () => {
+  const failing = ['POST /Contact', 'PUT /Contact/1', 'DELETE /Contact/1'];
   const sevdesk = await mock({
-    ...Object.fromEntries(writes.map((method) => [`${method} /Contact`, () => unavailable])),
-    'POST /Invoice': () => ({ status: 500, json: { objects: null } }),
+    ...Object.fromEntries(failing.map((call) => [call, () => unavailable])),
+    'POST /Invoice/Factory/saveInvoice': () => ({ status: 500, json: { objects: null } }),
   });
-  const sent = [...writes.map((method) => [method, '/Contact']), ['POST', '/Invoice']];
-
-  const statuses: (number | undefined)[] = [];
-  for (const [method = '', path = ''] of sent) {
-    statuses.push((await errorOf(sendTo(method, path))).status);
-  }
-  const missing = await errorOf(sendTo('GET', '/Missing'));
-
-  expect(statuses).toEqual([503, 503, 503, 503, 500]);
-  expect(missing).toMatchObject({ kind: 'api_error', status: 404 });
-  expect(calls(sevdesk.requests)).toEqual([
-    ...sent.map(([method, path]) => `${String(method)} ${String(path)}`),
+  // PATCH and /Missing are not in the spec, so the mock answers them 404.
+  const sent = [
+    ...failing,
+    'POST /Invoice/Factory/saveInvoice',
+    'PATCH /Contact/1',
     'GET /Missing',
-  ]);
+  ];
+
+  const errors: SnippetError[] = [];
+  for (const [method = '', path = ''] of sent.map((call) => call.split(' '))) {
+    errors.push(await errorOf(sendTo(method, path)));
+  }
+
+  expect(errors.map(({ status }) => status)).toEqual([503, 503, 503, 500, 404, 404]);
+  expect(errors.every(({ kind }) => kind === 'api_error')).toBe(true);
+  expect(calls(sevdesk.requests)).toEqual(sent);
 });
 
 test('a GET is retried on 5xx until it succeeds, at most `retries` times with doubling waits', async () => {
