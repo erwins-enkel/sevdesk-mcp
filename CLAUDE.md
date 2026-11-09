@@ -147,6 +147,25 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
     the `.mcpb`; the MCP Registry entry comes with 1.0. The sevDesk spec ships with attribution
     ("© sevDesk, not MIT"); verify sevDesk's terms before the first publish.
 
+## How work flows here
+
+> Tooling guardrails (lint/types/tests/CI): see Shepherd's Readiness tab.
+
+- **Unit of work:** GitHub issues, grouped into epics. One issue is one PR.
+- **Vertical slice:** a capability reachable through an MCP tool (`search`, `execute`) or the
+  `sevdesk-mcp` CLI. It lands together with the building blocks it needs and a test that
+  drives it end to end: over `InMemoryTransport` or the stdio entry, against a mock sevDesk
+  server on port `0`, with per-test `mkdtemp` directories (foundation decision 7). Example
+  seam: `savePdf` is one PR with the sandbox host function, the sevDesk client call, the
+  download directory and a tool-level `execute` test.
+- **No stubs:** a building block (sevDesk client, classifier, token store, audit writer)
+  lands with the first slice that uses it. `audit:dead` (fallow) fails on unused files and
+  exports, so a building block without a consumer does not pass the gate.
+- **Done:** `bun run verify` is green; see `## Verify`.
+- **German copy:** the operator does not review German CLI text in PRs and reports problems
+  afterwards. The implementing agent still keeps `en.json` and `de.json` in step and follows
+  the copy rules (product decision 11; 0002 decision 27).
+
 ## Verify
 
 ```sh
