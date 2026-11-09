@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { posix, win32 } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 
 /** The local directories (decision 13), each already ending in the app's own folder. */
 export interface LocalDirs {
@@ -41,4 +41,13 @@ export function localDirs(
   const config = absolute(process.env.XDG_CONFIG_HOME, posix) ?? posix.join(home, '.config');
   const state = absolute(process.env.XDG_STATE_HOME, posix) ?? posix.join(home, '.local', 'state');
   return { config: posix.join(config, APP), state: posix.join(state, APP) };
+}
+
+/**
+ * The default download directory of `profile` (decision 14): `~/Downloads/sevdesk/<profile>`, where
+ * `savePdf` and the non-JSON responses of `sevdesk.request` land unless the profile configures its
+ * own `downloadDir`. Tests redirect the home directory (`test/setup.ts`).
+ */
+export function defaultDownloadDir(profile: string, home = homedir()): string {
+  return join(home, 'Downloads', 'sevdesk', profile);
 }

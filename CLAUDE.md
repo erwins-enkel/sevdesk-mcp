@@ -10,8 +10,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - Product decisions and their rationale: `docs/decisions/0002-product-decisions.md`.
 - Status: early development. `search` runs in the QuickJS sandbox; `execute` reads sevDesk
   (GET only) with the profile from `SEVDESK_API_TOKEN` or a config-file profile whose token is in
-  the OS keychain; both use the limits and base URL of the optional config file. Every other
-  feature (writes, confirmation flow, audit log, setup) arrives as a backlog slice.
+  the OS keychain, and saves PDFs (`savePdf`) and non-JSON responses in the profile's download
+  directory; both use the limits and base URL of the optional config file. Every other feature
+  (writes, confirmation flow, audit log, setup) arrives as a backlog slice.
 
 ## Orientation
 
@@ -23,7 +24,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - `src/server.ts`: `createServer({ pinnedProfile })`, the single place where MCP tools and the
   MCP `instructions` get registered; it reads the config file once per server.
 - `src/paths.ts`: `localDirs()`, the OS-standard config and data/state directories (XDG on
-  Linux, `~/Library/Application Support` on macOS, `%APPDATA%`/`%LOCALAPPDATA%` on Windows).
+  Linux, `~/Library/Application Support` on macOS, `%APPDATA%`/`%LOCALAPPDATA%` on Windows), and
+  `defaultDownloadDir()`, `~/Downloads/sevdesk/<profile>` unless the profile sets `downloadDir`.
   `src/config.ts`: `loadConfig()` reads `config.json` there (`baseUrl`, `limits`, `profiles`
   without tokens; documented in the README). No file means `DEFAULT_CONFIG`; an unreadable or
   invalid file is an `invalid_config` error that both tools return instead of running. A new
@@ -36,10 +38,14 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   envelope (`result`, `error`, `console`, `notes`; results over the output limit, by default
   20,000 characters, are cut). `src/search.ts`: the `search` tool.
 - `src/execute.ts`: the `execute` tool (bookkeeping-system check per profile and session).
-  `src/sevdesk.ts`: `createClient()`, the host side of `sevdesk.request` and `sevdesk.paginate`
-  (HTTPS base URL, relative paths only, token added host-side, shared call budget, pages of
-  1,000, fail-closed rules, structured errors); `send()` retries per decision 10 (`retry: false`
-  sends once, for confirmed calls). `src/profile.ts`: tenant resolution (decision 1):
+  `src/sevdesk.ts`: `createClient()`, the host side of `sevdesk.request`, `sevdesk.paginate` and
+  `sevdesk.savePdf` (HTTPS base URL, relative paths only, token added host-side, shared call
+  budget, pages of 1,000, fail-closed rules, structured errors; `request` saves a non-JSON
+  response, `savePdf` the PDF of a `PDF_TYPES` document with `preventSendBy=true`); `send()`
+  resolves to the 2xx response and retries per decision 10 (`retry: false` sends once, for
+  confirmed calls). `src/downloads.ts`: `fileStem()` (a file name that cannot leave its
+  directory) and `saveFile()` (temp file, then rename; replace or next free name;
+  `download_error`). `src/profile.ts`: tenant resolution (decision 1):
   `reachableProfiles()` (env profile or config profiles, narrowed by `--profile`) and
   `selectProfile()` (`account`, else the only one, else `account_required`). `src/keychain.ts`:
   `readToken()`, a profile's token from the OS keychain via `@napi-rs/keyring` (service
@@ -50,14 +56,14 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - `src/i18n/`: human-facing CLI messages. `en.json` is the reference catalog, `de.json`
   mirrors it, `index.ts` exposes `resolveLocale()` and `t()`.
 - `test/`: vitest; `test/budget.test.ts` is the 1,500-token gate for instructions and tool
-  descriptions. `test/mock-sevdesk.ts` starts a mock sevDesk on port 0 with per-test routes and
-  stubs the global `fetch` to send calls for the real HTTPS base URL there (any other URL
-  throws), so the code under test keeps its HTTPS rule and tests never reach sevDesk.
-  `test/setup.ts` (vitest `setupFiles`) gives every test a fresh `mkdtemp` home and points
-  `HOME`, `USERPROFILE`, `XDG_*` and `APPDATA`/`LOCALAPPDATA` there, so in-process and spawned
-  servers never touch the real local directories; it also unsets `SEVDESK_API_TOKEN` and
-  mocks `@napi-rs/keyring` with the in-memory `test/fake-keychain.ts` (seed `tokens`, assert
-  `accesses`). Spawned servers use the real keychain, so they must never read a token.
+  descriptions. `test/mock-sevdesk.ts` starts a mock sevDesk on port 0 with per-test routes
+  (JSON, text or raw bytes) and stubs the global `fetch` to send calls for the real HTTPS base
+  URL there (any other URL throws), so the code under test keeps its HTTPS rule and tests never
+  reach sevDesk. `test/setup.ts` (vitest `setupFiles`) gives every test a fresh `mkdtemp` home
+  and points `HOME`, `USERPROFILE`, `XDG_*` and `APPDATA`/`LOCALAPPDATA` there, so in-process and
+  spawned servers never touch the real local directories or `~/Downloads`; it also unsets
+  `SEVDESK_API_TOKEN` and mocks `@napi-rs/keyring` with the in-memory `test/fake-keychain.ts`
+  (seed `tokens`, assert `accesses`). Spawned servers use the real keychain, so they must never read a token.
   `test/config-file.ts` writes a config file into the temporary home.
   `scripts/`: the i18n drift gate, the pinned actionlint runner and `update-spec`.
 - While serving, stdout belongs to the MCP protocol: log to stderr only.

@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises';
+import { binaryFileName, fileStem, saveFile } from './downloads.ts';
 import { HostError, type HostFunction, type SnippetError } from './sandbox.ts';
 
 /** sevDesk's API base (PRD §5.6). It must be HTTPS so the token never travels in clear text. */
@@ -12,6 +13,20 @@ export const DEFAULT_CALL_BUDGET = 50;
  * the fewest calls of the budget.
  */
 export const PAGE_SIZE = 1000;
+
+/**
+ * The document types `sevdesk.savePdf` saves (those with a `getPdf` endpoint), each with the field
+ * that holds its document number, the name of the saved file (decision 14).
+ */
+export const PDF_TYPES = {
+  Order: 'orderNumber',
+  Invoice: 'invoiceNumber',
+  CreditNote: 'creditNoteNumber',
+} as const;
+type PdfType = keyof typeof PDF_TYPES;
+
+// A document id as `savePdf` takes it: a positive integer.
+const DOCUMENT_ID = /^[1-9]\d*$/;
 
 // A path relative to the base: segments of letters, digits, `-` and `_`. sevDesk's paths use only
 // letters and numeric ids, so this rejects absolute and protocol-relative URLs, other hosts, dot
@@ -67,6 +82,8 @@ interface ClientOptions {
   token: string;
   /** Calls sent beyond this many end the run. */
   maxCalls: number;
+  /** The profile's download directory: PDFs and non-JSON responses are saved there. */
+  downloadDir: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -262,16 +279,20 @@ async function fetchOnce({ method, path, url }: Call, token: string, signal: Abo
 }
 
 /**
- * Sends a validated call with the token and returns the parsed JSON response. A 429, or a 5xx on a
- * GET, is sent again after a wait, as `retry` allows (decision 10); `retry: false` sends the call
- * exactly once, as a confirmed call must be. If `signal` aborts while waiting to retry, the call
- * fails with the last response's error.
+ * Sends a validated call with the token and resolves to its 2xx response, whose body the caller
+ * reads; any other status fails with the structured API error. A 429, or a 5xx on a GET, is sent
+ * again after a wait, as `retry` allows (decision 10); `retry: false` sends the call exactly once,
+ * as a confirmed call must be. If `signal` aborts while waiting to retry, the call fails with the
+ * last response's error.
  */
-export async function send(call: Call, { token, signal, retry }: SendOptions): Promise<unknown> {
+export async function send(call: Call, { token, signal, retry }: SendOptions): Promise<Response> {
   for (let retries = 0; ; retries += 1) {
     const response = await fetchOnce(call, token, signal);
     const delay = retryDelay(call, response, retries, retry);
-    if (delay === undefined) return readJson(call, response);
+    if (delay === undefined) {
+      if (!response.ok) throw await apiError(call, response);
+      return response;
+    }
     const error = await apiError(call, response);
     try {
       await sleep(delay, undefined, { signal });
@@ -281,18 +302,25 @@ export async function send(call: Call, { token, signal, retry }: SendOptions): P
   }
 }
 
-/** The parsed JSON of a response; a non-2xx status, a non-JSON body or invalid JSON fails. */
+/** The response's content type, or an empty string without one. */
+function contentTypeOf(response: Response): string {
+  return response.headers.get('content-type') ?? '';
+}
+
+/** The parsed JSON of a 2xx response; a non-JSON body or invalid JSON fails. */
 async function readJson(call: Call, response: Response): Promise<unknown> {
   const { method, path } = call;
-  if (!response.ok) throw await apiError(call, response);
-  const contentType = response.headers.get('content-type') ?? '';
+  const contentType = contentTypeOf(response);
   if (!JSON_CONTENT_TYPE.test(contentType)) {
     await response.body?.cancel();
-    throw notEnabled(
-      `${method} ${path} returned ${contentType || 'no content type'}, not JSON; non-JSON responses are not enabled yet.`,
+    throw new HostError({
+      kind: 'api_error',
+      message: `${method} ${path} returned ${contentType || 'no content type'}, not JSON.`,
+      status: response.status,
       method,
       path,
-    );
+      hint: 'sevdesk.request saves a non-JSON response as a file.',
+    });
   }
   try {
     return await response.json();
@@ -305,6 +333,65 @@ async function readJson(call: Call, response: Response): Promise<unknown> {
       path,
     });
   }
+}
+
+/**
+ * What `sevdesk.request` resolves to: the parsed JSON of a JSON response. Any other response is
+ * saved as a new file in `downloadDir` (decision 15), and only `{ path, contentType, bytes }` comes
+ * back, never its content.
+ */
+async function readBody(
+  call: Call,
+  response: Response,
+  downloadDir: string,
+  signal: AbortSignal,
+): Promise<unknown> {
+  if (JSON_CONTENT_TYPE.test(contentTypeOf(response))) return readJson(call, response);
+  // Without a content type a recipient may assume application/octet-stream (RFC 9110, 8.3).
+  const contentType = contentTypeOf(response) || 'application/octet-stream';
+  const name = binaryFileName(call.path, contentType);
+  const body = response.body ?? new Uint8Array();
+  const { path, bytes } = await saveFile(downloadDir, name, body, { replace: false, signal });
+  return { path, contentType, bytes };
+}
+
+/** The `(type, id)` of `sevdesk.savePdf`: a type of `PDF_TYPES` and a positive integer id. */
+function pdfArguments([type, id, ...rest]: unknown[]): { type: PdfType; id: string } {
+  if (typeof type !== 'string' || !Object.hasOwn(PDF_TYPES, type)) {
+    throw invalidRequest(`type must be one of ${Object.keys(PDF_TYPES).join(', ')}.`);
+  }
+  const text = typeof id === 'number' && Number.isSafeInteger(id) ? String(id) : id;
+  if (typeof text !== 'string' || !DOCUMENT_ID.test(text)) {
+    throw invalidRequest('id must be the positive integer id of the document, e.g. 123.');
+  }
+  if (rest.length > 0) throw invalidRequest('sevdesk.savePdf takes only (type, id).');
+  return { type: type as PdfType, id: text };
+}
+
+/** The document number in the response of `GET /{Type}/{id}`, if it has one. */
+function documentNumber(response: unknown, field: string): string | undefined {
+  const objects = isRecord(response) ? response.objects : undefined;
+  const document: unknown = Array.isArray(objects) ? objects[0] : undefined;
+  const number = isRecord(document) ? document[field] : undefined;
+  return typeof number === 'string' ? number : undefined;
+}
+
+/**
+ * The PDF of a getPdf response: its base64 `content` (with `base64encoded: true`), under `objects`
+ * as sevDesk wraps its responses, or at the top level as the spec documents it. Anything else fails.
+ */
+function pdfBytes({ method, path }: Call, response: unknown): Buffer {
+  const file = isRecord(response) && isRecord(response.objects) ? response.objects : response;
+  if (isRecord(file) && file.base64encoded === true && typeof file.content === 'string') {
+    const bytes = Buffer.from(file.content, 'base64');
+    if (bytes.length > 0) return bytes;
+  }
+  throw new HostError({
+    kind: 'api_error',
+    message: `${method} ${path} returned no base64-encoded PDF content.`,
+    method,
+    path,
+  });
 }
 
 /**
@@ -343,6 +430,16 @@ function listObjects(call: Call, response: unknown): unknown[] {
   );
 }
 
+/** Fails unless `baseUrl` uses HTTPS, so the token never travels in clear text. */
+function requireHttps(baseUrl: string): void {
+  if (new URL(baseUrl).protocol !== 'https:') {
+    throw new HostError({
+      kind: 'invalid_base_url',
+      message: `The sevDesk base URL must use HTTPS: ${baseUrl}`,
+    });
+  }
+}
+
 /** The error that ends a run over its call budget; `stopped` says what was left undone. */
 function budgetError(maxCalls: number, stopped: string, hint: string): HostError {
   return new HostError(
@@ -356,37 +453,38 @@ function budgetError(maxCalls: number, stopped: string, hint: string): HostError
 }
 
 /**
- * Creates `sevdesk.request` and `sevdesk.paginate` for one run. `request` validates a call and
- * returns the parsed JSON; `paginate` collects every object of a list, page by page, into one
- * array. Between them they send at most `maxCalls` calls (each page is one, a retry is not) to
- * `baseUrl` with the token added here (never visible to the code), retried as decision 10 allows.
- * Writes, irreversible reads and non-JSON responses fail closed until the confirmation gate and
- * file downloads exist. The call over `maxCalls` is not sent and ends the run, so `paginate`
- * never returns a partial list.
+ * Creates `sevdesk.request`, `sevdesk.paginate` and `sevdesk.savePdf` for one run. `request`
+ * validates a call and returns the parsed JSON, or saves a non-JSON response in `downloadDir` and
+ * returns where; `paginate` collects every object of a list, page by page, into one array;
+ * `savePdf` saves a document's PDF in `downloadDir`. Between them they send at most `maxCalls`
+ * calls (each page is one, `savePdf` costs two, a retry none) to `baseUrl` with the token added here
+ * (never visible to the code), retried as decision 10 allows. Writes and irreversible reads fail
+ * closed until the confirmation gate exists. The call over `maxCalls` is not sent and ends the run,
+ * so `paginate` never returns a partial list.
  */
-export function createClient({ baseUrl, token, maxCalls }: ClientOptions): {
+export function createClient({ baseUrl, token, maxCalls, downloadDir }: ClientOptions): {
   request: HostFunction;
   paginate: HostFunction;
+  savePdf: HostFunction;
 } {
-  if (new URL(baseUrl).protocol !== 'https:') {
-    throw new HostError({
-      kind: 'invalid_base_url',
-      message: `The sevDesk base URL must use HTTPS: ${baseUrl}`,
-    });
-  }
+  requireHttps(baseUrl);
   let sent = 0;
   const withinBudget = () => (sent += 1) <= maxCalls;
 
-  const request: HostFunction = (args, signal) => {
-    const call = prepare(baseUrl, args);
+  /** Sends `call` within the budget; the call over it is not sent and ends the run with `hint`. */
+  const sendCounted = (call: Call, signal: AbortSignal, hint: string): Promise<Response> => {
     if (!withinBudget()) {
-      throw budgetError(
-        maxCalls,
-        `${call.method} ${call.path} was not sent.`,
-        'Fetch fewer, larger pages, or filter with query parameters.',
-      );
+      throw budgetError(maxCalls, `${call.method} ${call.path} was not sent.`, hint);
     }
     return send(call, { token, signal, retry: DEFAULT_RETRY });
+  };
+
+  const request: HostFunction = (args, signal) => {
+    const call = prepare(baseUrl, args);
+    const hint = 'Fetch fewer, larger pages, or filter with query parameters.';
+    return sendCounted(call, signal, hint).then((response) =>
+      readBody(call, response, downloadDir, signal),
+    );
   };
 
   const paginate: HostFunction = async (args, signal) => {
@@ -401,7 +499,8 @@ export function createClient({ baseUrl, token, maxCalls }: ClientOptions): {
         );
       }
       const page = pageCall(call, objects.length);
-      const items = listObjects(call, await send(page, { token, signal, retry: DEFAULT_RETRY }));
+      const response = await send(page, { token, signal, retry: DEFAULT_RETRY });
+      const items = listObjects(call, await readJson(page, response));
       // Only an empty page ends the list: should sevDesk cap a page below PAGE_SIZE, a short
       // page is not the last one.
       if (items.length === 0) return objects;
@@ -409,19 +508,46 @@ export function createClient({ baseUrl, token, maxCalls }: ClientOptions): {
     }
   };
 
-  return { request, paginate };
+  // The document's number names the file, so it is fetched first; an unknown id fails there. The
+  // PDF is fetched with preventSendBy=true, so sevDesk never marks the document as sent (decision 7).
+  const savePdf: HostFunction = (args, signal) => {
+    const { type, id } = pdfArguments(args);
+    const document = prepare(baseUrl, ['GET', `/${type}/${id}`]);
+    const pdf = prepare(baseUrl, [
+      'GET',
+      `/${type}/${id}/getPdf`,
+      { query: { preventSendBy: true } },
+    ]);
+    const hint = 'Save fewer PDFs per run: each costs 2 calls.';
+    const fetched = sendCounted(document, signal, hint).then((response) =>
+      readJson(document, response),
+    );
+    return fetched.then(async (fields) => {
+      const number = documentNumber(fields, PDF_TYPES[type]);
+      const stem = number === undefined ? undefined : fileStem(number);
+      const fileName = `${stem ?? `${type}-${id}`}.pdf`;
+      const bytes = pdfBytes(pdf, await readJson(pdf, await sendCounted(pdf, signal, hint)));
+      const { path } = await saveFile(downloadDir, fileName, bytes, { replace: true, signal });
+      return { path, fileName };
+    });
+  };
+
+  return { request, paginate, savePdf };
 }
 
 /**
  * The account's bookkeeping system check: undefined for system 2.0, an `unsupported_account`
- * error for anything else (PRD §5.4). A failed request rejects with its `HostError`.
+ * error for anything else (PRD §5.4). It reads JSON only, so a non-JSON answer fails rather than
+ * being saved as a file. A failed request rejects with its `HostError`.
  */
 export async function bookkeepingSystemError(
-  request: HostFunction,
+  { baseUrl, token }: { baseUrl: string; token: string },
   profile: string,
   signal: AbortSignal,
 ): Promise<SnippetError | undefined> {
-  const response = await request(['GET', '/Tools/bookkeepingSystemVersion'], signal);
+  requireHttps(baseUrl);
+  const call = prepare(baseUrl, ['GET', '/Tools/bookkeepingSystemVersion']);
+  const response = await readJson(call, await send(call, { token, signal, retry: DEFAULT_RETRY }));
   const version =
     isRecord(response) && isRecord(response.objects) ? response.objects.version : undefined;
   if (version === '2.0') return undefined;
