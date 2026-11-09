@@ -1,23 +1,31 @@
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { SandboxOutcome, SnippetError } from './sandbox.ts';
+import type { Write } from './sevdesk.ts';
 
 /**
  * The JSON object every Code Mode tool result carries (decision 11). `execute` adds its write
- * ledger and confirmation request here.
+ * ledger (`writes`) here; the confirmation request follows.
  */
 interface Envelope {
   result?: unknown;
   error?: SnippetError;
   console?: string[];
+  writes?: Write[];
   notes?: string[];
 }
 
 /**
  * Turns a sandbox outcome into a tool result: one text block with the envelope as JSON,
  * `isError` when the run failed. A return value over `outputChars` characters of JSON is cut,
- * and the notes say so, as they do for a missing return value and cut console output.
+ * and the notes say so, as they do for a missing return value and cut console output. `writes`,
+ * the ledger of the write calls the run sent, comes back whether the run failed or not; a note
+ * flags writes that may have been applied without a success answer.
  */
-export function toToolResult(outcome: SandboxOutcome, outputChars: number): CallToolResult {
+export function toToolResult(
+  outcome: SandboxOutcome,
+  outputChars: number,
+  writes: Write[] = [],
+): CallToolResult {
   const envelope: Envelope = {};
   const notes: string[] = [];
   if (!outcome.ok) {
@@ -37,6 +45,12 @@ export function toToolResult(outcome: SandboxOutcome, outputChars: number): Call
   if (outcome.console.length > 0) envelope.console = outcome.console;
   if (outcome.consoleCut) {
     notes.push(`console.log output cut after ${String(outputChars)} characters.`);
+  }
+  if (writes.length > 0) envelope.writes = writes;
+  if (writes.some(({ status }) => status === undefined || status >= 500)) {
+    notes.push(
+      'A write in writes without status got no answer, one with a 5xx status a server error: either may still have been applied. Check with a GET before sending it again.',
+    );
   }
   if (notes.length > 0) envelope.notes = notes;
 

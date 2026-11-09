@@ -98,6 +98,20 @@ test('a network failure reports only the error code, never the error text', asyn
   });
 });
 
+test('a write that gets no answer stays in the ledger without a status', async () => {
+  const cause = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' });
+  vi.stubGlobal('fetch', () => Promise.reject(new TypeError('fetch failed', { cause })));
+  const { request, writes } = createClient(clientOptions());
+
+  const failed = request(
+    ['POST', '/Contact', { body: { name: 'x' } }],
+    new AbortController().signal,
+  );
+
+  await expect(failed).rejects.toMatchObject({ error: { kind: 'network_error' } });
+  expect(writes).toEqual([{ method: 'POST', path: '/Contact' }]);
+});
+
 test('a 429 is retried for any method and the call succeeds on a later attempt', async () => {
   const methods = ['GET', 'POST', 'PUT', 'DELETE'];
   const sevdesk = await mock(

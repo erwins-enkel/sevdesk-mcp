@@ -17,7 +17,7 @@ import { bookkeepingSystemError, createClient, PAGE_SIZE, PDF_TYPES } from './se
 const description = ({
   maxCalls,
   limits,
-}: Config) => `Call the sevDesk REST API. \`code\` is the body of an async JavaScript function, run in a sandbox with \`console.log\`, \`sevdesk.request(method, path, { query })\`, \`sevdesk.paginate(path, query)\` and \`sevdesk.savePdf(type, id)\`; no other network or file access. \`path\` is relative to the API base (e.g. '/Contact'); a request resolves to the parsed JSON or throws an Error with \`status\`, \`sevdeskMessage\` and \`hint\`. A non-JSON response (e.g. a CSV export) is saved as a new file in the profile's download folder and resolves to \`{ path, contentType, bytes }\`. \`paginate\` resolves to all objects of a list as one array, fetched in pages of ${String(PAGE_SIZE)} (each page is a call). \`savePdf\` saves a document's PDF (type one of ${Object.keys(PDF_TYPES).join(', ')}) in that folder as <number>.pdf, replacing an older copy, without marking it sent; it resolves to \`{ path, fileName }\` and costs 2 calls. File contents never come back. Rate limits (429) and GET server errors (5xx) are retried automatically. Only GET is enabled so far, at most ${String(maxCalls)} calls per run. Find paths and parameters with \`search\` first. Only the return value and console output come back, each cut at ${String(limits.outputChars)} characters, so return just what you need, e.g.:
+}: Config) => `Call the sevDesk REST API. \`code\` is the body of an async JavaScript function, run in a sandbox with \`console.log\`, \`sevdesk.request(method, path, { query, body })\`, \`sevdesk.paginate(path, query)\` and \`sevdesk.savePdf(type, id)\`; no other network or file access. \`path\` is relative to the API base (e.g. '/Contact'), \`body\` a JSON object; a request resolves to the parsed JSON or throws an Error with \`status\`, \`sevdeskMessage\` and \`hint\`. A non-JSON response (e.g. a CSV export) is saved as a new file in the profile's download folder and resolves to \`{ path, contentType, bytes }\`. \`paginate\` resolves to all objects of a list as one array, fetched in pages of ${String(PAGE_SIZE)} (each page is a call). \`savePdf\` saves a document's PDF (type one of ${Object.keys(PDF_TYPES).join(', ')}) in that folder as <number>.pdf, replacing an older copy, without marking it sent; it resolves to \`{ path, fileName }\` and costs 2 calls. File contents never come back. Rate limits (429) and GET server errors (5xx) are retried automatically, at most ${String(maxCalls)} calls per run. Reads and the POST/PUT calls that create or change drafts run directly. Irreversible calls throw kind needs_confirmation and are not sent: DELETE, sending, enshrine, bookAmount, cancel, reset, a status in an Invoice/Order/CreditNote/Voucher body (only a new draft via Factory/save* may carry its draft status), getPdf without preventSendBy=true, write paths not in the spec. Find paths and parameters with \`search\` first. Only the return value and console output (each cut at ${String(limits.outputChars)} characters) come back, plus \`writes\`: every write sent (method, path, status, objectId), also when the code fails. Return just what you need, e.g.:
 const r = await sevdesk.request('GET', '/Contact', { query: { depth: 1, limit: 10 } });
 return r.objects.map((c) => ({ id: c.id, name: c.name }))`;
 
@@ -53,7 +53,8 @@ function inputSchema(profiles: ReachableProfile[]) {
  * the profile's download directory. A keychain profile's token is read on every call. The
  * bookkeeping system is checked on the first call per profile and remembered for the session (this
  * server instance), never at startup. With an invalid config file it returns the config error and
- * sends nothing.
+ * sends nothing. Reversible writes run; irreversible calls are refused until the confirmation gate
+ * exists, and the result lists every write the run sent. It carries the destructive annotation.
  */
 export function registerExecuteTool(
   server: McpServer,
@@ -102,6 +103,7 @@ export function registerExecuteTool(
     {
       description: description(config),
       inputSchema: inputSchema(reachable.ok ? reachable.profiles : []),
+      annotations: { destructiveHint: true },
     },
     async ({ code, account }) => {
       if (!loaded.ok) return errorResult(loaded.error);
@@ -115,14 +117,14 @@ export function registerExecuteTool(
         if (!(error instanceof HostError)) throw error;
         return errorResult(error.error);
       }
-      const sevdesk = createClient({
+      const { writes, ...sevdesk } = createClient({
         baseUrl: config.baseUrl,
         token: profile.token,
         maxCalls: config.maxCalls,
         downloadDir: profile.downloadDir,
       });
       const outcome = await runSnippet(code, {}, config.limits, { sevdesk });
-      return toToolResult(outcome, config.limits.outputChars);
+      return toToolResult(outcome, config.limits.outputChars, writes);
     },
   );
 }

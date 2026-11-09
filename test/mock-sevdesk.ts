@@ -17,12 +17,17 @@ export interface MockResponse {
   headers?: Record<string, string>;
 }
 
-/** A request the mock received; `path` is relative to the API base. */
+/**
+ * A request the mock received; `path` is relative to the API base, `body` the request body as text
+ * (empty without one).
+ */
 export interface MockRequest {
   method: string;
   path: string;
   query: URLSearchParams;
   authorization: string | undefined;
+  contentType: string | undefined;
+  body: string;
 }
 
 /** Route handlers keyed by `METHOD /path` relative to the API base, e.g. `GET /Contact`. */
@@ -45,23 +50,30 @@ export async function startMockSevdesk(routes: MockRoutes = {}, baseUrl = DEFAUL
   const handlers = { ...defaultRoutes, ...routes };
   const server = createServer((incoming, response) => {
     const url = new URL(incoming.url ?? '/', 'http://mock');
-    const request: MockRequest = {
-      method: incoming.method ?? '',
-      path: url.pathname.slice(base.pathname.length),
-      query: url.searchParams,
-      authorization: incoming.headers.authorization,
-    };
-    requests.push(request);
-    const handler = handlers[`${request.method} ${request.path}`];
-    const answer = handler
-      ? handler(request)
-      : { status: 404, json: { objects: null, error: { message: 'Not found' } } };
-    const contentType = answer.contentType === undefined ? 'application/json' : answer.contentType;
-    response.writeHead(answer.status ?? 200, {
-      ...(contentType === null ? {} : { 'content-type': contentType }),
-      ...answer.headers,
+    const chunks: Buffer[] = [];
+    incoming.on('data', (chunk: Buffer) => chunks.push(chunk));
+    incoming.on('end', () => {
+      const request: MockRequest = {
+        method: incoming.method ?? '',
+        path: url.pathname.slice(base.pathname.length),
+        query: url.searchParams,
+        authorization: incoming.headers.authorization,
+        contentType: incoming.headers['content-type'],
+        body: Buffer.concat(chunks).toString('utf8'),
+      };
+      requests.push(request);
+      const handler = handlers[`${request.method} ${request.path}`];
+      const answer = handler
+        ? handler(request)
+        : { status: 404, json: { objects: null, error: { message: 'Not found' } } };
+      const contentType =
+        answer.contentType === undefined ? 'application/json' : answer.contentType;
+      response.writeHead(answer.status ?? 200, {
+        ...(contentType === null ? {} : { 'content-type': contentType }),
+        ...answer.headers,
+      });
+      response.end(answer.bytes ?? answer.text ?? JSON.stringify(answer.json));
     });
-    response.end(answer.bytes ?? answer.text ?? JSON.stringify(answer.json));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;

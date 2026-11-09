@@ -69,7 +69,10 @@ rules.
 6. **What about write paths the classification table does not know?**
    **Answer:** Fail closed: an unknown write path is treated as irreversible. A status change is
    recognised by a `status` field in the body of a PUT or POST on Invoice, Order, CreditNote or
-   Voucher. **Source:** §6 ("Statusänderungen auf Rechnungen").
+   Voucher. Creating a draft is no status change: a factory save
+   (`POST /{Type}/Factory/save{Type}`) of a new document (without id) with the draft status (100,
+   vouchers 50) runs directly, since these saves require a status. **Source:** §6
+   ("Statusänderungen auf Rechnungen").
 7. **How is a PDF fetched without flipping the sent status?**
    **Answer:** `savePdf` always passes `preventSendBy=true`; per third-party documentation `getPdf`
    may otherwise mark the document as sent (to verify against the live API in P4). A `getPdf` via
