@@ -82,3 +82,16 @@ export async function storeToken(profile: string, token: string): Promise<string
     return reasonOf(error);
   }
 }
+
+/**
+ * Deletes the API token of `profile` from the OS keychain: undefined when the keychain holds none
+ * any more (deleted, or there was none), otherwise why not.
+ */
+export async function deleteToken(profile: string): Promise<string | undefined> {
+  try {
+    await (await entry(profile)).deletePassword();
+    return undefined;
+  } catch (error) {
+    return reasonOf(error);
+  }
+}

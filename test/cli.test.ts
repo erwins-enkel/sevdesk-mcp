@@ -1,11 +1,12 @@
 import { type ChildProcessByStdio, spawn, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { Client, type JSONRPCMessage, type Transport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { expect, test } from 'vitest';
+import { configFile } from '../src/config.ts';
 import { writeConfig } from './config-file.ts';
 
 // Runs the real entry point through Node's type stripping, so no build is needed.
@@ -167,15 +168,71 @@ test.each([
 });
 
 test.each([
-  [['setup', '--list'], 'Unknown option: --list'],
+  [['setup', '--nope'], 'Unknown option: --nope'],
   [['setup', 'acme'], 'Unexpected argument: acme'],
   [['setup', '--add', 'acme'], 'Unexpected argument: acme'],
+  [['setup', '--list', 'acme'], 'Unexpected argument: acme'],
+  [['setup', '--remove'], '--remove needs a profile name'],
+  [
+    ['setup', '--remove', 'Bad_Name'],
+    'Invalid profile name: Bad_Name (1 to 32 characters: a-z, 0-9 and -)',
+  ],
+  [['setup', '--remove', 'acme', 'extra'], 'Unexpected argument: extra'],
 ])('%j is a usage error', (args, message) => {
   const result = run(args, 'en_US.UTF-8');
 
   expect(result.status).toBe(USAGE_ERROR);
   expect(result.stderr).toContain(message);
   expect(result.stderr).toContain('Usage: sevdesk-mcp');
+});
+
+test.each([
+  ['en_US.UTF-8', '  acme: Acme GmbH (read and write)\n  ro: RO AG (read-only)'],
+  ['de_DE.UTF-8', '  acme: Acme GmbH (lesend und schreibend)\n  ro: RO AG (nur lesend)'],
+])('setup --list prints the profiles without a terminal (%s)', (locale, lines) => {
+  // A spawned process uses the real keychain; listing reads only the config file.
+  const file = writeConfig({
+    profiles: { acme: { company: 'Acme GmbH' }, ro: { company: 'RO AG', readonly: true } },
+  });
+
+  const result = run(['setup', '--list'], locale);
+
+  expect(result.status).toBe(0);
+  expect(result.stderr).toBe('');
+  expect(result.stdout).toContain(file);
+  expect(result.stdout).toContain(`:\n${lines}\n`);
+});
+
+test('setup --list without a config file exits zero with the empty message', () => {
+  const result = run(['setup', '--list'], 'en_US.UTF-8');
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toBe('There are no profiles yet. sevdesk-mcp setup adds one.\n');
+  expect(existsSync(configFile())).toBe(false);
+});
+
+test('setup --list with an invalid config file fails', () => {
+  writeConfig('{ nope');
+
+  const result = run(['setup', '--list'], 'en_US.UTF-8');
+
+  expect(result.status).toBe(FAILURE);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toContain('is invalid: it is not valid JSON');
+});
+
+test('setup --remove without a terminal fails and leaves the config file as it is', () => {
+  const file = writeConfig({ profiles: { acme: { company: 'Acme GmbH' } } });
+  const before = readFileSync(file, 'utf8');
+
+  // spawnSync pipes stdin and stdout, so the child stops before the keychain.
+  const result = run(['setup', '--remove', 'acme'], 'en_US.UTF-8');
+
+  expect(result.status).toBe(FAILURE);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toContain('setup --remove asks before it removes a profile');
+  expect(result.stderr).toContain('Nothing was removed.');
+  expect(readFileSync(file, 'utf8')).toBe(before);
 });
 
 test('an unknown command is a usage error and prints the usage', () => {
@@ -202,12 +259,18 @@ test('an argument after --version is a usage error', () => {
   expect(result.stderr).toContain('Unexpected argument: extra');
 });
 
-test('--help documents --profile, --version and the exit codes and exits zero', () => {
+test('--help documents --profile, the setup options, --version and the exit codes and exits zero', () => {
   const result = run(['--help'], 'en_US.UTF-8');
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('Usage: sevdesk-mcp');
-  expect(result.stdout).toContain('sevdesk-mcp setup [--add]');
+  expect(result.stdout).toContain('sevdesk-mcp setup [--add | --list | --remove <name>]');
+  expect(result.stdout).toContain(
+    'Options for setup:\n' +
+      '  --add            Add a profile or replace its token (the default)\n' +
+      '  --list           List the profiles with company name and read-only state\n' +
+      '  --remove <name>  Remove a profile and delete its token from the OS keychain\n',
+  );
   expect(result.stdout).toContain('--version  Show the version');
   expect(result.stdout).toContain(
     '--profile <name>  Use only this profile; execute rejects any other account',
@@ -218,10 +281,17 @@ test('--help documents --profile, --version and the exit codes and exits zero', 
   expect(result.stdout).not.toContain('{');
 });
 
-test('--help in German documents --profile, --version and the exit codes', () => {
+test('--help in German documents --profile, the setup options, --version and the exit codes', () => {
   const result = run(['--help'], 'de_DE.UTF-8');
 
   expect(result.status).toBe(0);
+  expect(result.stdout).toContain('sevdesk-mcp setup [--add | --list | --remove <name>]');
+  expect(result.stdout).toContain(
+    'Optionen für setup:\n' +
+      '  --add            Profil hinzufügen oder seinen Token ersetzen (Standard)\n' +
+      '  --list           Profile mit Firmenname und Lesemodus auflisten\n' +
+      '  --remove <name>  Profil entfernen und seinen Token aus dem Schlüsselbund löschen\n',
+  );
   expect(result.stdout).toContain('--version  Version anzeigen');
   expect(result.stdout).toContain(
     '--profile <name>  Nur dieses Profil verwenden; execute lehnt jedes andere Konto ab',

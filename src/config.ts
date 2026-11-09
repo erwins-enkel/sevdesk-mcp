@@ -247,17 +247,10 @@ export function loadConfig(file = configFile()): LoadedConfig {
 }
 
 /**
- * Adds `profile` to the config file, or updates the profile of that name (`setup`): its company and
- * read-only flag are set, and every other key of the file, of the other profiles and of the profile
- * itself (such as `downloadDir`) stays as it is. Without a file it creates one, directory included.
- * The JSON goes into a temporary file next to it that is then renamed over it, so a failed write
- * never leaves a half-written file. Throws when the file cannot be read or written or is not a JSON
- * object; `loadConfig` has checked it before.
+ * The parsed JSON object of the config file, or `{}` without a file. Throws when the file cannot be
+ * read or does not hold a JSON object.
  */
-export function saveProfile(
-  { name, company, readonly }: Pick<ProfileSettings, 'name' | 'company' | 'readonly'>,
-  file = configFile(),
-): void {
+function readConfigJson(file: string): Record<string, unknown> {
   let json: unknown = {};
   try {
     json = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
@@ -265,10 +258,14 @@ export function saveProfile(
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
   if (!isRecord(json)) throw new Error(`${file} does not hold a JSON object`);
-  const profiles = isRecord(json.profiles) ? json.profiles : {};
-  const existing = profiles[name];
-  profiles[name] = { ...(isRecord(existing) ? existing : {}), company, readonly };
-  json.profiles = profiles;
+  return json;
+}
+
+/**
+ * Writes `json` as the config file, directory included. The JSON goes into a temporary file next to
+ * it that is then renamed over it, so a failed write never leaves a half-written file.
+ */
+function writeConfigJson(file: string, json: Record<string, unknown>): void {
   mkdirSync(dirname(file), { recursive: true });
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {
@@ -278,4 +275,39 @@ export function saveProfile(
     rmSync(temporary, { force: true });
     throw error;
   }
+}
+
+/**
+ * Adds `profile` to the config file, or updates the profile of that name (`setup`): its company and
+ * read-only flag are set, and every other key of the file, of the other profiles and of the profile
+ * itself (such as `downloadDir`) stays as it is. Without a file it creates one, directory included.
+ * A failed write never leaves a half-written file. Throws when the file cannot be read or written or
+ * is not a JSON object; `loadConfig` has checked it before.
+ */
+export function saveProfile(
+  { name, company, readonly }: Pick<ProfileSettings, 'name' | 'company' | 'readonly'>,
+  file = configFile(),
+): void {
+  const json = readConfigJson(file);
+  const profiles = isRecord(json.profiles) ? json.profiles : {};
+  const existing = profiles[name];
+  profiles[name] = { ...(isRecord(existing) ? existing : {}), company, readonly };
+  json.profiles = profiles;
+  writeConfigJson(file, json);
+}
+
+/**
+ * Removes the profile `name` from the config file (`setup --remove`); every other key of the file
+ * and the other profiles stay as they are, an empty `profiles` object included. A failed write never
+ * leaves a half-written file. Throws when the file cannot be read or written or is not a JSON
+ * object; `loadConfig` has checked it before.
+ */
+export function deleteProfile(name: string, file = configFile()): void {
+  const json = readConfigJson(file);
+  if (isRecord(json.profiles)) {
+    json.profiles = Object.fromEntries(
+      Object.entries(json.profiles).filter(([profile]) => profile !== name),
+    );
+  }
+  writeConfigJson(file, json);
 }
