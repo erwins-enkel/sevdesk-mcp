@@ -1,7 +1,9 @@
-import { spawnSync } from 'node:child_process';
+import { type ChildProcessByStdio, spawn, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import type { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { Client } from '@modelcontextprotocol/client';
+import { Client, type JSONRPCMessage, type Transport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { expect, test } from 'vitest';
 
@@ -26,6 +28,72 @@ test('serves MCP over stdio when started without a command', async () => {
 
   expect(client.getServerVersion()?.name).toBe(pkg.name);
   await client.close();
+});
+
+/**
+ * A stdio client transport that also records every raw line the server writes to stdout. The SDK's
+ * own transport silently skips non-JSON lines, so it could not show stray output.
+ */
+function recordingStdioTransport(): { transport: Transport; lines: string[] } {
+  const lines: string[] = [];
+  let child: ChildProcessByStdio<Writable, Readable, null> | undefined;
+  let pending = '';
+  const transport: Transport = {
+    start() {
+      child = spawn(process.execPath, [cli], { stdio: ['pipe', 'pipe', 'inherit'] });
+      child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+        const parts = (pending + chunk).split('\n');
+        pending = parts.pop() ?? '';
+        for (const line of parts) {
+          lines.push(line);
+          if (isJson(line)) transport.onmessage?.(JSON.parse(line) as JSONRPCMessage);
+        }
+      });
+      child.on('close', () => transport.onclose?.());
+      return Promise.resolve();
+    },
+    send(message) {
+      child?.stdin.write(`${JSON.stringify(message)}\n`);
+      return Promise.resolve();
+    },
+    close() {
+      child?.kill();
+      return Promise.resolve();
+    },
+  };
+  return { transport, lines };
+}
+
+function isJson(line: string): boolean {
+  try {
+    JSON.parse(line);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test('search over stdio counts the embedded spec paths and keeps console output off stdout', async () => {
+  const spec = JSON.parse(
+    readFileSync(new URL('../spec/sevdesk-openapi.json', import.meta.url), 'utf8'),
+  ) as { paths: Record<string, unknown> };
+  const { transport, lines } = recordingStdioTransport();
+  const client = new Client({ name: 'test-client', version: '0.0.0' });
+  await client.connect(transport);
+
+  const result = await client.callTool({
+    name: 'search',
+    arguments: { code: 'console.log("stdout-guard"); return Object.keys(spec.paths).length' },
+  });
+  await client.close();
+
+  const [block] = result.content as [{ type: 'text'; text: string }];
+  expect(JSON.parse(block.text)).toEqual({
+    result: Object.keys(spec.paths).length,
+    console: ['stdout-guard'],
+  });
+  expect(lines.length).toBeGreaterThan(0);
+  expect(lines.filter((line) => !isJson(line))).toEqual([]);
 });
 
 test('--version prints exactly the package version and exits zero', () => {

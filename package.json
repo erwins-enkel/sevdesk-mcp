@@ -13,7 +13,8 @@
     "sevdesk-mcp": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "spec"
   ],
   "packageManager": "bun@1.4.4",
   "engines": {
@@ -35,10 +36,13 @@
     "typescript": "7.0.2",
     "typescript-eslint": "8.72.1",
     "varlock": "1.24.0",
-    "vitest": "5.1.0"
+    "vitest": "5.1.0",
+    "yaml": "2.9.1"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "2.4.0"
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
+    "@modelcontextprotocol/server": "2.4.0",
+    "quickjs-emscripten-core": "0.32.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -48,6 +52,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "check:i18n": "node scripts/check-i18n.ts",
+    "update-spec": "node scripts/update-spec.ts",
     "prepare": "husky",
     "audit:dead": "fallow",
     "audit:env": "varlock audit",
