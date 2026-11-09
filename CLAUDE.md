@@ -8,9 +8,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - Product source of truth: `docs/prd/PRD-sevdesk.md` (German).
 - Foundation decisions and their rationale: `docs/decisions/0001-foundation.md`.
 - Product decisions and their rationale: `docs/decisions/0002-product-decisions.md`.
-- Status: scaffold. The server boots over stdio with no tools yet; every feature (sevDesk
-  client, sandbox, confirmation flow, audit log, keychain, profiles, setup) arrives as a
-  backlog slice.
+- Status: early development. `search` runs over stdio in the QuickJS sandbox; every other
+  feature (`execute`, sevDesk client, confirmation flow, audit log, keychain, profiles, setup)
+  arrives as a backlog slice.
 
 ## Orientation
 
@@ -18,10 +18,19 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   fails closed until it is implemented; `--help` prints the usage, `--version` the version
   from `src/manifest.ts` (the same source `createServer()` reports). Exit codes: 0 success,
   1 runtime failure, 2 usage error (unknown command or option); the usage text documents them.
-- `src/server.ts`: `createServer()`, the single place where MCP tools get registered.
+- `src/server.ts`: `createServer()`, the single place where MCP tools and the MCP
+  `instructions` get registered.
+- `src/sandbox.ts`: `runSnippet()`, the QuickJS sandbox (a fresh WASM module per run, 30 s,
+  64 MB, captured `console.log`, error kinds `timeout`/`memory_limit`/`snippet_error`).
+  `src/envelope.ts`: `toToolResult()`, the JSON result envelope (`result`, `error`, `console`,
+  `notes`; results over 20,000 characters are cut). `src/search.ts`: the `search` tool.
+- `spec/sevdesk-openapi.json`: the embedded sevDesk OpenAPI spec (`$ref`s resolved, © sevDesk,
+  not MIT). Never edit it by hand: `bun run update-spec` regenerates it
+  (`scripts/update-spec.ts`, `scripts/resolve-refs.ts`).
 - `src/i18n/`: human-facing CLI messages. `en.json` is the reference catalog, `de.json`
   mirrors it, `index.ts` exposes `resolveLocale()` and `t()`.
-- `test/`: vitest. `scripts/`: the i18n drift gate and the pinned actionlint runner.
+- `test/`: vitest; `test/budget.test.ts` is the 1,500-token gate for instructions and tool
+  descriptions. `scripts/`: the i18n drift gate, the pinned actionlint runner and `update-spec`.
 - While serving, stdout belongs to the MCP protocol: log to stderr only.
 - Model-facing text (tool descriptions, guides, errors returned to the model) is English and
   stays lean: all tool descriptions together under 1,500 tokens (PRD §10).

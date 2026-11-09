@@ -1,0 +1,37 @@
+// `bun run update-spec`: fetches the official sevDesk OpenAPI file, inlines its `$ref`s and writes
+// the result to spec/sevdesk-openapi.json, the spec the `search` tool embeds. Fails on a non-2xx
+// response or a document that is not an OpenAPI 3 spec with paths, never writing a partial file.
+import { writeFileSync } from 'node:fs';
+import { parse } from 'yaml';
+import { resolveRefs } from './resolve-refs.ts';
+
+const source = 'https://api.sevdesk.de/openapi.yaml';
+const target = new URL('../spec/sevdesk-openapi.json', import.meta.url);
+
+const response = await fetch(source);
+if (!response.ok) throw new Error(`GET ${source} failed: ${String(response.status)}`);
+
+const document = parse(await response.text()) as unknown;
+if (
+  document === null ||
+  typeof document !== 'object' ||
+  !('openapi' in document) ||
+  typeof document.openapi !== 'string' ||
+  !document.openapi.startsWith('3.') ||
+  !('paths' in document) ||
+  document.paths === null ||
+  typeof document.paths !== 'object' ||
+  Object.keys(document.paths).length === 0
+) {
+  throw new Error(`${source} is not an OpenAPI 3 document with paths`);
+}
+
+const spec = resolveRefs(document as Parameters<typeof resolveRefs>[0]) as {
+  info: { version: string };
+  paths: object;
+};
+const text = `${JSON.stringify(spec, null, 2)}\n`;
+writeFileSync(target, text);
+console.log(
+  `spec: sevDesk API ${spec.info.version}, ${String(Object.keys(spec.paths).length)} paths, ${String(text.length)} characters`,
+);
