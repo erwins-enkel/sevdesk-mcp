@@ -12,6 +12,26 @@ export interface Config {
   limits: SandboxLimits;
   /** The most sevDesk calls one `execute` run may send. */
   maxCalls: number;
+  /** The configured profiles, in the order of the file. */
+  profiles: ProfileSettings[];
+}
+
+/** A profile of the config file (decision 13). Its token is never here: it lives in the OS keychain. */
+export interface ProfileSettings {
+  /** 1 to 32 characters a-z, 0-9 and -; also the account of its keychain entry. */
+  name: string;
+  /** The sevDesk company name, listed next to the name so the model can tell the accounts apart. */
+  company: string;
+  /** Read-only profile (decision 3). Nothing reads it yet: `execute` rejects every write anyway. */
+  readonly: boolean;
+}
+
+// Profile names (decision 18); a name later becomes a directory name.
+const PROFILE_NAME = /^[a-z0-9-]{1,32}$/;
+
+/** Whether `name` is a valid profile name: 1 to 32 characters a-z, 0-9 and -. */
+export function isProfileName(name: string): boolean {
+  return PROFILE_NAME.test(name);
 }
 
 /** What applies without a config file, and for every key the file leaves out. */
@@ -19,6 +39,7 @@ export const DEFAULT_CONFIG: Config = {
   baseUrl: DEFAULT_BASE_URL,
   limits: DEFAULT_LIMITS,
   maxCalls: DEFAULT_CALL_BUDGET,
+  profiles: [],
 };
 
 /** The outcome of reading the config file: the config, or why the file is unusable. */
@@ -35,7 +56,7 @@ const LIMIT_RANGES = {
 };
 type LimitKey = keyof typeof LIMIT_RANGES;
 
-const TOP_LEVEL_KEYS = new Set(['baseUrl', 'limits']);
+const TOP_LEVEL_KEYS = new Set(['baseUrl', 'limits', 'profiles']);
 
 const HINT = 'Fix the file or delete it to use the defaults, then restart the MCP server.';
 
@@ -108,6 +129,44 @@ function readBaseUrl(value: unknown, problems: string[]): string | undefined {
   return undefined;
 }
 
+/**
+ * The profile `name` of the file, or undefined when it is unusable; each problem is added to
+ * `problems`. Any key but `company` and `readonly`, a token among them, is unknown: no token is ever
+ * read from a plain file (decision 4). Values are never echoed, so a misplaced token cannot reach
+ * an error message.
+ */
+function readProfile(
+  name: string,
+  value: unknown,
+  problems: string[],
+): ProfileSettings | undefined {
+  const at = `profiles.${name}`;
+  if (!isRecord(value)) {
+    problems.push(`${at} must be an object`);
+    return undefined;
+  }
+  const { company, readonly = false, ...extra } = value;
+  for (const key of Object.keys(extra)) problems.push(`unknown key "${at}.${key}"`);
+  const hasCompany = typeof company === 'string' && company.trim() !== '';
+  if (!hasCompany) problems.push(`${at}.company must be a non-empty string`);
+  if (typeof readonly !== 'boolean') problems.push(`${at}.readonly must be true or false`);
+  return hasCompany && typeof readonly === 'boolean' ? { name, company, readonly } : undefined;
+}
+
+/** `profiles` of the file; each problem is added to `problems`. */
+function readProfiles(value: unknown, problems: string[]): ProfileSettings[] {
+  if (value === undefined) return [];
+  if (!isRecord(value)) {
+    problems.push('profiles must be an object of profiles by name');
+    return [];
+  }
+  return Object.entries(value).flatMap(([name, entry]) => {
+    if (isProfileName(name)) return readProfile(name, entry, problems) ?? [];
+    problems.push(`profile name ${JSON.stringify(name)} must be 1 to 32 characters a-z, 0-9 and -`);
+    return [];
+  });
+}
+
 /** The config from the file's parsed JSON, or the problems that make it invalid. */
 function toConfig(json: unknown): { config: Config; problems: string[] } {
   const problems: string[] = [];
@@ -119,6 +178,7 @@ function toConfig(json: unknown): { config: Config; problems: string[] } {
   }
   const baseUrl = readBaseUrl(json.baseUrl, problems);
   const { timeoutSeconds, memoryMb, callsPerRun, outputChars } = readLimits(json.limits, problems);
+  const profiles = readProfiles(json.profiles, problems);
   const config: Config = {
     baseUrl: baseUrl ?? DEFAULT_CONFIG.baseUrl,
     limits: {
@@ -127,6 +187,7 @@ function toConfig(json: unknown): { config: Config; problems: string[] } {
       outputChars: outputChars ?? DEFAULT_LIMITS.outputChars,
     },
     maxCalls: callsPerRun ?? DEFAULT_CONFIG.maxCalls,
+    profiles,
   };
   return { config, problems };
 }

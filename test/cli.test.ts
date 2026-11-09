@@ -113,6 +113,37 @@ test('search over stdio counts the embedded spec paths and keeps console output 
   expect(lines.filter((line) => !isJson(line))).toEqual([]);
 });
 
+test('--profile pins a spawned server: execute offers only that account', async () => {
+  writeConfig({ profiles: { a: { company: 'Company A' }, b: { company: 'Company B' } } });
+  const client = new Client({ name: 'test-client', version: '0.0.0' });
+  // Only the tools are listed: a spawned server uses the real keychain, so no test may read a token.
+  await client.connect(
+    new StdioClientTransport({ command: process.execPath, args: [cli, '--profile', 'a'] }),
+  );
+
+  const { tools } = await client.listTools();
+  await client.close();
+
+  const execute = tools.find((tool) => tool.name === 'execute');
+  expect(execute?.inputSchema.properties).toHaveProperty('account.enum', ['a']);
+});
+
+test.each([
+  [['--profile'], '--profile needs a profile name'],
+  [
+    ['--profile', 'Bad_Name'],
+    'Invalid profile name: Bad_Name (1 to 32 characters: a-z, 0-9 and -)',
+  ],
+  [['--profile', 'a', 'extra'], 'Unexpected argument: extra'],
+])('%j is a usage error and starts no server', (args, message) => {
+  const result = run(args, 'en_US.UTF-8');
+
+  expect(result.status).toBe(USAGE_ERROR);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toContain(message);
+  expect(result.stderr).toContain('Usage: sevdesk-mcp');
+});
+
 test('--version prints exactly the package version and exits zero', () => {
   const result = run(['--version'], 'en_US.UTF-8');
 
@@ -153,23 +184,29 @@ test('an argument after --version is a usage error', () => {
   expect(result.stderr).toContain('Unexpected argument: extra');
 });
 
-test('--help documents --version and the exit codes and exits zero', () => {
+test('--help documents --profile, --version and the exit codes and exits zero', () => {
   const result = run(['--help'], 'en_US.UTF-8');
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('Usage: sevdesk-mcp');
   expect(result.stdout).toContain('--version  Show the version');
+  expect(result.stdout).toContain(
+    '--profile <name>  Use only this profile; execute rejects any other account',
+  );
   expect(result.stdout).toContain('  0  Success');
   expect(result.stdout).toContain(`  ${String(FAILURE)}  Error while running`);
   expect(result.stdout).toContain(`  ${String(USAGE_ERROR)}  Usage error`);
   expect(result.stdout).not.toContain('{');
 });
 
-test('--help in German documents --version and the exit codes', () => {
+test('--help in German documents --profile, --version and the exit codes', () => {
   const result = run(['--help'], 'de_DE.UTF-8');
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('--version  Version anzeigen');
+  expect(result.stdout).toContain(
+    '--profile <name>  Nur dieses Profil verwenden; execute lehnt jedes andere Konto ab',
+  );
   expect(result.stdout).toContain('Exit-Codes:');
   expect(result.stdout).toContain('  0  Erfolg');
   expect(result.stdout).toContain(`  ${String(FAILURE)}  Fehler bei der Ausführung`);
