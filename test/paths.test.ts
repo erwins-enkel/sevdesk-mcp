@@ -1,9 +1,15 @@
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, vi } from 'vitest';
-import { defaultDownloadDir, localDirs } from '../src/paths.ts';
+import { claudeCodeFile, claudeDesktopDirs, defaultDownloadDir, localDirs } from '../src/paths.ts';
 
-const unset = ['XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'APPDATA', 'LOCALAPPDATA'] as const;
+const unset = [
+  'XDG_CONFIG_HOME',
+  'XDG_STATE_HOME',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'CLAUDE_CONFIG_DIR',
+] as const;
 
 /** Clears every variable the directories derive from, then sets `env`. */
 function stubEnv(env: Partial<Record<(typeof unset)[number], string>> = {}): void {
@@ -71,6 +77,61 @@ test('Windows falls back to AppData under the profile when the variables are uns
     config: 'C:\\Users\\kai\\AppData\\Roaming\\sevdesk-mcp',
     state: 'C:\\Users\\kai\\AppData\\Local\\sevdesk-mcp',
   });
+});
+
+test('Claude Desktop keeps its config in Application Support on macOS', () => {
+  stubEnv({ XDG_CONFIG_HOME: '/Users/kai/.config' });
+
+  expect(claudeDesktopDirs('darwin', '/Users/kai')).toEqual([
+    '/Users/kai/Library/Application Support/Claude',
+  ]);
+});
+
+test("Claude Desktop on Windows: the packaged app's virtualised folder first, then APPDATA", () => {
+  stubEnv({ APPDATA: 'D:\\Profiles\\kai\\Roaming', LOCALAPPDATA: 'D:\\Profiles\\kai\\Local' });
+
+  expect(claudeDesktopDirs('win32', 'C:\\Users\\kai')).toEqual([
+    'D:\\Profiles\\kai\\Local\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\Claude',
+    'D:\\Profiles\\kai\\Roaming\\Claude',
+  ]);
+});
+
+test('Claude Desktop on Windows falls back to AppData under the profile', () => {
+  stubEnv({ APPDATA: 'Roaming' });
+
+  expect(claudeDesktopDirs('win32', 'C:\\Users\\kai')).toEqual([
+    'C:\\Users\\kai\\AppData\\Local\\Packages\\Claude_pzs8sxrjxfjjc\\LocalCache\\Roaming\\Claude',
+    'C:\\Users\\kai\\AppData\\Roaming\\Claude',
+  ]);
+});
+
+test('Claude Desktop on Linux lives in the XDG config home', () => {
+  stubEnv();
+  expect(claudeDesktopDirs('linux', '/home/kai')).toEqual(['/home/kai/.config/Claude']);
+
+  stubEnv({ XDG_CONFIG_HOME: '/srv/config' });
+  expect(claudeDesktopDirs('linux', '/home/kai')).toEqual(['/srv/config/Claude']);
+});
+
+test('Claude Code keeps its config in ~/.claude.json without CLAUDE_CONFIG_DIR', () => {
+  stubEnv();
+  expect(claudeCodeFile('linux', '/home/kai')).toBe('/home/kai/.claude.json');
+  expect(claudeCodeFile('darwin', '/Users/kai')).toBe('/Users/kai/.claude.json');
+  expect(claudeCodeFile('win32', 'C:\\Users\\kai')).toBe('C:\\Users\\kai\\.claude.json');
+
+  stubEnv({ CLAUDE_CONFIG_DIR: '' });
+  expect(claudeCodeFile('linux', '/home/kai')).toBe('/home/kai/.claude.json');
+});
+
+test('Claude Code keeps its config in CLAUDE_CONFIG_DIR when set, and cannot be found when it is relative', () => {
+  stubEnv({ CLAUDE_CONFIG_DIR: '/home/kai/.claude-work' });
+  expect(claudeCodeFile('linux', '/home/kai')).toBe('/home/kai/.claude-work/.claude.json');
+
+  stubEnv({ CLAUDE_CONFIG_DIR: 'D:\\claude' });
+  expect(claudeCodeFile('win32', 'C:\\Users\\kai')).toBe('D:\\claude\\.claude.json');
+
+  stubEnv({ CLAUDE_CONFIG_DIR: '.claude-work' });
+  expect(claudeCodeFile('linux', '/home/kai')).toBeUndefined();
 });
 
 test('a profile downloads into ~/Downloads/sevdesk/<profile>, inside the temporary home in tests', () => {

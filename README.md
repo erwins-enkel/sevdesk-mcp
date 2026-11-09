@@ -11,9 +11,10 @@ JavaScript snippets that run in a local sandbox against the sevDesk API ("Code M
 > profile in the OS keychain, PDFs and exports saved to disk; every result lists the writes it
 > sent). Irreversible calls (delete, send, enshrine, book, cancel, reset, status changes) are held
 > until you confirm them; read-only mode blocks every change; a local audit log records every write
-> call. `sevdesk-mcp setup` adds an account with its token in the OS keychain, `setup --list` lists
-> the accounts and `setup --remove` removes one. Client registration is not there yet. Do not use it
-> with a real sevDesk account yet.
+> call. `sevdesk-mcp setup` adds an account with its token in the OS keychain and registers it in
+> Claude Desktop and Claude Code, `setup --list` lists the accounts and `setup --remove` removes one.
+> Registration in ChatGPT Desktop, Codex and OpenCode is not there yet. Do not use it with a real
+> sevDesk account yet.
 
 > Not developed or endorsed by sevDesk. (Nicht von sevDesk entwickelt oder unterstützt.)
 
@@ -75,15 +76,16 @@ same):
 3. It asks whether the profile is read-only (default no; when replacing, the profile's current
    setting).
 4. It stores the token in the OS keychain and the profile (name, company, read-only) in the config
-   file, and prints the command for your MCP client: `npx -y @erwins-enkel/sevdesk-mcp --profile
-<name>`.
+   file.
+5. It offers to register the profile in each installed MCP client (see below) and prints the
+   command for any other client: `npx -y @erwins-enkel/sevdesk-mcp --profile <name>`.
 
-Until the last step nothing is stored. There is no plaintext fallback: without an OS keychain
+Until step 4 nothing is stored. There is no plaintext fallback: without an OS keychain
 (headless Linux, WSL, Docker), `setup` stops and explains why, as a token in a plain file can be
 read by any process and any backup and grants full access to the bookkeeping. Use
 `SEVDESK_API_TOKEN` there instead. Without a terminal (scripts, CI), `setup` stops with the same
-hint; it has no non-interactive options. Its exit code is 0 when the profile is stored and 1
-otherwise.
+hint; it has no non-interactive options. Its exit code is 0 when the profile is stored and every
+client config it touched could be read and written, and 1 otherwise.
 
 `setup --list` prints every profile of the config file with its company and whether it is
 read-only. It reads only the config file, never the keychain, so it never shows a token, and it
@@ -94,7 +96,37 @@ token from the OS keychain and then the profile from the config file; every othe
 stays. It needs a terminal for the question. Its exit code is 0 when the profile is removed and 1
 otherwise: after a no, for an unknown profile, or when the keychain or the config file fails. If
 only the config file fails, the token is already gone; fix the file and run `setup --remove` again.
-Remove the profile's entry from your MCP client yourself.
+Once the profile is removed, it offers to remove the client entries that start it (see below).
+
+### MCP clients
+
+`setup` registers the server in these clients when they are installed, and `setup --remove` offers
+to remove their entries again:
+
+| Client         | Config file                                                                                                                       | Installed when             |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| Claude Desktop | macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`                                                          | the `Claude` folder exists |
+|                | Windows: `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\` (current installers), else `%APPDATA%\Claude\` |                            |
+|                | Linux: `$XDG_CONFIG_HOME/Claude/` (default `~/.config/Claude/`)                                                                   |                            |
+| Claude Code    | `~/.claude.json`, or `.claude.json` in `CLAUDE_CONFIG_DIR` when that is set                                                       | the file exists            |
+
+The entry is named `sevdesk`, or `sevdesk-<profile>` when there are several profiles, and runs
+`npx -y @erwins-enkel/sevdesk-mcp --profile <name>` (Claude Code on Windows: `cmd /c npx …`). It
+never holds a token. `setup` asks once per client and shows the file:
+
+- A new entry is added after a yes (the default).
+- An existing entry of that name that runs something else is replaced only after an explicit yes;
+  otherwise the file stays byte for byte as it was. An entry that already runs the same command is
+  left alone without a question.
+- Before it writes, `setup` saves the previous file next to it as
+  `<file>.sevdesk-mcp-<time>.bak` and prints its path. It keeps every other key and entry, the
+  file's permissions and a symlink. If the file changed while you answered, it is left as it is.
+- `setup --remove <name>` offers to remove every entry that runs this package with
+  `--profile <name>` (default yes), with the same backup.
+- A client config that cannot be read or written is reported and left as it is; the exit code is
+  then 1.
+
+Restart the client afterwards. For any other client, add the printed command yourself.
 
 The server never guesses which account a call is for:
 

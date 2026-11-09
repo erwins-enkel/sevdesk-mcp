@@ -45,5 +45,19 @@
   "setup.configRemoveFailed": "The token of profile {profile} is deleted from the OS keychain, but the config file {file} could not be written ({reason}). Fix that and run setup --remove {profile} again.",
   "setup.nothingRemoved": "Nothing was removed.",
   "setup.removed": "Profile {profile} ({company}) is removed; the OS keychain holds no token for it any more.",
-  "setup.removeClientEntry": "If an MCP client runs sevdesk-mcp with --profile {profile}, remove that entry from its config."
+  "setup.removeClientEntry": "If an MCP client runs sevdesk-mcp with --profile {profile}, remove that entry from its config.",
+  "setup.askAddEntry": "Add the server to {client} as {entry} ({file})? {choices} ",
+  "setup.askReplaceEntry": "{client} already has an MCP server named {entry} ({file}). Replace it? {choices} ",
+  "setup.entryExists": "{client} already starts this profile as {entry}.",
+  "setup.entryAdded": "{client}: {entry} is added. Restart {client} to use it.",
+  "setup.askRemoveEntries": "Remove {entries} (profile {profile}) from {client} ({file})? {choices} ",
+  "setup.entriesRemoved": "{client}: {entries} removed. Restart {client} for the change to apply.",
+  "setup.backedUp": "The previous file is saved as {backup}.",
+  "setup.clientLeft": "{client} ({file}) was left as it is.",
+  "setup.clientUnreadable": "{client}: {file} could not be read ({reason}); it was left as it is.",
+  "setup.clientUpdateFailed": "{client}: {file} could not be updated ({reason}); it was left as it is.",
+  "setup.clientChanged": "{client}: {file} changed while you answered, so it was left as it is.",
+  "setup.clientsLeft": "Client configs not changed so far are left as they are.",
+  "setup.otherClientsEntry": "For other MCP clients, use this command: npx -y {package} --profile {profile}",
+  "setup.removeOtherClientEntry": "If another MCP client runs sevdesk-mcp with --profile {profile}, remove that entry from its config."
 }
