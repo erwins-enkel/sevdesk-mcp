@@ -9,8 +9,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - Foundation decisions and their rationale: `docs/decisions/0001-foundation.md`.
 - Product decisions and their rationale: `docs/decisions/0002-product-decisions.md`.
 - Status: early development. `search` runs in the QuickJS sandbox; `execute` reads sevDesk
-  (GET only) with the profile from `SEVDESK_API_TOKEN`. Every other feature (writes,
-  confirmation flow, audit log, keychain, profiles, setup) arrives as a backlog slice.
+  (GET only) with the profile from `SEVDESK_API_TOKEN`; both use the limits and base URL of the
+  optional config file. Every other feature (writes, confirmation flow, audit log, keychain,
+  profiles, setup) arrives as a backlog slice.
 
 ## Orientation
 
@@ -19,13 +20,20 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   from `src/manifest.ts` (the same source `createServer()` reports). Exit codes: 0 success,
   1 runtime failure, 2 usage error (unknown command or option); the usage text documents them.
 - `src/server.ts`: `createServer()`, the single place where MCP tools and the MCP
-  `instructions` get registered.
-- `src/sandbox.ts`: `runSnippet()`, the QuickJS sandbox (a fresh WASM module per run, 30 s,
-  64 MB, captured `console.log`, error kinds `timeout`/`memory_limit`/`snippet_error`). Host
-  functions (`HostFunction`) return promises to the code; a `HostError` is catchable there and,
-  uncaught, ends the run with its structured error; a fatal one ends the run at once.
-  `src/envelope.ts`: `toToolResult()`, the JSON result envelope (`result`, `error`, `console`,
-  `notes`; results over 20,000 characters are cut). `src/search.ts`: the `search` tool.
+  `instructions` get registered; it reads the config file once per server.
+- `src/paths.ts`: `localDirs()`, the OS-standard config and data/state directories (XDG on
+  Linux, `~/Library/Application Support` on macOS, `%APPDATA%`/`%LOCALAPPDATA%` on Windows).
+  `src/config.ts`: `loadConfig()` reads `config.json` there (`baseUrl`, `limits`; documented in
+  the README). No file means `DEFAULT_CONFIG`; an unreadable or invalid file is an
+  `invalid_config` error that both tools return instead of running. A new config key extends
+  `toConfig()` and the README table.
+- `src/sandbox.ts`: `runSnippet()`, the QuickJS sandbox (a fresh WASM module per run, by
+  default 30 s and 64 MB, captured `console.log`, error kinds
+  `timeout`/`memory_limit`/`snippet_error`). Host functions (`HostFunction`) return promises to
+  the code; a `HostError` is catchable there and, uncaught, ends the run with its structured
+  error; a fatal one ends the run at once. `src/envelope.ts`: `toToolResult()`, the JSON result
+  envelope (`result`, `error`, `console`, `notes`; results over the output limit, by default
+  20,000 characters, are cut). `src/search.ts`: the `search` tool.
 - `src/execute.ts`: the `execute` tool (bookkeeping-system check per profile and session).
   `src/sevdesk.ts`: `createClient()`, the host side of `sevdesk.request` and `sevdesk.paginate`
   (HTTPS base URL, relative paths only, token added host-side, shared call budget, pages of
@@ -40,6 +48,10 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   descriptions. `test/mock-sevdesk.ts` starts a mock sevDesk on port 0 with per-test routes and
   stubs the global `fetch` to send calls for the real HTTPS base URL there (any other URL
   throws), so the code under test keeps its HTTPS rule and tests never reach sevDesk.
+  `test/setup.ts` (vitest `setupFiles`) gives every test a fresh `mkdtemp` home and points
+  `HOME`, `USERPROFILE`, `XDG_*` and `APPDATA`/`LOCALAPPDATA` there, so in-process and spawned
+  servers never touch the real local directories; `test/config-file.ts` writes a config file
+  into it.
   `scripts/`: the i18n drift gate, the pinned actionlint runner and `update-spec`.
 - While serving, stdout belongs to the MCP protocol: log to stderr only.
 - Model-facing text (tool descriptions, guides, errors returned to the model) is English and
@@ -202,7 +214,9 @@ env vars vs `.env.schema`), `lint:actions` (actionlint on `.github/workflows/`).
 - Smoke the binary: `bun run build && node dist/cli.js` (speaks MCP on stdio).
 - Hooks: pre-commit runs lint-staged (eslint --fix + prettier on staged files), commit-msg
   runs commitlint (Conventional Commits), pre-push runs `bun run verify`.
-- When you change a CI step, change the `verify` script too, and vice versa.
+- When you change a CI step, change the `verify` script too, and vice versa. CI runs the
+  `quality` job on Linux, macOS and Windows (Node 22 and 24); macOS and Windows run only install,
+  `test` and `build`, the platform-independent tooling steps stay Linux-only.
 - New env var: declare it in `.env.schema` first, because `varlock audit` fails on undeclared
   and stale variables. Read it as a literal `process.env.NAME` so the audit can see it.
 - New CLI message: add the key to every catalog in `src/i18n/`.

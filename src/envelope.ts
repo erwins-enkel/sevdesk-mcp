@@ -43,3 +43,9 @@ export function toToolResult(outcome: SandboxOutcome, outputChars: number): Call
   const content: CallToolResult['content'] = [{ type: 'text', text: JSON.stringify(envelope) }];
   return outcome.ok ? { content } : { content, isError: true };
 }
+
+/** The tool result of an error that ended the call before any code ran. */
+export function errorResult(error: SnippetError): CallToolResult {
+  // Without a return value or console output there is nothing to cut.
+  return toToolResult({ ok: false, error, console: [], consoleCut: false }, 0);
+}

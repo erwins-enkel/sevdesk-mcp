@@ -1,0 +1,140 @@
+import { mkdirSync } from 'node:fs';
+import { expect, test } from 'vitest';
+import { type Config, configFile, DEFAULT_CONFIG, loadConfig } from '../src/config.ts';
+import { DEFAULT_LIMITS } from '../src/sandbox.ts';
+import { DEFAULT_BASE_URL, DEFAULT_CALL_BUDGET } from '../src/sevdesk.ts';
+import { writeConfig } from './config-file.ts';
+
+const HINT = 'Fix the file or delete it to use the defaults, then restart the MCP server.';
+
+/** The config the file yields; fails the test when the file is invalid. */
+function loaded(): Config {
+  const result = loadConfig();
+  if (!result.ok) throw new Error(result.error.message);
+  return result.config;
+}
+
+/** The error message the file yields; fails the test when the file is valid. */
+function problem(): string {
+  const result = loadConfig();
+  if (result.ok) throw new Error('the config file was accepted');
+  expect(result.error).toMatchObject({ kind: 'invalid_config', hint: HINT });
+  return result.error.message;
+}
+
+test('without a config file the documented defaults apply', () => {
+  expect(loaded()).toEqual({
+    baseUrl: 'https://my.sevdesk.de/api/v1',
+    limits: { timeoutMs: 30_000, memoryBytes: 64 * 1024 * 1024, outputChars: 20_000 },
+    maxCalls: 50,
+  });
+  expect(DEFAULT_CONFIG).toEqual({
+    baseUrl: DEFAULT_BASE_URL,
+    limits: DEFAULT_LIMITS,
+    maxCalls: DEFAULT_CALL_BUDGET,
+  });
+});
+
+test('the file sits in the config directory as config.json', () => {
+  expect(writeConfig({})).toBe(configFile());
+  expect(configFile()).toMatch(/[/\\]sevdesk-mcp[/\\]config\.json$/);
+  expect(loaded()).toEqual(DEFAULT_CONFIG);
+});
+
+test('every key in the file is converted to the units the code uses', () => {
+  writeConfig({
+    baseUrl: 'https://sevdesk.example/api/v2/',
+    limits: { timeoutSeconds: 5, memoryMb: 32, callsPerRun: 7, outputChars: 900 },
+  });
+
+  expect(loaded()).toEqual({
+    baseUrl: 'https://sevdesk.example/api/v2',
+    limits: { timeoutMs: 5000, memoryBytes: 32 * 1024 * 1024, outputChars: 900 },
+    maxCalls: 7,
+  });
+});
+
+test('keys the file leaves out keep their defaults', () => {
+  writeConfig({ limits: { callsPerRun: 3 } });
+
+  expect(loaded()).toEqual({ ...DEFAULT_CONFIG, maxCalls: 3 });
+});
+
+test('a leading byte-order mark is accepted', () => {
+  writeConfig('\uFEFF{ "limits": { "outputChars": 10 } }');
+
+  expect(loaded().limits.outputChars).toBe(10);
+});
+
+test.each([
+  ['{ "limits": ', 'it is not valid JSON ('],
+  ['', 'it is not valid JSON ('],
+  ['[]', 'it must hold a JSON object'],
+  ['null', 'it must hold a JSON object'],
+  ['"https://my.sevdesk.de/api/v1"', 'it must hold a JSON object'],
+])('malformed content %j fails with the path and the problem', (content, expected) => {
+  const file = writeConfig(content);
+
+  const message = problem();
+  expect(message).toContain(`The config file ${file} is invalid: `);
+  expect(message).toContain(expected);
+});
+
+test.each([
+  [{ baseURL: 'https://x.example' }, 'unknown key "baseURL"'],
+  [{ limits: { timeoutSecond: 5 } }, 'unknown key "limits.timeoutSecond"'],
+  [{ limits: [] }, 'limits must be an object'],
+  [
+    { limits: { timeoutSeconds: '30' } },
+    'limits.timeoutSeconds must be an integer from 1 to 3600, not "30"',
+  ],
+  [
+    { limits: { timeoutSeconds: 0 } },
+    'limits.timeoutSeconds must be an integer from 1 to 3600, not 0',
+  ],
+  [
+    { limits: { timeoutSeconds: 3601 } },
+    'limits.timeoutSeconds must be an integer from 1 to 3600, not 3601',
+  ],
+  [{ limits: { memoryMb: 8 } }, 'limits.memoryMb must be an integer from 16 to 2048, not 8'],
+  [{ limits: { memoryMb: 4096 } }, 'limits.memoryMb must be an integer from 16 to 2048, not 4096'],
+  [{ limits: { callsPerRun: 1.5 } }, 'limits.callsPerRun must be a positive integer, not 1.5'],
+  [{ limits: { outputChars: -1 } }, 'limits.outputChars must be a positive integer, not -1'],
+  [{ limits: { outputChars: null } }, 'limits.outputChars must be a positive integer, not null'],
+  [
+    { baseUrl: 'http://my.sevdesk.de/api/v1' },
+    'baseUrl must use https://, not http://, so the token never travels in clear text',
+  ],
+  [{ baseUrl: 'my.sevdesk.de/api/v1' }, 'baseUrl must be a URL string'],
+  [{ baseUrl: 42 }, 'baseUrl must be a URL string'],
+  [{ baseUrl: 'https://my.sevdesk.de/api/v1?x=1' }, 'baseUrl must not contain a query or fragment'],
+  [{ baseUrl: 'https://my.sevdesk.de/api/v1#x' }, 'baseUrl must not contain a query or fragment'],
+  [{ baseUrl: 'https://user:secret@my.sevdesk.de/api/v1' }, 'baseUrl must not contain credentials'],
+])('the invalid value in %j fails with the path and the problem', (content, expected) => {
+  const file = writeConfig(content);
+
+  expect(problem()).toBe(`The config file ${file} is invalid: ${expected}.`);
+});
+
+test('every problem of a file is reported at once, and a credential is never echoed', () => {
+  const file = writeConfig({
+    baseUrl: 'ftp://user:secret@my.sevdesk.de',
+    limits: { memoryMb: 1, extra: true },
+    audit: false,
+  });
+
+  const message = problem();
+  expect(message).toBe(
+    `The config file ${file} is invalid: unknown key "audit"; baseUrl must use https://, not ftp://, so the token never travels in clear text; limits.memoryMb must be an integer from 16 to 2048, not 1; unknown key "limits.extra".`,
+  );
+  expect(message).not.toContain('secret');
+});
+
+test('an unreadable config file fails with the path and the reason, not with the defaults', () => {
+  const file = configFile();
+  mkdirSync(file, { recursive: true });
+
+  const message = problem();
+  expect(message).toMatch(/^The config file .+ could not be read \(E[A-Z]+\)\.$/);
+  expect(message).toContain(file);
+});

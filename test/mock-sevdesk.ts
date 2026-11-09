@@ -24,19 +24,19 @@ export interface MockRequest {
 /** Route handlers keyed by `METHOD /path` relative to the API base, e.g. `GET /Contact`. */
 export type MockRoutes = Record<string, (request: MockRequest) => MockResponse>;
 
-const base = new URL(DEFAULT_BASE_URL);
-
 const defaultRoutes: MockRoutes = {
   'GET /Tools/bookkeepingSystemVersion': () => ({ json: { objects: { version: '2.0' } } }),
 };
 
 /**
  * Starts a mock sevDesk on a free port with `routes` over the defaults (a system 2.0 account;
- * anything else answers 404) and points the global `fetch` at it: calls to the real API base go
- * to the mock, any other URL throws, so a test never reaches sevDesk. The HTTPS base URL stays as
- * it is in the code under test. Undo with `vi.unstubAllGlobals()` and `close()`.
+ * anything else answers 404) and points the global `fetch` at it: calls to `baseUrl` (the real API
+ * base unless a test configures another) go to the mock, any other URL throws, so a test never
+ * reaches sevDesk. The HTTPS base URL stays as it is in the code under test. Undo with
+ * `vi.unstubAllGlobals()` and `close()`.
  */
-export async function startMockSevdesk(routes: MockRoutes = {}) {
+export async function startMockSevdesk(routes: MockRoutes = {}, baseUrl = DEFAULT_BASE_URL) {
+  const base = new URL(baseUrl);
   const requests: MockRequest[] = [];
   const handlers = { ...defaultRoutes, ...routes };
   const server = createServer((incoming, response) => {
@@ -63,7 +63,7 @@ export async function startMockSevdesk(routes: MockRoutes = {}) {
 
   const realFetch = globalThis.fetch;
   vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
-    if (!url.startsWith(`${DEFAULT_BASE_URL}/`)) {
+    if (!url.startsWith(`${baseUrl}/`)) {
       throw new Error(`The test fetch reaches only the mock sevDesk, not ${url}`);
     }
     return realFetch(`http://127.0.0.1:${String(port)}${url.slice(base.origin.length)}`, init);
