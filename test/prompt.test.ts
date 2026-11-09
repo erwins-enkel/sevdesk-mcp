@@ -61,6 +61,20 @@ test("a visible answer longer than the terminal's width is redrawn across its ro
   expect(shown()).toContain('\u001b[1A');
 });
 
+test('a hidden answer never comes back through the history of a later question', async () => {
+  const { input, prompter, shown } = terminal();
+
+  const token = prompter.ask('Token: ', { hidden: true });
+  input.write('s3cret-token\r');
+  expect(await token).toBe('s3cret-token');
+  const next = prompter.ask('Read-only? ');
+  // Up arrow, then Enter: readline would recall the previous line from its history.
+  input.write('\u001b[A\r');
+
+  expect(await next).toBe('');
+  expect(shown()).not.toContain('s3cret-token');
+});
+
 test('Ctrl+C cancels the question and every later one', async () => {
   const { input, prompter } = terminal();
 

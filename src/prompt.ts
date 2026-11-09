@@ -14,10 +14,10 @@ export interface Prompter {
 }
 
 /**
- * A prompter on `input` and `output` with Node's readline in terminal mode (raw input on a TTY).
- * Hidden input routes readline's echo through a muted stream while the line is typed: the question
- * is written before the stream is muted, a line break after, and no typed character reaches
- * `output`.
+ * A prompter on `input` and `output` with Node's readline in terminal mode (raw input on a TTY),
+ * without a line history. Hidden input routes readline's echo through a muted stream while the line
+ * is typed: the question is written before the stream is muted, a line break after, and no typed
+ * character reaches `output`.
  */
 export function createPrompter(input: Readable, output: Writable): Prompter {
   let muted = false;
@@ -29,7 +29,8 @@ export function createPrompter(input: Readable, output: Writable): Prompter {
   });
   // readline lays out the line by the terminal's width, which it reads from its output.
   Object.defineProperty(echo, 'columns', { get: () => (output as { columns?: number }).columns });
-  const lines = createInterface({ input, output: echo, terminal: true });
+  // No history: Up at a later question would otherwise bring back a hidden answer, shown in clear.
+  const lines = createInterface({ input, output: echo, terminal: true, historySize: 0 });
   let cancelled = false;
   let pending: AbortController | undefined;
   const cancel = () => {
