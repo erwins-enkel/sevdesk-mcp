@@ -302,9 +302,13 @@ test('a run that exceeds the call budget stops with a structured error, even whe
   expect(snippetCalls(sevdesk.requests)).toHaveLength(50);
 });
 
-test('writes and getPdf without preventSendBy=true are rejected and never sent', async () => {
+test('writes and irreversible reads are rejected and never sent', async () => {
   const pdf = { objects: { filename: 'RE-1.pdf', mimeType: 'application/pdf' } };
-  const sevdesk = await mock({ 'GET /Invoice/1/getPdf': () => ({ json: pdf }) });
+  const exportJob = { objects: { id: 'job-1' } };
+  const sevdesk = await mock({
+    'GET /Invoice/1/getPdf': () => ({ json: pdf }),
+    'GET /Export/createDatevCsvZipExportJob': () => ({ json: exportJob }),
+  });
 
   const { envelope } = await executeOnce(`
     const calls = [
@@ -315,17 +319,33 @@ test('writes and getPdf without preventSendBy=true are rejected and never sent',
       ['GET', '/Invoice/1/getPdf'],
       ['GET', '/Invoice/1/getPdf', { query: { preventSendBy: false } }],
       ['GET', '/Order/1/GETPDF', { query: { download: true } }],
+      ['GET', '/CreditNote/1/sendByWithRender', { query: { sendType: 'PRN' } }],
+      ['GET', '/Invoice/1/sendBy'],
+      ['GET', '/Export/datevCSV', { query: { enshrine: true } }],
+      ['GET', '/Export/createDatevCsvZipExportJob', { query: { enshrineDocuments: 1 } }],
     ];
     const kinds = [];
     for (const call of calls) {
       try { await sevdesk.request(...call); kinds.push('sent'); } catch (e) { kinds.push(e.kind); }
     }
     const allowed = await sevdesk.request('GET', '/Invoice/1/getPdf', { query: { preventSendBy: true } });
-    return { kinds, allowed };`);
+    const job = await sevdesk.request('GET', '/Export/createDatevCsvZipExportJob', {
+      query: { enshrineDocuments: false, includeEnshrined: true },
+    });
+    return { kinds, allowed, job };`);
 
-  expect(envelope.result).toEqual({ kinds: Array(7).fill('not_enabled'), allowed: pdf });
-  expect(snippetCalls(sevdesk.requests)).toEqual(['GET /Invoice/1/getPdf']);
-  expect(sevdesk.requests.at(-1)?.query.get('preventSendBy')).toBe('true');
+  expect(envelope.result).toEqual({
+    kinds: Array(11).fill('not_enabled'),
+    allowed: pdf,
+    job: exportJob,
+  });
+  expect(snippetCalls(sevdesk.requests)).toEqual([
+    'GET /Invoice/1/getPdf',
+    'GET /Export/createDatevCsvZipExportJob',
+  ]);
+  expect(
+    sevdesk.requests.find((r) => r.path === '/Invoice/1/getPdf')?.query.get('preventSendBy'),
+  ).toBe('true');
 });
 
 test('a non-JSON response is rejected and its content never reaches the result', async () => {

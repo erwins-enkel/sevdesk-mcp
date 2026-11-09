@@ -14,6 +14,15 @@ const RELATIVE_PATH = /^(?:\/[A-Za-z0-9_-]+)+$/;
 // Methods that write. They need the confirmation gate, which does not exist yet.
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
+// Path segments of the irreversible operations in PRD §6: send (`sendBy`, `sendViaEmail`),
+// enshrine, `bookAmount`, cancel and reset. sevDesk serves some as GET
+// (`/CreditNote/{id}/sendByWithRender` marks the credit note as sent), so a GET is checked too.
+const IRREVERSIBLE_SEGMENT = /^(?:send|enshrine|bookamount|cancel|reset)/i;
+
+// Query flags that enshrine every exported document (`enshrine` on `/Export/datevCSV`,
+// `enshrineDocuments` on `/Export/createDatevCsvZipExportJob`), unless set to false.
+const ENSHRINE_FLAG = /^enshrine/i;
+
 const JSON_CONTENT_TYPE = /^application\/(?:[\w.+-]+\+)?json\s*(?:;|$)/i;
 
 const TOKEN_HINT =
@@ -81,9 +90,30 @@ function readOptions(options: unknown, method: string, path: string): URLSearchP
 }
 
 /**
- * Validates the code's arguments `(method, path, options)` and builds the URL. Anything that is
- * not a plain read fails closed before a request exists: writes, and `getPdf` without
- * `preventSendBy=true`, which can mark the document as sent (decision 7).
+ * Why a GET would change sevDesk data irreversibly, or undefined: a segment naming an
+ * irreversible operation, `getPdf` without `preventSendBy=true` (it can mark the document as
+ * sent, decision 7) or an enshrine flag. Such calls need the confirmation gate, which does not
+ * exist yet. The full classification of every spec path arrives with the writes slice.
+ */
+function irreversibleRead(path: string, params: URLSearchParams): string | undefined {
+  const segments = path.split('/');
+  if (segments.some((segment) => IRREVERSIBLE_SEGMENT.test(segment))) {
+    return `GET ${path} sends, enshrines, books, cancels or resets a document, which needs confirmation and is not enabled yet. Nothing was sent.`;
+  }
+  const getsPdf = segments.some((segment) => segment.toLowerCase() === 'getpdf');
+  if (getsPdf && params.get('preventSendBy') !== 'true') {
+    return 'getPdf without preventSendBy=true can mark the document as sent, which is not enabled yet. Pass { query: { preventSendBy: true } }. Nothing was sent.';
+  }
+  const flag = [...params].find(([key, value]) => ENSHRINE_FLAG.test(key) && value !== 'false');
+  if (flag) {
+    return `query.${flag[0]}=${flag[1]} enshrines the exported documents, which needs confirmation and is not enabled yet. Nothing was sent.`;
+  }
+  return undefined;
+}
+
+/**
+ * Validates the code's arguments `(method, path, options)` and builds the URL. Writes and
+ * irreversible reads (see `irreversibleRead`) fail closed before a request exists.
  */
 function prepare(baseUrl: string, [method, path, options]: unknown[]): Call {
   if (typeof method !== 'string') throw invalidRequest('method must be a string such as "GET".');
@@ -104,14 +134,8 @@ function prepare(baseUrl: string, [method, path, options]: unknown[]): Call {
   }
   if (verb !== 'GET') throw invalidRequest(`Unknown method ${verb}; use GET.`, verb, path);
   const params = readOptions(options, verb, path);
-  const getsPdf = path.split('/').some((segment) => segment.toLowerCase() === 'getpdf');
-  if (getsPdf && params.get('preventSendBy') !== 'true') {
-    throw notEnabled(
-      'getPdf without preventSendBy=true can mark the document as sent, which is not enabled yet. Pass { query: { preventSendBy: true } }. Nothing was sent.',
-      verb,
-      path,
-    );
-  }
+  const irreversible = irreversibleRead(path, params);
+  if (irreversible !== undefined) throw notEnabled(irreversible, verb, path);
   const url = new URL(baseUrl + path);
   url.search = params.toString();
   return { method: verb, path, url };
@@ -201,9 +225,8 @@ async function send(call: Call, token: string, signal: AbortSignal): Promise<unk
 /**
  * Creates `sevdesk.request` for one run: it validates each call, sends at most `maxCalls` of them
  * to `baseUrl` with the token added here (never visible to the code) and returns the parsed JSON.
- * Writes, `getPdf` without `preventSendBy=true` and non-JSON responses fail closed until the
- * confirmation gate and file downloads exist. The call over `maxCalls` is not sent and ends the
- * run.
+ * Writes, irreversible reads and non-JSON responses fail closed until the confirmation gate and
+ * file downloads exist. The call over `maxCalls` is not sent and ends the run.
  */
 export function createClient({ baseUrl, token, maxCalls }: ClientOptions): HostFunction {
   if (new URL(baseUrl).protocol !== 'https:') {
