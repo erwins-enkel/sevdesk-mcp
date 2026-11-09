@@ -140,7 +140,7 @@ TypeScript, Node ≥ 22 (Node 20 ist seit 2026-04 end-of-life, siehe `docs/decis
 **Weitere Schalter:**
 - `SEVDESK_READONLY=true` – nur `GET`, alles andere wird abgelehnt.
 - Profilweise Einstellung `readonly: true`.
-- Beide Schalter wirken als ODER; keiner hebt den anderen auf (0002 Nr. 3).
+- Beide Schalter wirken als ODER; keiner hebt den anderen auf. Im Read-only-Modus wird außerdem jeder als bestätigungspflichtig eingestufte Aufruf abgelehnt, auch ein `GET` (z. B. `…/getPdf` ohne `preventSendBy=true`). Er wird abgelehnt, nicht zur Bestätigung zurückgehalten, damit kein Token den Read-only-Schalter aushebeln kann. `savePdf` funktioniert weiter, weil es immer `preventSendBy=true` setzt (0002 Nr. 3).
 - Lokales Audit-Log aller schreibenden Aufrufe, Standard an, abschaltbar per `audit: false` in der Konfiguration. Eine JSONL-Datei pro Monat im Daten-/State-Verzeichnis, keine automatische Löschung. Inhalt: Zeit, Profil, Methode, Pfad, Query, Status, sevDesk-Objekt-ID, Body-Hash und Ausgang (`executed`, `held`, `confirmed`, `rejected`) – keine Request-Bodies (keine Kundendaten) und nie der Token (0002 Nr. 16).
 
 ## 7. Einrichtung und Mandanten

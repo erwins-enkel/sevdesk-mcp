@@ -42,10 +42,14 @@ rules.
    **Answer:** With `SEVDESK_API_TOKEN` set, the server runs with exactly that one profile and does not
    read the keychain. `SEVDESK_PROFILE` only names this profile (audit log, PDF subfolder); the
    default name is `env`. **Source:** §7.
-3. **How do the two read-only switches combine?**
+3. **How do the two read-only switches combine, and what does read-only block?**
    **Answer:** `SEVDESK_READONLY=true` and a profile's `readonly: true` combine with OR; neither can
-   lift the other. When the global switch is on or the pinned profile is read-only, `execute`
-   carries the `readOnlyHint` annotation. **Source:** §6.
+   lift the other. In read-only mode every call that is not a GET, and every call classified as
+   irreversible (decisions 6 and 7), is rejected. That includes an irreversible GET such as
+   `getPdf` without `preventSendBy=true`. Such calls are rejected outright, not held for
+   confirmation, so no token can get them past read-only. `savePdf` keeps working because it
+   always sets `preventSendBy=true`. When the global switch is on or the pinned profile is
+   read-only, `execute` carries the `readOnlyHint` annotation. **Source:** §6.
 4. **What happens when no OS keychain is available (headless Linux, WSL, Docker)?**
    **Answer:** `setup` aborts. There is no plaintext fallback. The message explains why (a token in a
    plain file can be read by any process and any backup, and it grants full access to the
@@ -217,7 +221,7 @@ Every finding of the sweep, with where it went. "M0" refers to `## M0 candidates
 | 5   | Re-running code with `confirm` duplicates drafts and breaks the body-hash binding                    | Decision 5, M0-7        |
 | 6   | Runtime handling of write paths missing from the classification table is undefined                   | Decision 6, M0-7        |
 | 7   | "Statusänderungen auf Rechnungen" is not mapped to concrete calls                                    | Decision 6, M0-7        |
-| 8   | `getPdf` may set the sent status, so "read-only = GET only" is not side-effect free                  | Decision 7, M0-7        |
+| 8   | `getPdf` may set the sent status, so "read-only = GET only" is not side-effect free                  | Decisions 3, 7, M0-7    |
 | 9   | Document status after the "PDF only" delivery path is undefined                                      | Decision 7, P4-3        |
 | 10  | Elicitation is in the v1 flow (§6) but in v1.x on the roadmap (§9)                                   | Decision 8, P4-14       |
 | 11  | Preview example is German-formatted while model-facing text is English                               | Decision 9, M0-7        |

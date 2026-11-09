@@ -99,8 +99,10 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
    `account` is rejected. Else one profile → use it; several → `account` is required, otherwise
    fail with `account_required` listing names and company names. No default profile. No profile
    at all → server still starts, `search` works, `execute` returns a setup hint.
-2. **Read-only (3):** `SEVDESK_READONLY` OR profile `readonly`; neither lifts the other. Then
-   `execute` carries `readOnlyHint`.
+2. **Read-only (3):** `SEVDESK_READONLY` OR profile `readonly`; neither lifts the other. It
+   rejects every non-GET and every call classified irreversible, including GETs (`getPdf`
+   without `preventSendBy=true`); rejected, never held, so no token bypasses it. Then `execute`
+   carries `readOnlyHint`.
 3. **Confirmation (5, 6, 7):** irreversible calls are held (`{ held: true }`, the run continues);
    one token per run covers all held calls (single use, 10 min, in memory, bound to profile +
    method + path + body hash). `execute({ confirm })` replays exactly the stored calls without
