@@ -7,6 +7,7 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 
 - Product source of truth: `docs/prd/PRD-sevdesk.md` (German).
 - Foundation decisions and their rationale: `docs/decisions/0001-foundation.md`.
+- Product decisions and their rationale: `docs/decisions/0002-product-decisions.md`.
 - Status: scaffold. The server boots over stdio with no tools yet; every feature (sevDesk
   client, sandbox, confirmation flow, audit log, keychain, profiles, setup) arrives as a
   backlog slice.
@@ -87,6 +88,64 @@ Recorded at bootstrap (2026-11-09); details in `docs/decisions/0001-foundation.m
     (`rewriteRelativeImportExtensions` turns them into `.js` on emit) and `erasableSyntaxOnly`
     is on, so `node src/cli.ts` runs through Node's type stripping (Node ≥ 22.18 for
     development); the CLI tests rely on it. No enums, namespaces or parameter properties.
+
+## Product decisions
+
+Recorded in the P3 gap sweep (2026-11-09); numbers refer to
+`docs/decisions/0002-product-decisions.md`, which also lists the M0 candidates.
+
+1. **Tenant (1, 2, 12):** never guess. `SEVDESK_API_TOKEN` set → that one profile, keychain not
+   read, `SEVDESK_PROFILE` only names it (default `env`). Else `--profile` pins and any other
+   `account` is rejected. Else one profile → use it; several → `account` is required, otherwise
+   fail with `account_required` listing names and company names. No default profile. No profile
+   at all → server still starts, `search` works, `execute` returns a setup hint.
+2. **Read-only (3):** `SEVDESK_READONLY` OR profile `readonly`; neither lifts the other. It
+   rejects every non-GET and every call classified irreversible, including GETs (`getPdf`
+   without `preventSendBy=true`); rejected, never held, so no token bypasses it. Then `execute`
+   carries `readOnlyHint`.
+3. **Confirmation (5, 6, 7):** irreversible calls are held (`{ held: true }`, the run continues);
+   one token per run covers all held calls (single use, 10 min, in memory, bound to profile +
+   method + path + body hash). `execute({ confirm })` replays exactly the stored calls without
+   re-running code, stops at the first failure, reports per call. Classification fails closed:
+   unknown write paths, `status` in the body of PUT/POST on Invoice/Order/CreditNote/Voucher, and
+   `getPdf` without `preventSendBy=true` all need confirmation. `savePdf` always sets
+   `preventSendBy=true`; marking as sent (`sendBy`) is its own confirmed step.
+4. **Preview (9):** English, structured: amount as number + currency code, ISO 8601 dates,
+   recipient, subject, document number, profile and company name.
+5. **Retries (10):** GET on 429/5xx, any method on 429; never POST/PUT/DELETE on 5xx, never a
+   confirmed call.
+6. **Result envelope (11):** return value, console output, a ledger of every executed write call
+   (also when the code failed later), the confirmation request and the update hint (once per
+   session) when present. Errors: `isError: true` with
+   `{ kind, message, status?, method?, path?, sevdeskMessage?, hint? }`; API errors are catchable
+   in the sandbox; `undefined` yields an explicit "no return value"; over ~20 KB is cut with a
+   hint.
+7. **Network (15, 21, 22):** `sevdesk.request` takes only paths relative to the HTTPS base URL;
+   non-JSON responses are written to the download directory and return
+   `{ path, contentType, bytes }`. Nothing but sevDesk and the anonymous npm update check
+   (opt-out `SEVDESK_MCP_NO_UPDATE_CHECK=1`, failures silent on stderr). No telemetry.
+8. **Local files (13, 14, 16, 17):** OS-standard dirs (XDG on Linux): config (profiles without
+   tokens, global limits, paths, audit switch), data/state (audit log, update cache). PDFs:
+   `~/Downloads/sevdesk/<profile>/<number>.pdf` (fallback `<Type>-<id>.pdf`), same name is
+   overwritten. Audit log: monthly JSONL with time, profile, method, path, query, status, object
+   id, body hash, outcome (`executed|held|confirmed|rejected`); never bodies, never the token.
+   Upload (v1.x): off until a folder is configured; nothing outside it, symlinks included.
+9. **Secrets (4):** never a plaintext token. No keychain → `setup` aborts, explains why and
+   points to `SEVDESK_API_TOKEN`.
+10. **Setup (18, 19, 20):** profile names `[a-z0-9-]{1,32}`; read-only asked (default no); 1.0
+    accounts refused; `--remove` offers to remove client entries. Client configs: back up first,
+    ask per client, never overwrite silently; entry `sevdesk`/`sevdesk-<profile>` running
+    `npx -y @erwins-enkel/sevdesk-mcp --profile <name>`. No TTY → abort with the env-var hint.
+    Plain text, never colour-only, honour `NO_COLOR`. macOS, Windows and Linux are supported.
+11. **Copy (27, 28):** German CLI text uses "du", short, factual, gender-inclusive with a colon.
+    MCP `instructions` (search first, then execute; irreversible needs `confirm`) count toward
+    the 1,500-token budget. Elicitation (v1.x, decision 8) text is localised.
+12. **E2E (29):** local and manual only, never in CI (`SEVDESK_E2E_TOKEN`,
+    `SEVDESK_E2E_MAIL_TO`; skip the mail test without it). Fixtures "MCP Test GmbH" and
+    `mcp-test` are persistent. Sent test offers are reported, never deleted.
+13. **Releases (23, 24, 25):** a tag triggers npm trusted publishing with provenance and attaches
+    the `.mcpb`; the MCP Registry entry comes with 1.0. The sevDesk spec ships with attribution
+    ("© sevDesk, not MIT"); verify sevDesk's terms before the first publish.
 
 ## Verify
 
