@@ -1,7 +1,9 @@
 {
-  "cli.usage": "Aufruf: sevdesk-mcp [Befehl]\n\nOhne Befehl startet der MCP-Server auf stdio.\n\nBefehle:\n  setup      sevDesk-API-Token speichern und MCP-Clients eintragen\n  --help     Diese Hilfe anzeigen\n  --version  Version anzeigen\n\nExit-Codes:\n  {success}  Erfolg\n  {failure}  Fehler bei der Ausführung\n  {usage}  Falscher Aufruf (unbekannter Befehl oder unbekannte Option)",
+  "cli.usage": "Aufruf: sevdesk-mcp [--profile <name>]\n        sevdesk-mcp <Befehl>\n\nOhne Befehl startet der MCP-Server auf stdio.\n\nOptionen:\n  --profile <name>  Nur dieses Profil verwenden; execute lehnt jedes andere Konto ab\n\nBefehle:\n  setup      sevDesk-API-Token speichern und MCP-Clients eintragen\n  --help     Diese Hilfe anzeigen\n  --version  Version anzeigen\n\nExit-Codes:\n  {success}  Erfolg\n  {failure}  Fehler bei der Ausführung\n  {usage}  Falscher Aufruf (unbekannter Befehl oder unbekannte Option)",
   "cli.unknownCommand": "Unbekannter Befehl: {command}",
   "cli.unknownOption": "Unbekannte Option: {option}",
   "cli.unexpectedArgument": "Unerwartetes Argument: {argument}",
+  "cli.missingProfileName": "--profile braucht einen Profilnamen",
+  "cli.invalidProfileName": "Ungültiger Profilname: {profile} (1 bis 32 Zeichen: a-z, 0-9 und -)",
   "setup.notImplemented": "Der Setup-Assistent ist noch nicht implementiert."
 }

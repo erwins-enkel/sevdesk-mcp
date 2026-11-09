@@ -6,8 +6,9 @@ through just `search` and `execute`: instead of one tool per endpoint, the model
 JavaScript snippets that run in a local sandbox against the sevDesk API ("Code Mode").
 
 > **Status: early development.** The server offers `search` (explore the sevDesk API
-> specification) and a read-only `execute` (GET calls with a token from `SEVDESK_API_TOKEN`);
-> writing is not there yet. Do not use it with a real sevDesk account yet.
+> specification) and a read-only `execute` (GET calls with a token from `SEVDESK_API_TOKEN` or
+> from a profile in the OS keychain); writing and `setup` are not there yet. Do not use it with a
+> real sevDesk account yet.
 
 > Not developed or endorsed by sevDesk. (Nicht von sevDesk entwickelt oder unterstützt.)
 
@@ -28,7 +29,8 @@ and `execute` run.
 ```json
 {
   "baseUrl": "https://my.sevdesk.de/api/v1",
-  "limits": { "timeoutSeconds": 30, "memoryMb": 64, "callsPerRun": 50, "outputChars": 20000 }
+  "limits": { "timeoutSeconds": 30, "memoryMb": 64, "callsPerRun": 50, "outputChars": 20000 },
+  "profiles": { "manufare": { "company": "manu·fare GmbH", "readonly": false } }
 }
 ```
 
@@ -39,11 +41,33 @@ and `execute` run.
 | `limits.memoryMb`       | `64`                           | sandbox memory in MB, 16 to 2048                         |
 | `limits.callsPerRun`    | `50`                           | sevDesk calls per `execute` run, 1 or more               |
 | `limits.outputChars`    | `20000`                        | characters of result and of console output, 1 or more    |
+| `profiles.<name>`       | none                           | a profile: name of 1 to 32 characters `a-z`, `0-9`, `-`  |
+| `….company`             | required                       | the sevDesk company name, a non-empty string             |
+| `….readonly`            | `false`                        | `true` or `false` (not enforced yet)                     |
 
 The server reads the file when it starts, so restart it (or your MCP client) after a change. If the
 file is not valid JSON, has an unknown key or an invalid value, both tools refuse to run and
 return an `invalid_config` error naming the file and the problem; the server never falls back to
 the defaults for a broken file.
+
+## Profiles
+
+A profile is one sevDesk account. The config file holds its name, company and read-only flag; its
+API token lives only in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret
+Service), under the service `sevdesk-mcp` with the profile name as the account. A token is never
+read from a file; a `token` key in the config file is an error. `sevdesk-mcp setup` will store
+tokens; it is not implemented yet, so use `SEVDESK_API_TOKEN` until then. On Linux without a
+Secret Service (headless, WSL, Docker), use `SEVDESK_API_TOKEN` as well.
+
+The server never guesses which account a call is for:
+
+1. With `SEVDESK_API_TOKEN` set, it has exactly that one profile (named by `SEVDESK_PROFILE`,
+   default `env`) and does not read the keychain; otherwise it has the profiles of the config file.
+2. `sevdesk-mcp --profile <name>` pins the server to one of them; `execute` accepts no other
+   `account`.
+3. Otherwise, with exactly one profile, `execute` uses it.
+4. With several, `execute` needs `account`; without it, it answers `account_required` with the
+   profile names and companies.
 
 ## Development
 

@@ -42,6 +42,7 @@
   "dependencies": {
     "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@modelcontextprotocol/server": "2.4.0",
+    "@napi-rs/keyring": "2.1.2",
     "quickjs-emscripten-core": "0.32.0"
   },
   "scripts": {

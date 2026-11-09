@@ -11,11 +11,12 @@ const instructions =
 /**
  * Builds the MCP server with its instructions and tools. Tools are registered here. The config file
  * is read once per server; an invalid one makes every tool return its error instead of running.
+ * `pinnedProfile` (`--profile <name>`) limits `execute` to that one profile.
  */
-export function createServer(): McpServer {
+export function createServer({ pinnedProfile }: { pinnedProfile?: string } = {}): McpServer {
   const config = loadConfig();
   const server = new McpServer({ name, version }, { instructions });
   registerSearchTool(server, config);
-  registerExecuteTool(server, config);
+  registerExecuteTool(server, config, pinnedProfile);
   return server;
 }

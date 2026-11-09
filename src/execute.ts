@@ -1,7 +1,14 @@
 import { fromJsonSchema, type McpServer } from '@modelcontextprotocol/server';
 import { type Config, DEFAULT_CONFIG, type LoadedConfig } from './config.ts';
 import { errorResult, toToolResult } from './envelope.ts';
-import { type Profile, resolveEnvProfile } from './profile.ts';
+import { readToken } from './keychain.ts';
+import {
+  describeProfiles,
+  type Profile,
+  type ReachableProfile,
+  reachableProfiles,
+  selectProfile,
+} from './profile.ts';
 import { HostError, runSnippet, type SnippetError } from './sandbox.ts';
 import { bookkeepingSystemError, createClient, PAGE_SIZE } from './sevdesk.ts';
 
@@ -13,16 +20,46 @@ const description = ({
 const r = await sevdesk.request('GET', '/Contact', { query: { depth: 1, limit: 10 } });
 return r.objects.map((c) => ({ id: c.id, name: c.name }))`;
 
+interface Input {
+  code: string;
+  account?: string;
+}
+
+/**
+ * The input schema: `code`, and `account` as an enum of the reachable profiles with their companies
+ * when there are any. `account` is never required by the schema, so a call without it reaches the
+ * handler, which asks for it with the list of profiles when there are several.
+ */
+function inputSchema(profiles: ReachableProfile[]) {
+  const properties: Record<string, object> = {
+    code: { type: 'string', description: 'Body of an async JavaScript function; use return.' },
+  };
+  if (profiles.length > 0) {
+    properties.account = {
+      type: 'string',
+      enum: profiles.map(({ name }) => name),
+      description: `sevDesk profile to use, one of: ${describeProfiles(profiles)}. Required when there are several.`,
+    };
+  }
+  return fromJsonSchema<Input>({ type: 'object', properties, required: ['code'] });
+}
+
 /**
  * Registers `execute`: the model's code runs in the sandbox with `sevdesk.request` and
- * `sevdesk.paginate` against the profile's sevDesk account at the configured base URL, within the
- * configured limits and call budget. The bookkeeping system is checked on the first call per
- * profile and remembered for the session (this server instance), never at startup. With an invalid
- * config file it returns the config error and sends nothing.
+ * `sevdesk.paginate` against the sevDesk account of the profile it selects with `account` (decision
+ * 1: among the profiles this server reaches, `pinnedProfile` narrowing them to one), at the
+ * configured base URL, within the configured limits and call budget. A keychain profile's token is
+ * read on every call. The bookkeeping system is checked on the first call per profile and
+ * remembered for the session (this server instance), never at startup. With an invalid config file
+ * it returns the config error and sends nothing.
  */
-export function registerExecuteTool(server: McpServer, loaded: LoadedConfig): void {
+export function registerExecuteTool(
+  server: McpServer,
+  loaded: LoadedConfig,
+  pinnedProfile: string | undefined,
+): void {
   const config = loaded.ok ? loaded.config : DEFAULT_CONFIG;
-  const resolved = resolveEnvProfile();
+  const reachable = reachableProfiles(config, pinnedProfile);
   // Per profile name: the check in flight or its outcome (undefined for system 2.0).
   const checks = new Map<string, Promise<SnippetError | undefined>>();
 
@@ -46,23 +83,28 @@ export function registerExecuteTool(server: McpServer, loaded: LoadedConfig): vo
     return check;
   }
 
+  /** The profile `account` selects, with its token, or the error that stops the call. */
+  async function profileFor(
+    account: string | undefined,
+  ): Promise<{ ok: true; profile: Profile } | { ok: false; error: SnippetError }> {
+    if (!reachable.ok) return reachable;
+    const selected = selectProfile(reachable.profiles, account);
+    if (!selected.ok) return selected;
+    const { name, token } = selected.profile;
+    if (token !== undefined) return { ok: true, profile: { name, token } };
+    const read = await readToken(name);
+    return read.ok ? { ok: true, profile: { name, token: read.token } } : read;
+  }
+
   server.registerTool(
     'execute',
     {
       description: description(config),
-      inputSchema: fromJsonSchema<{ code: string }>({
-        type: 'object',
-        properties: {
-          code: {
-            type: 'string',
-            description: 'Body of an async JavaScript function; use return.',
-          },
-        },
-        required: ['code'],
-      }),
+      inputSchema: inputSchema(reachable.ok ? reachable.profiles : []),
     },
-    async ({ code }) => {
+    async ({ code, account }) => {
       if (!loaded.ok) return errorResult(loaded.error);
+      const resolved = await profileFor(account);
       if (!resolved.ok) return errorResult(resolved.error);
       const { profile } = resolved;
       try {

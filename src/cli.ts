@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import { isProfileName } from './config.ts';
 import { resolveLocale, t } from './i18n/index.ts';
 import { version } from './manifest.ts';
 import { createServer } from './server.ts';
@@ -22,10 +23,28 @@ function usageError(message: string): void {
   process.exitCode = exitCodes.usage;
 }
 
+/** Serves MCP on stdio; `serveStdio` builds one server per connection. */
+function serve(pinnedProfile?: string): void {
+  serveStdio(() => createServer({ pinnedProfile }));
+}
+
 switch (command) {
   case undefined:
-    serveStdio(createServer);
+    serve();
     break;
+  case '--profile': {
+    const [profile, extra] = rest;
+    if (profile === undefined) {
+      usageError(t(locale, 'cli.missingProfileName'));
+    } else if (!isProfileName(profile)) {
+      usageError(t(locale, 'cli.invalidProfileName', { profile }));
+    } else if (extra !== undefined) {
+      usageError(t(locale, 'cli.unexpectedArgument', { argument: extra }));
+    } else {
+      serve(profile);
+    }
+    break;
+  }
   case '--help':
   case '-h':
   case '--version':

@@ -2,11 +2,11 @@ import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { createServer } from '../src/server.ts';
 
-/** Connects a test client to a fresh `createServer()` over an in-memory transport. */
-export async function connect(): Promise<Client> {
+/** Connects a test client to a fresh `createServer(options)` over an in-memory transport. */
+export async function connect(options?: Parameters<typeof createServer>[0]): Promise<Client> {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'test-client', version: '0.0.0' });
-  await createServer().connect(serverTransport);
+  await createServer(options).connect(serverTransport);
   await client.connect(clientTransport);
   return client;
 }

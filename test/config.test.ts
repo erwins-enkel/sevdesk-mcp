@@ -27,11 +27,13 @@ test('without a config file the documented defaults apply', () => {
     baseUrl: 'https://my.sevdesk.de/api/v1',
     limits: { timeoutMs: 30_000, memoryBytes: 64 * 1024 * 1024, outputChars: 20_000 },
     maxCalls: 50,
+    profiles: [],
   });
   expect(DEFAULT_CONFIG).toEqual({
     baseUrl: DEFAULT_BASE_URL,
     limits: DEFAULT_LIMITS,
     maxCalls: DEFAULT_CALL_BUDGET,
+    profiles: [],
   });
 });
 
@@ -45,12 +47,17 @@ test('every key in the file is converted to the units the code uses', () => {
   writeConfig({
     baseUrl: 'https://sevdesk.example/api/v2/',
     limits: { timeoutSeconds: 5, memoryMb: 32, callsPerRun: 7, outputChars: 900 },
+    profiles: { 'mcp-test': { company: 'MCP Test GmbH', readonly: true }, b2: { company: 'B' } },
   });
 
   expect(loaded()).toEqual({
     baseUrl: 'https://sevdesk.example/api/v2',
     limits: { timeoutMs: 5000, memoryBytes: 32 * 1024 * 1024, outputChars: 900 },
     maxCalls: 7,
+    profiles: [
+      { name: 'mcp-test', company: 'MCP Test GmbH', readonly: true },
+      { name: 'b2', company: 'B', readonly: false },
+    ],
   });
 });
 
@@ -110,6 +117,23 @@ test.each([
   [{ baseUrl: 'https://my.sevdesk.de/api/v1?x=1' }, 'baseUrl must not contain a query or fragment'],
   [{ baseUrl: 'https://my.sevdesk.de/api/v1#x' }, 'baseUrl must not contain a query or fragment'],
   [{ baseUrl: 'https://user:secret@my.sevdesk.de/api/v1' }, 'baseUrl must not contain credentials'],
+  [{ profiles: [] }, 'profiles must be an object of profiles by name'],
+  [
+    { profiles: { 'Bad Name': { company: 'A' } } },
+    'profile name "Bad Name" must be 1 to 32 characters a-z, 0-9 and -',
+  ],
+  [
+    { profiles: { ['a'.repeat(33)]: { company: 'A' } } },
+    `profile name "${'a'.repeat(33)}" must be 1 to 32 characters a-z, 0-9 and -`,
+  ],
+  [{ profiles: { a: 'A GmbH' } }, 'profiles.a must be an object'],
+  [{ profiles: { a: {} } }, 'profiles.a.company must be a non-empty string'],
+  [{ profiles: { a: { company: ' ' } } }, 'profiles.a.company must be a non-empty string'],
+  [
+    { profiles: { a: { company: 'A', readonly: 'yes' } } },
+    'profiles.a.readonly must be true or false',
+  ],
+  [{ profiles: { a: { company: 'A', readOnly: true } } }, 'unknown key "profiles.a.readOnly"'],
 ])('the invalid value in %j fails with the path and the problem', (content, expected) => {
   const file = writeConfig(content);
 
@@ -128,6 +152,14 @@ test('every problem of a file is reported at once, and a credential is never ech
     `The config file ${file} is invalid: unknown key "audit"; baseUrl must use https://, not ftp://, so the token never travels in clear text; limits.memoryMb must be an integer from 16 to 2048, not 1; unknown key "limits.extra".`,
   );
   expect(message).not.toContain('secret');
+});
+
+test('a token in a profile of the file is rejected, never read, and never echoed', () => {
+  const file = writeConfig({ profiles: { a: { company: 'A', token: 'plain-token-7d1e' } } });
+
+  const message = problem();
+  expect(message).toBe(`The config file ${file} is invalid: unknown key "profiles.a.token".`);
+  expect(message).not.toContain('plain-token-7d1e');
 });
 
 test('an unreadable config file fails with the path and the reason, not with the defaults', () => {

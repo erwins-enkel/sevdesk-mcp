@@ -33,7 +33,7 @@ const ENSHRINE_FLAG = /^enshrine/i;
 const JSON_CONTENT_TYPE = /^application\/(?:[\w.+-]+\+)?json\s*(?:;|$)/i;
 
 const TOKEN_HINT =
-  'sevDesk rejected the API token (wrong, expired or revoked). Set a valid SEVDESK_API_TOKEN for this MCP server and restart it.';
+  'sevDesk rejected the API token (wrong, expired or revoked). Replace it in the OS keychain entry of this profile, or set a valid SEVDESK_API_TOKEN for this MCP server and restart it.';
 
 /** A validated call, ready to send. */
 interface Call {
