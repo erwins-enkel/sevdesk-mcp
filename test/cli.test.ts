@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { Client, type JSONRPCMessage, type Transport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { expect, test } from 'vitest';
+import { writeConfig } from './config-file.ts';
 
 // Runs the real entry point through Node's type stripping, so no build is needed.
 const cli = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
@@ -28,6 +29,22 @@ test('serves MCP over stdio when started without a command', async () => {
 
   expect(client.getServerVersion()?.name).toBe(pkg.name);
   await client.close();
+});
+
+test("a spawned server reads the config from the test's temporary directory", async () => {
+  writeConfig({ limits: { outputChars: 10 } });
+  const client = new Client({ name: 'test-client', version: '0.0.0' });
+  // The SDK's default environment passes only HOME (POSIX) or the profile variables (Windows).
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: [cli] }));
+
+  const result = await client.callTool({
+    name: 'search',
+    arguments: { code: 'return "abcdefghijklmnop"' },
+  });
+  await client.close();
+
+  const [block] = result.content as [{ type: 'text'; text: string }];
+  expect(JSON.parse(block.text)).toMatchObject({ result: '"abcdefghi' });
 });
 
 /**

@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { fromJsonSchema, type McpServer } from '@modelcontextprotocol/server';
-import { toToolResult } from './envelope.ts';
-import { DEFAULT_LIMITS, runSnippet } from './sandbox.ts';
+import { DEFAULT_CONFIG, type LoadedConfig } from './config.ts';
+import { errorResult, toToolResult } from './envelope.ts';
+import { runSnippet } from './sandbox.ts';
 
 // Shipped in the package next to dist/ (package.json "files"), so this resolves from src/ and dist/.
 const specFile = new URL('../spec/sevdesk-openapi.json', import.meta.url);
@@ -13,15 +14,22 @@ function loadSpec(): string {
   return specJson;
 }
 
-const description = `Explore the sevDesk REST API. \`code\` is the body of an async JavaScript function, run in a sandbox with \`spec\` (the official sevDesk OpenAPI 3.0 spec, all $refs resolved) and \`console.log\`; no network or file access. Only the return value and console output come back, each cut at ${String(DEFAULT_LIMITS.outputChars)} characters, so return just what you need, e.g.:
+/** The tool description, with the configured output limit. */
+const description = (
+  outputChars: number,
+) => `Explore the sevDesk REST API. \`code\` is the body of an async JavaScript function, run in a sandbox with \`spec\` (the official sevDesk OpenAPI 3.0 spec, all $refs resolved) and \`console.log\`; no network or file access. Only the return value and console output come back, each cut at ${String(outputChars)} characters, so return just what you need, e.g.:
 return Object.entries(spec.paths).filter(([p]) => p.startsWith('/Order')).map(([p, ops]) => ({ path: p, methods: Object.keys(ops) }))`;
 
-/** Registers `search`: the model's code runs against the embedded sevDesk OpenAPI spec. */
-export function registerSearchTool(server: McpServer): void {
+/**
+ * Registers `search`: the model's code runs against the embedded sevDesk OpenAPI spec, within the
+ * configured limits. With an invalid config file it returns the config error and runs nothing.
+ */
+export function registerSearchTool(server: McpServer, loaded: LoadedConfig): void {
+  const { limits } = loaded.ok ? loaded.config : DEFAULT_CONFIG;
   server.registerTool(
     'search',
     {
-      description,
+      description: description(limits.outputChars),
       inputSchema: fromJsonSchema<{ code: string }>({
         type: 'object',
         properties: {
@@ -34,7 +42,9 @@ export function registerSearchTool(server: McpServer): void {
       }),
       annotations: { readOnlyHint: true },
     },
-    async ({ code }) =>
-      toToolResult(await runSnippet(code, { spec: loadSpec() }), DEFAULT_LIMITS.outputChars),
+    async ({ code }) => {
+      if (!loaded.ok) return errorResult(loaded.error);
+      return toToolResult(await runSnippet(code, { spec: loadSpec() }, limits), limits.outputChars);
+    },
   );
 }

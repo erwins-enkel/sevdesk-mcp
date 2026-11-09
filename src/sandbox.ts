@@ -5,7 +5,7 @@ import {
   type QuickJSHandle,
 } from 'quickjs-emscripten-core';
 
-/** Limits of one sandbox run (PRD §5.3). The config file will override the defaults. */
+/** Limits of one sandbox run (PRD §5.3). The config file overrides the defaults (`src/config.ts`). */
 export interface SandboxLimits {
   /** Wall-clock budget of the run. */
   timeoutMs: number;
