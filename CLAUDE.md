@@ -27,9 +27,10 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `src/envelope.ts`: `toToolResult()`, the JSON result envelope (`result`, `error`, `console`,
   `notes`; results over 20,000 characters are cut). `src/search.ts`: the `search` tool.
 - `src/execute.ts`: the `execute` tool (bookkeeping-system check per profile and session).
-  `src/sevdesk.ts`: `createClient()`, the host side of `sevdesk.request` (HTTPS base URL,
-  relative paths only, token added host-side, call budget, fail-closed rules, structured
-  errors). `src/profile.ts`: the profile from `SEVDESK_API_TOKEN`/`SEVDESK_PROFILE`.
+  `src/sevdesk.ts`: `createClient()`, the host side of `sevdesk.request` and `sevdesk.paginate`
+  (HTTPS base URL, relative paths only, token added host-side, shared call budget, pages of
+  1,000, fail-closed rules, structured errors); `send()` retries per decision 10 (`retry: false`
+  sends once, for confirmed calls). `src/profile.ts`: the profile from `SEVDESK_API_TOKEN`/`SEVDESK_PROFILE`.
 - `spec/sevdesk-openapi.json`: the embedded sevDesk OpenAPI spec (`$ref`s resolved, © sevDesk,
   not MIT). Never edit it by hand: `bun run update-spec` regenerates it
   (`scripts/update-spec.ts`, `scripts/resolve-refs.ts`).
