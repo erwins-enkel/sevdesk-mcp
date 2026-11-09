@@ -451,23 +451,3 @@ test('writes and irreversible reads are rejected and never sent', async () => {
     sevdesk.requests.find((r) => r.path === '/Invoice/1/getPdf')?.query.get('preventSendBy'),
   ).toBe('true');
 });
-
-test('a non-JSON response is rejected and its content never reaches the result', async () => {
-  await mock({
-    'GET /Export/datevCSV': () => ({ contentType: 'text/csv', text: 'secret;csv;row' }),
-  });
-
-  const { isError, envelope, text } = await executeOnce(
-    "return await sevdesk.request('GET', '/Export/datevCSV')",
-  );
-
-  expect(isError).toBe(true);
-  expect(envelope.error).toEqual({
-    kind: 'not_enabled',
-    message:
-      'GET /Export/datevCSV returned text/csv, not JSON; non-JSON responses are not enabled yet.',
-    method: 'GET',
-    path: '/Export/datevCSV',
-  });
-  expect(text).not.toContain('secret;csv;row');
-});

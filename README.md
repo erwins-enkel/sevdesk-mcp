@@ -7,8 +7,8 @@ JavaScript snippets that run in a local sandbox against the sevDesk API ("Code M
 
 > **Status: early development.** The server offers `search` (explore the sevDesk API
 > specification) and a read-only `execute` (GET calls with a token from `SEVDESK_API_TOKEN` or
-> from a profile in the OS keychain); writing and `setup` are not there yet. Do not use it with a
-> real sevDesk account yet.
+> from a profile in the OS keychain, PDFs and exports saved to disk); writing and `setup` are not
+> there yet. Do not use it with a real sevDesk account yet.
 
 > Not developed or endorsed by sevDesk. (Nicht von sevDesk entwickelt oder unterstützt.)
 
@@ -44,6 +44,7 @@ and `execute` run.
 | `profiles.<name>`       | none                           | a profile: name of 1 to 32 characters `a-z`, `0-9`, `-`  |
 | `….company`             | required                       | the sevDesk company name, a non-empty string             |
 | `….readonly`            | `false`                        | `true` or `false` (not enforced yet)                     |
+| `….downloadDir`         | `~/Downloads/sevdesk/<name>`   | where its files are saved, an absolute path              |
 
 The server reads the file when it starts, so restart it (or your MCP client) after a change. If the
 file is not valid JSON, has an unknown key or an invalid value, both tools refuse to run and
@@ -68,6 +69,21 @@ The server never guesses which account a call is for:
 3. Otherwise, with exactly one profile, `execute` uses it.
 4. With several, `execute` needs `account`; without it, it answers `account_required` with the
    profile names and companies.
+
+## Files
+
+PDFs and exports never pass through the assistant's context: the server saves them in the
+profile's download directory and returns only the path. That directory is
+`~/Downloads/sevdesk/<profile>/` unless the profile sets `downloadDir`; the profile of
+`SEVDESK_API_TOKEN` is named by `SEVDESK_PROFILE` (default `env`).
+
+- `sevdesk.savePdf(type, id)` saves the PDF of an order (offer), invoice or credit note as
+  `<document number>.pdf`, or as `<Type>-<id>.pdf` when it has no number, and replaces an older
+  copy of the same name. It always asks sevDesk not to mark the document as sent
+  (`preventSendBy=true`).
+- Any other response that is not JSON, such as a CSV export, is saved as a new file named after the
+  request path, e.g. `Export-datevCSV.csv`. An existing file is kept; the new one gets `-2`, `-3`,
+  … appended.
 
 ## Development
 

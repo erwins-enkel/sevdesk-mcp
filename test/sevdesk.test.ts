@@ -1,3 +1,5 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import { HostError, type SnippetError } from '../src/sandbox.ts';
 import { createClient, DEFAULT_BASE_URL, send } from '../src/sevdesk.ts';
@@ -29,17 +31,22 @@ function answers(...responses: MockResponse[]): () => MockResponse {
   return () => responses[Math.min(next++, responses.length - 1)] ?? {};
 }
 
-/** Sends `method path` to the mock sevDesk through the client's `send`. */
+/** Sends `method path` to the mock sevDesk through the client's `send`; resolves to the JSON. */
 function sendTo(
   method: string,
   path: string,
   retry: typeof FAST | false = FAST,
   signal = new AbortController().signal,
-) {
+): Promise<unknown> {
   return send(
     { method, path, url: new URL(DEFAULT_BASE_URL + path) },
     { token: TOKEN, signal, retry },
-  );
+  ).then((response) => response.json());
+}
+
+/** The client options of these tests, with a download directory in the temporary home. */
+function clientOptions(baseUrl = DEFAULT_BASE_URL) {
+  return { baseUrl, token: TOKEN, maxCalls: 1, downloadDir: join(homedir(), 'Downloads') };
 }
 
 /** The structured error a call rejects with; fails the test if it resolves. */
@@ -64,7 +71,7 @@ test('a non-HTTPS base URL is rejected before any request is sent', () => {
 
   let thrown: unknown;
   try {
-    createClient({ baseUrl: 'http://my.sevdesk.de/api/v1', token: TOKEN, maxCalls: 1 });
+    createClient(clientOptions('http://my.sevdesk.de/api/v1'));
   } catch (error) {
     thrown = error;
   }
@@ -77,7 +84,7 @@ test('a non-HTTPS base URL is rejected before any request is sent', () => {
 test('a network failure reports only the error code, never the error text', async () => {
   const cause = Object.assign(new Error(`invalid header value ${TOKEN}`), { code: 'ECONNREFUSED' });
   vi.stubGlobal('fetch', () => Promise.reject(new TypeError('fetch failed', { cause })));
-  const { request } = createClient({ baseUrl: DEFAULT_BASE_URL, token: TOKEN, maxCalls: 1 });
+  const { request } = createClient(clientOptions());
 
   const failed = request(['GET', '/Contact'], new AbortController().signal);
 

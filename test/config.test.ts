@@ -1,4 +1,6 @@
 import { mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { expect, test } from 'vitest';
 import { type Config, configFile, DEFAULT_CONFIG, loadConfig } from '../src/config.ts';
 import { DEFAULT_LIMITS } from '../src/sandbox.ts';
@@ -59,6 +61,13 @@ test('every key in the file is converted to the units the code uses', () => {
       { name: 'b2', company: 'B', readonly: false },
     ],
   });
+});
+
+test('a profile keeps an absolute downloadDir as it is', () => {
+  const downloadDir = join(homedir(), 'Belege');
+  writeConfig({ profiles: { a: { company: 'A', downloadDir } } });
+
+  expect(loaded().profiles).toEqual([{ name: 'a', company: 'A', readonly: false, downloadDir }]);
 });
 
 test('keys the file leaves out keep their defaults', () => {
@@ -134,6 +143,22 @@ test.each([
     'profiles.a.readonly must be true or false',
   ],
   [{ profiles: { a: { company: 'A', readOnly: true } } }, 'unknown key "profiles.a.readOnly"'],
+  [
+    { profiles: { a: { company: 'A', downloadDir: 'Belege/sevdesk' } } },
+    'profiles.a.downloadDir must be an absolute path',
+  ],
+  [
+    { profiles: { a: { company: 'A', downloadDir: '~/Belege' } } },
+    'profiles.a.downloadDir must be an absolute path',
+  ],
+  [
+    { profiles: { a: { company: 'A', downloadDir: '' } } },
+    'profiles.a.downloadDir must be an absolute path',
+  ],
+  [
+    { profiles: { a: { company: 'A', downloadDir: ['/srv'] } } },
+    'profiles.a.downloadDir must be an absolute path',
+  ],
 ])('the invalid value in %j fails with the path and the problem', (content, expected) => {
   const file = writeConfig(content);
 

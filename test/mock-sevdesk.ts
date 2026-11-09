@@ -3,12 +3,16 @@ import type { AddressInfo } from 'node:net';
 import { vi } from 'vitest';
 import { DEFAULT_BASE_URL } from '../src/sevdesk.ts';
 
-/** What a mock route answers: `json` by default, or `text` with its own content type. */
+/**
+ * What a mock route answers: `json` by default, or `text` or raw `bytes` with their own content
+ * type (`null` sends none).
+ */
 export interface MockResponse {
   status?: number;
   json?: unknown;
   text?: string;
-  contentType?: string;
+  bytes?: Uint8Array;
+  contentType?: string | null;
   /** Further response headers, e.g. `retry-after`. */
   headers?: Record<string, string>;
 }
@@ -52,11 +56,12 @@ export async function startMockSevdesk(routes: MockRoutes = {}, baseUrl = DEFAUL
     const answer = handler
       ? handler(request)
       : { status: 404, json: { objects: null, error: { message: 'Not found' } } };
+    const contentType = answer.contentType === undefined ? 'application/json' : answer.contentType;
     response.writeHead(answer.status ?? 200, {
-      'content-type': answer.contentType ?? 'application/json',
+      ...(contentType === null ? {} : { 'content-type': contentType }),
       ...answer.headers,
     });
-    response.end(answer.text ?? JSON.stringify(answer.json));
+    response.end(answer.bytes ?? answer.text ?? JSON.stringify(answer.json));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;

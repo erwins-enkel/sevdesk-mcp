@@ -11,9 +11,10 @@ vi.mock('@napi-rs/keyring', () => import('./fake-keychain.ts'));
 
 // Runs before every test (vitest `setupFiles`): a fresh temporary home, with every variable the
 // local directories derive from pointing into it, so no test reads or writes the user's real
-// config or state (foundation decision 7). The XDG and AppData values equal their home-based
-// fallbacks, so a spawned server that inherits only HOME (POSIX) or USERPROFILE, APPDATA and
-// LOCALAPPDATA (Windows), as the MCP SDK's stdio client passes them, resolves the same paths.
+// config, state or Downloads folder (foundation decision 7). The XDG and AppData values equal
+// their home-based fallbacks, so a spawned server that inherits only HOME (POSIX) or USERPROFILE,
+// APPDATA and LOCALAPPDATA (Windows), as the MCP SDK's stdio client passes them, resolves the
+// same paths.
 // A sevDesk token from the developer's shell is unset, and the fake keychain starts empty.
 let home: string | undefined;
 

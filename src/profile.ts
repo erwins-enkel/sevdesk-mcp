@@ -1,20 +1,22 @@
 import { type Config, configFile, isProfileName } from './config.ts';
 import type { SnippetError } from './sandbox.ts';
 
-/** A sevDesk account the server acts for: its profile name and API token. */
+/** A sevDesk account the server acts for: its profile name, API token and download directory. */
 export interface Profile {
   name: string;
   token: string;
+  downloadDir: string;
 }
 
 /**
- * A profile `execute` can act for: a profile of the config file with its company (its token is in
- * the OS keychain), or the environment profile with its token.
+ * A profile `execute` can act for: a profile of the config file with its company and, if set, its
+ * download directory (its token is in the OS keychain), or the environment profile with its token.
  */
 export interface ReachableProfile {
   name: string;
   company?: string;
   token?: string;
+  downloadDir?: string;
 }
 
 type Outcome<T> = ({ ok: true } & T) | { ok: false; error: SnippetError };
@@ -84,7 +86,11 @@ export function reachableProfiles(
     if (!env.ok) return env;
     profiles = [env.profile];
   } else {
-    profiles = config.profiles.map(({ name, company }) => ({ name, company }));
+    profiles = config.profiles.map(({ name, company, downloadDir }) => ({
+      name,
+      company,
+      downloadDir,
+    }));
   }
   if (pinned !== undefined) {
     const pin = profiles.find((profile) => profile.name === pinned);

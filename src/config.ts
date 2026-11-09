@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { localDirs } from './paths.ts';
 import { DEFAULT_LIMITS, type SandboxLimits, type SnippetError } from './sandbox.ts';
 import { DEFAULT_BASE_URL, DEFAULT_CALL_BUDGET } from './sevdesk.ts';
@@ -24,6 +24,8 @@ export interface ProfileSettings {
   company: string;
   /** Read-only profile (decision 3). Nothing reads it yet: `execute` rejects every write anyway. */
   readonly: boolean;
+  /** Where its files land, an absolute path; without it `~/Downloads/sevdesk/<name>` (decision 14). */
+  downloadDir?: string;
 }
 
 // Profile names (decision 18); a name later becomes a directory name.
@@ -130,10 +132,25 @@ function readBaseUrl(value: unknown, problems: string[]): string | undefined {
 }
 
 /**
+ * `downloadDir` of the profile at `at`: `{ downloadDir }` when it is an absolute path, `{}` when it
+ * is unset, and undefined when it is anything else, which adds a problem to `problems`.
+ */
+function readDownloadDir(
+  at: string,
+  value: unknown,
+  problems: string[],
+): { downloadDir?: string } | undefined {
+  if (value === undefined) return {};
+  if (typeof value === 'string' && isAbsolute(value)) return { downloadDir: value };
+  problems.push(`${at}.downloadDir must be an absolute path`);
+  return undefined;
+}
+
+/**
  * The profile `name` of the file, or undefined when it is unusable; each problem is added to
- * `problems`. Any key but `company` and `readonly`, a token among them, is unknown: no token is ever
- * read from a plain file (decision 4). Values are never echoed, so a misplaced token cannot reach
- * an error message.
+ * `problems`. Any key but `company`, `readonly` and `downloadDir`, a token among them, is unknown: no
+ * token is ever read from a plain file (decision 4). Values are never echoed, so a misplaced token
+ * cannot reach an error message.
  */
 function readProfile(
   name: string,
@@ -145,12 +162,15 @@ function readProfile(
     problems.push(`${at} must be an object`);
     return undefined;
   }
-  const { company, readonly = false, ...extra } = value;
+  const { company, readonly = false, downloadDir, ...extra } = value;
   for (const key of Object.keys(extra)) problems.push(`unknown key "${at}.${key}"`);
   const hasCompany = typeof company === 'string' && company.trim() !== '';
   if (!hasCompany) problems.push(`${at}.company must be a non-empty string`);
   if (typeof readonly !== 'boolean') problems.push(`${at}.readonly must be true or false`);
-  return hasCompany && typeof readonly === 'boolean' ? { name, company, readonly } : undefined;
+  const dir = readDownloadDir(at, downloadDir, problems);
+  return hasCompany && typeof readonly === 'boolean' && dir
+    ? { name, company, readonly, ...dir }
+    : undefined;
 }
 
 /** `profiles` of the file; each problem is added to `problems`. */

@@ -1,6 +1,7 @@
 import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, test, vi } from 'vitest';
-import { localDirs } from '../src/paths.ts';
+import { defaultDownloadDir, localDirs } from '../src/paths.ts';
 
 const unset = ['XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'APPDATA', 'LOCALAPPDATA'] as const;
 
@@ -70,6 +71,14 @@ test('Windows falls back to AppData under the profile when the variables are uns
     config: 'C:\\Users\\kai\\AppData\\Roaming\\sevdesk-mcp',
     state: 'C:\\Users\\kai\\AppData\\Local\\sevdesk-mcp',
   });
+});
+
+test('a profile downloads into ~/Downloads/sevdesk/<profile>, inside the temporary home in tests', () => {
+  expect(defaultDownloadDir('mcp-test', join('home', 'kai'))).toBe(
+    join('home', 'kai', 'Downloads', 'sevdesk', 'mcp-test'),
+  );
+  expect(defaultDownloadDir('env')).toBe(join(homedir(), 'Downloads', 'sevdesk', 'env'));
+  expect(homedir().startsWith(tmpdir())).toBe(true);
 });
 
 // Two tests in a row: each must get its own temporary directories, never the user's real ones.
