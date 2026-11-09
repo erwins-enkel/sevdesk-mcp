@@ -1,3 +1,14 @@
+import { isDeepStrictEqual } from 'node:util';
+import {
+  entriesUsing,
+  entryName,
+  entryState,
+  type InstalledClient,
+  installedClients,
+  launchArgv,
+  readServers,
+  rewriteServers,
+} from './clients.ts';
 import {
   type Config,
   configFile,
@@ -133,9 +144,9 @@ async function askToken(ui: Dialogue, name: string): Promise<string> {
 }
 
 /**
- * Stores `token` in the OS keychain, then `profile` in the config file, and says how to use it.
- * A failed keychain write stops setup with nothing stored; a failed config write is reported with
- * the keychain entry it leaves behind and resolves to false.
+ * Stores `token` in the OS keychain, then `profile` in the config file, and says it is set up. A
+ * failed keychain write stops setup with nothing stored; a failed config write is reported with the
+ * keychain entry it leaves behind and resolves to false.
  */
 async function store(
   ui: Dialogue,
@@ -154,15 +165,154 @@ async function store(
     return false;
   }
   ui.say(readonly ? 'setup.doneReadonly' : 'setup.done', { profile: name, company });
-  ui.say('setup.clientEntry', { package: packageName, profile: name });
   return true;
+}
+
+type Edit = Parameters<typeof rewriteServers>[1];
+
+/**
+ * The servers of a client's config `file`, or undefined when it cannot be read, which is reported on
+ * `io.fail`; the file is left as it is.
+ */
+function serversOf(ui: Dialogue, io: SetupIO, file: string, params: Params) {
+  try {
+    return readServers(file).servers;
+  } catch (error) {
+    io.fail(ui.text('setup.clientUnreadable', { ...params, reason: reasonOf(error) }));
+    return undefined;
+  }
+}
+
+/**
+ * Applies `edit` to the servers of a client's config `file` after the user said yes, and reports
+ * the outcome: `done` and the backup, or why the file was left as it is (on `io.fail`). Returns
+ * whether the file was written.
+ */
+function applyEdit(
+  ui: Dialogue,
+  io: SetupIO,
+  file: string,
+  params: Params,
+  done: MessageKey,
+  edit: Edit,
+): boolean {
+  let outcome: ReturnType<typeof rewriteServers>;
+  try {
+    outcome = rewriteServers(file, edit);
+  } catch (error) {
+    io.fail(ui.text('setup.clientUpdateFailed', { ...params, reason: reasonOf(error) }));
+    return false;
+  }
+  if (!outcome.written) {
+    io.fail(ui.text('setup.clientChanged', params));
+    return false;
+  }
+  ui.say(done, params);
+  if (outcome.backup !== undefined) ui.say('setup.backedUp', { backup: outcome.backup });
+  return true;
+}
+
+/**
+ * Offers to add the entry `name` that starts `profile` to every installed client (decision 18), one
+ * question per client: adding a new entry defaults to yes, replacing a different entry of that name
+ * needs an explicit yes, and an entry that starts the same command line is left alone. Resolves to
+ * false when a client config could not be read or written; a no is no failure.
+ */
+async function registerClients(
+  ui: Dialogue,
+  io: SetupIO,
+  clients: InstalledClient[],
+  profile: string,
+  name: string,
+): Promise<boolean> {
+  let ok = true;
+  for (const { client, file } of clients) {
+    const entry = client.entry(launchArgv(profile));
+    const params = { client: client.name, entry: name, file };
+    const servers = serversOf(ui, io, file, params);
+    if (servers === undefined) {
+      ok = false;
+      continue;
+    }
+    const state = entryState(servers, name, entry);
+    if (state === 'same') {
+      ui.say('setup.entryExists', params);
+      continue;
+    }
+    const yes =
+      state === 'absent'
+        ? await ui.confirm('setup.askAddEntry', params, true)
+        : await ui.confirm('setup.askReplaceEntry', params, false);
+    if (!yes) {
+      ui.say('setup.clientLeft', params);
+      continue;
+    }
+    const edit: Edit = (current) =>
+      entryState(current, name, entry) === state ? { ...current, [name]: entry } : undefined;
+    ok = applyEdit(ui, io, file, params, 'setup.entryAdded', edit) && ok;
+  }
+  return ok;
+}
+
+/**
+ * Offers to remove, from every installed client, the entries that start the removed `profile`
+ * (decision 18), one question per client that has any (default yes). Resolves to false when a client
+ * config could not be read or written; a no is no failure.
+ */
+async function unregisterClients(
+  ui: Dialogue,
+  io: SetupIO,
+  clients: InstalledClient[],
+  profile: string,
+): Promise<boolean> {
+  let ok = true;
+  for (const { client, file } of clients) {
+    const servers = serversOf(ui, io, file, { client: client.name, file });
+    if (servers === undefined) {
+      ok = false;
+      continue;
+    }
+    const names = entriesUsing(servers, profile);
+    if (names.length === 0) continue;
+    const params = { client: client.name, file, profile, entries: names.join(', ') };
+    if (!(await ui.confirm('setup.askRemoveEntries', params, true))) {
+      ui.say('setup.clientLeft', params);
+      continue;
+    }
+    const edit: Edit = (current) =>
+      isDeepStrictEqual(entriesUsing(current, profile), names)
+        ? Object.fromEntries(Object.entries(current).filter(([entry]) => !names.includes(entry)))
+        : undefined;
+    ok = applyEdit(ui, io, file, params, 'setup.entriesRemoved', edit) && ok;
+  }
+  return ok;
+}
+
+/**
+ * The client step after a profile was stored or removed: `run` asks about the installed clients. A
+ * cancelled question ends it, reported with what it leaves untouched. Then the manual hint follows:
+ * `none` when no client is installed, else `others`, with `params`. Resolves to `run`'s outcome, or
+ * false when cancelled.
+ */
+async function clientStep(
+  ui: Dialogue,
+  io: SetupIO,
+  [none, others]: [MessageKey, MessageKey],
+  params: Params,
+  run: (clients: InstalledClient[]) => Promise<boolean>,
+): Promise<boolean> {
+  const clients = installedClients();
+  const done = await reportStops(ui, io, 'setup.clientsLeft', () => run(clients));
+  ui.say(clients.length === 0 ? none : others, params);
+  return done;
 }
 
 /**
  * Adds a profile (PRD §7, decisions 4, 18, 19): asks for its name, checks the OS keychain, asks for
  * the token (hidden) and checks it against sevDesk, asks whether the profile is read-only (default
  * no, or the replaced profile's value), then stores the token in the keychain and the profile in
- * the config file. Every stop before that stores nothing.
+ * the config file. Every stop before that stores nothing. Then it offers to register the profile in
+ * each installed MCP client and shows the command for other clients.
  */
 async function addProfile(ui: Dialogue, io: SetupIO): Promise<boolean> {
   const config = configOf(ui);
@@ -171,7 +321,12 @@ async function addProfile(ui: Dialogue, io: SetupIO): Promise<boolean> {
   const token = await askToken(ui, name);
   const company = await checkAccount(ui, config, token);
   const readonly = await ui.confirm('setup.askReadonly', {}, existing?.readonly ?? false);
-  return store(ui, io, { name, company, readonly }, token);
+  if (!(await store(ui, io, { name, company, readonly }, token))) return false;
+  const entry = entryName(name, config.profiles.length + (existing === undefined ? 1 : 0));
+  const hints: [MessageKey, MessageKey] = ['setup.clientEntry', 'setup.otherClientsEntry'];
+  return clientStep(ui, io, hints, { package: packageName, profile: name }, (clients) =>
+    registerClients(ui, io, clients, name, entry),
+  );
 }
 
 /**
@@ -195,8 +350,9 @@ async function reportStops(
 }
 
 /**
- * Runs `setup` in `locale` through `io`: adds a profile with its token in the OS keychain. Resolves
- * to true when the profile is stored; otherwise it has reported why on `io.fail`.
+ * Runs `setup` in `locale` through `io`: adds a profile with its token in the OS keychain and offers
+ * to register it in the installed MCP clients. Resolves to true when the profile is stored and no
+ * client config failed; otherwise it has reported why on `io.fail`.
  */
 export async function runSetup(locale: Locale, io: SetupIO): Promise<boolean> {
   const ui = dialogue(locale, io);
@@ -232,7 +388,8 @@ export function runList(locale: Locale, out: SetupOutput): boolean {
  * Removes the profile `name` (decision 18) after an explicit yes: its token from the OS keychain
  * first, then its entry from the config file, so a failure never leaves a token behind that no
  * profile names. Every stop before the keychain removes nothing; a failed config write is reported
- * with the token already gone and resolves to false (running it again finishes the removal).
+ * with the token already gone and resolves to false (running it again finishes the removal). Then it
+ * offers to remove the entries that start the profile from each installed MCP client.
  */
 async function removeProfile(ui: Dialogue, io: SetupIO, name: string): Promise<boolean> {
   const profile = configOf(ui).profiles.find((entry) => entry.name === name);
@@ -251,13 +408,18 @@ async function removeProfile(ui: Dialogue, io: SetupIO, name: string): Promise<b
     return false;
   }
   ui.say('setup.removed', params);
-  ui.say('setup.removeClientEntry', { profile: name });
-  return true;
+  const hints: [MessageKey, MessageKey] = [
+    'setup.removeClientEntry',
+    'setup.removeOtherClientEntry',
+  ];
+  return clientStep(ui, io, hints, { profile: name }, (clients) =>
+    unregisterClients(ui, io, clients, name),
+  );
 }
 
 /**
  * Runs `setup --remove <name>` in `locale` through `io`. Resolves to true when the profile is
- * removed; otherwise it has reported why on `io.fail`.
+ * removed and no client config failed; otherwise it has reported why on `io.fail`.
  */
 export async function runRemove(locale: Locale, io: SetupIO, name: string): Promise<boolean> {
   const ui = dialogue(locale, io);

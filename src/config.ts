@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
+import { isRecord, readJsonFile, writeJsonFile } from './json-file.ts';
 import { localDirs } from './paths.ts';
 import { DEFAULT_LIMITS, type SandboxLimits, type SnippetError } from './sandbox.ts';
 import { DEFAULT_BASE_URL, DEFAULT_CALL_BUDGET } from './sevdesk.ts';
@@ -65,10 +65,6 @@ type LimitKey = keyof typeof LIMIT_RANGES;
 const TOP_LEVEL_KEYS = new Set(['baseUrl', 'limits', 'profiles', 'audit']);
 
 const HINT = 'Fix the file or delete it to use the defaults, then restart the MCP server.';
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 /** The path of the config file in the config directory. */
 export function configFile(): string {
@@ -259,37 +255,6 @@ export function loadConfig(file = configFile()): LoadedConfig {
 }
 
 /**
- * The parsed JSON object of the config file, or `{}` without a file. Throws when the file cannot be
- * read or does not hold a JSON object.
- */
-function readConfigJson(file: string): Record<string, unknown> {
-  let json: unknown = {};
-  try {
-    json = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-  }
-  if (!isRecord(json)) throw new Error(`${file} does not hold a JSON object`);
-  return json;
-}
-
-/**
- * Writes `json` as the config file, directory included. The JSON goes into a temporary file next to
- * it that is then renamed over it, so a failed write never leaves a half-written file.
- */
-function writeConfigJson(file: string, json: Record<string, unknown>): void {
-  mkdirSync(dirname(file), { recursive: true });
-  const temporary = `${file}.${randomUUID()}.tmp`;
-  try {
-    writeFileSync(temporary, `${JSON.stringify(json, null, 2)}\n`, { flag: 'wx' });
-    renameSync(temporary, file);
-  } catch (error) {
-    rmSync(temporary, { force: true });
-    throw error;
-  }
-}
-
-/**
  * Adds `profile` to the config file, or updates the profile of that name (`setup`): its company and
  * read-only flag are set, and every other key of the file, of the other profiles and of the profile
  * itself (such as `downloadDir`) stays as it is. Without a file it creates one, directory included.
@@ -300,12 +265,12 @@ export function saveProfile(
   { name, company, readonly }: Pick<ProfileSettings, 'name' | 'company' | 'readonly'>,
   file = configFile(),
 ): void {
-  const json = readConfigJson(file);
+  const json = readJsonFile(file)?.json ?? {};
   const profiles = isRecord(json.profiles) ? json.profiles : {};
   const existing = profiles[name];
   profiles[name] = { ...(isRecord(existing) ? existing : {}), company, readonly };
   json.profiles = profiles;
-  writeConfigJson(file, json);
+  writeJsonFile(file, json);
 }
 
 /**
@@ -315,11 +280,11 @@ export function saveProfile(
  * object; `loadConfig` has checked it before.
  */
 export function deleteProfile(name: string, file = configFile()): void {
-  const json = readConfigJson(file);
+  const json = readJsonFile(file)?.json ?? {};
   if (isRecord(json.profiles)) {
     json.profiles = Object.fromEntries(
       Object.entries(json.profiles).filter(([profile]) => profile !== name),
     );
   }
-  writeConfigJson(file, json);
+  writeJsonFile(file, json);
 }
