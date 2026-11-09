@@ -1,0 +1,57 @@
+{
+  "name": "@erwins-enkel/sevdesk-mcp",
+  "version": "0.0.0",
+  "description": "The whole sevDesk API in two MCP tools (Code Mode). Not developed or endorsed by sevDesk.",
+  "license": "MIT",
+  "author": "Kai Osthoff",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/erwins-enkel/sevdesk-mcp.git"
+  },
+  "type": "module",
+  "bin": {
+    "sevdesk-mcp": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "packageManager": "bun@1.4.4",
+  "engines": {
+    "bun": ">=1.4.4",
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "21.2.4",
+    "@commitlint/config-conventional": "21.2.4",
+    "@eslint/js": "10.0.1",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/node": "26.6.6",
+    "@typescript/typescript6": "6.0.2",
+    "eslint": "10.14.0",
+    "fallow": "3.41.0",
+    "husky": "9.1.7",
+    "lint-staged": "17.6.0",
+    "prettier": "3.9.10",
+    "typescript": "7.0.2",
+    "typescript-eslint": "8.72.1",
+    "varlock": "1.24.0",
+    "vitest": "5.1.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "check:i18n": "node scripts/check-i18n.ts",
+    "prepare": "husky",
+    "audit:dead": "fallow",
+    "audit:env": "varlock audit",
+    "lint:actions": "bash scripts/actionlint.sh",
+    "verify": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build && bun run check:i18n && bun run audit:dead && bun run audit:env && bun run lint:actions"
+  }
+}

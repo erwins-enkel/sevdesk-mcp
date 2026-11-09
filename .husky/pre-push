@@ -1,0 +1,2 @@
+# Mirrors the `quality` job in .github/workflows/ci.yml; see the `verify` script.
+bun run verify

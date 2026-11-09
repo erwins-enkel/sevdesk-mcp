@@ -1,0 +1,5 @@
+{
+  "cli.usage": "Aufruf: sevdesk-mcp [Befehl]\n\nOhne Befehl startet der MCP-Server auf stdio.\n\nBefehle:\n  setup    sevDesk-API-Token speichern und MCP-Clients eintragen\n  --help   Diese Hilfe anzeigen",
+  "cli.unknownCommand": "Unbekannter Befehl: {command}",
+  "setup.notImplemented": "Der Setup-Assistent ist noch nicht implementiert."
+}

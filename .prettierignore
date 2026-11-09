@@ -1,0 +1,5 @@
+dist/
+coverage/
+bun.lock
+# Source documents are kept exactly as authored.
+docs/prd/
