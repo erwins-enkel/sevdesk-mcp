@@ -13,8 +13,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   ledger) with the profile from `SEVDESK_API_TOKEN` or a config-file profile whose token is in the
   OS keychain, holds every irreversible call and sends it only with the confirmation token
   (`execute({ confirm })`), and saves PDFs (`savePdf`) and non-JSON responses in the profile's
-  download directory; both use the limits and base URL of the optional config file. Every other
-  feature (read-only mode, audit log, setup) arrives as a backlog slice.
+  download directory; both use the limits and base URL of the optional config file. Read-only mode
+  (`SEVDESK_READONLY` or a profile's `readonly`) rejects every write and irreversible call. Every
+  other feature (audit log, setup) arrives as a backlog slice.
 
 ## Orientation
 
@@ -43,11 +44,13 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `src/guides.ts`: `GUIDES`, the curated recipes `search` offers as `guides` (system 2.0 only;
   endpoints written `METHOD /path`, checked against the patched spec by `test/guides.test.ts`).
 - `src/execute.ts`: the `execute` tool (`code` or `confirm`, bookkeeping-system check per profile
-  and session, destructive annotation; a run with held calls gets their previews and a token, a
-  failed run or preview read drops them). `src/sevdesk.ts`: `createClient()`, the host side of
+  and session, destructive annotation or `readOnlyHint` when `SEVDESK_READONLY` is on or the
+  pinned profile is read-only; a run with held calls gets their previews and a token, a failed run
+  or preview read drops them). `src/sevdesk.ts`: `createClient()`, the host side of
   `sevdesk.request`, `sevdesk.paginate` and `sevdesk.savePdf` (HTTPS base URL, relative paths only,
   JSON bodies, token added host-side, shared call budget, pages of 1,000, structured errors;
-  `request` saves a non-JSON response and holds an irreversible call in `held` as `{ held: true }`,
+  `request` saves a non-JSON response and holds an irreversible call in `held` as `{ held: true }`;
+  with `readOnly` set, `build()` rejects every write and irreversible call as `read_only` first;
   `savePdf` the PDF of a `PDF_TYPES` document with `preventSendBy=true`; `writes` is the run's
   ledger of sent writes with status and object id; `readDocument()` is the preview's counted read);
   `send()` resolves to the 2xx response and retries per decision 10 (`retry: false` sends once);

@@ -114,6 +114,11 @@ interface ClientOptions {
   maxCalls: number;
   /** The profile's download directory: PDFs and non-JSON responses are saved there. */
   downloadDir: string;
+  /**
+   * Why the run is read-only (decision 3), e.g. `SEVDESK_READONLY is on`; undefined when it may
+   * write. Read-only rejects every write and every irreversible call.
+   */
+  readOnly?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -130,6 +135,33 @@ function needsConfirmation(reason: string, method: string, path: string): HostEr
     message: `${reason} Only sevdesk.request holds such a call for confirmation. Nothing was sent.`,
     method,
     path,
+  });
+}
+
+/** What a call rejected by read-only mode (decision 3) leaves the model to do. */
+export const READ_ONLY_HINT =
+  'Reads and sevdesk.savePdf still work. Tell the user the change was not made; only they can turn read-only mode off.';
+
+/**
+ * Read-only mode (decision 3): with `readOnly` set (why the run is read-only), a call that is not a
+ * GET or that has a `reason` (why it changes data irreversibly, `confirmationReason`) fails with
+ * `read_only`. It is neither sent nor held, so no confirmation token can get it through. For a GET
+ * the reason is added to the message, as it can name a way to read instead.
+ */
+function enforceReadOnly(
+  readOnly: string | undefined,
+  method: string,
+  path: string,
+  reason: string | undefined,
+): void {
+  if (readOnly === undefined || (method === 'GET' && reason === undefined)) return;
+  const why = method === 'GET' && reason !== undefined ? ` ${reason}` : '';
+  throw new HostError({
+    kind: 'read_only',
+    message: `${method} ${path} was rejected: ${readOnly}, so only calls that change nothing run. Nothing was sent or held.${why}`,
+    method,
+    path,
+    hint: READ_ONLY_HINT,
   });
 }
 
@@ -188,10 +220,13 @@ function readOptions(
 /**
  * Validates the code's arguments `(method, path, options)` and builds the URL and body, with
  * `reason` saying why the call changes sevDesk data irreversibly (`confirmationReason`), if it does.
+ * With `readOnly` set, `enforceReadOnly` rejects a write or a call with a reason first: every call
+ * of a client passes here, so none gets past read-only mode.
  */
 function build(
   baseUrl: string,
   [method, path, options]: unknown[],
+  readOnly: string | undefined,
 ): { call: Call; reason: string | undefined } {
   if (typeof method !== 'string') throw invalidRequest('method must be a string such as "GET".');
   const verb = method.toUpperCase();
@@ -207,6 +242,7 @@ function build(
   }
   const { params, body } = readOptions(options, verb, path);
   const reason = confirmationReason(verb, path, params, body);
+  enforceReadOnly(readOnly, verb, path, reason);
   const url = new URL(baseUrl + path);
   url.search = params.toString();
   const call: Call = { method: verb, path, url };
@@ -216,10 +252,11 @@ function build(
 
 /**
  * `build` for a call that runs directly: one that changes sevDesk data irreversibly fails closed
- * before a request exists, since only `sevdesk.request` holds such a call for confirmation.
+ * before a request exists, since only `sevdesk.request` holds such a call for confirmation (in
+ * read-only mode, `build` rejects it first).
  */
-function prepare(baseUrl: string, args: unknown[]): Call {
-  const { call, reason } = build(baseUrl, args);
+function prepare(baseUrl: string, args: unknown[], readOnly: string | undefined): Call {
+  const { call, reason } = build(baseUrl, args, readOnly);
   if (reason !== undefined) throw needsConfirmation(reason, call.method, call.path);
   return call;
 }
@@ -468,8 +505,12 @@ function pdfBytes({ method, path }: Call, response: unknown): Buffer {
  * The call behind `sevdesk.paginate(path, query)`: a GET validated like any other, without
  * `limit` and `offset`, which each page sets.
  */
-function preparePages(baseUrl: string, [path, query]: unknown[]): Call {
-  const call = prepare(baseUrl, ['GET', path, { query }]);
+function preparePages(
+  baseUrl: string,
+  [path, query]: unknown[],
+  readOnly: string | undefined,
+): Call {
+  const call = prepare(baseUrl, ['GET', path, { query }], readOnly);
   const paging = ['limit', 'offset'].filter((key) => call.url.searchParams.has(key));
   if (paging.length > 0) {
     throw invalidRequest(
@@ -533,9 +574,10 @@ function budgetError(maxCalls: number, stopped: string, hint: string): HostError
  * sent, enters `held` and resolves to `{ held: true }`; `paginate` and `savePdf` refuse one. A held
  * call takes a call of the budget, as does each `readDocument`, the host's read for the
  * confirmation preview. The call over `maxCalls` is not sent (or held) and ends the run, so
- * `paginate` never returns a partial list.
+ * `paginate` never returns a partial list. With `readOnly` set (decision 3) every write and every
+ * irreversible call fails with `read_only` before it is sent or held; reads and `savePdf` run.
  */
-export function createClient({ baseUrl, token, maxCalls, downloadDir }: ClientOptions): {
+export function createClient({ baseUrl, token, maxCalls, downloadDir, readOnly }: ClientOptions): {
   request: HostFunction;
   paginate: HostFunction;
   savePdf: HostFunction;
@@ -596,7 +638,7 @@ export function createClient({ baseUrl, token, maxCalls, downloadDir }: ClientOp
   };
 
   const request: HostFunction = (args, signal) => {
-    const { call, reason } = build(baseUrl, args);
+    const { call, reason } = build(baseUrl, args, readOnly);
     if (reason !== undefined) return hold(call);
     if (call.method !== 'GET') {
       return sendWrite(call, signal, 'Spread the writes over several runs.');
@@ -608,7 +650,7 @@ export function createClient({ baseUrl, token, maxCalls, downloadDir }: ClientOp
   };
 
   const paginate: HostFunction = async (args, signal) => {
-    const call = preparePages(baseUrl, args);
+    const call = preparePages(baseUrl, args, readOnly);
     const objects: unknown[] = [];
     for (;;) {
       if (!withinBudget()) {
@@ -632,12 +674,12 @@ export function createClient({ baseUrl, token, maxCalls, downloadDir }: ClientOp
   // PDF is fetched with preventSendBy=true, so sevDesk never marks the document as sent (decision 7).
   const savePdf: HostFunction = (args, signal) => {
     const { type, id } = pdfArguments(args);
-    const document = prepare(baseUrl, ['GET', `/${type}/${id}`]);
-    const pdf = prepare(baseUrl, [
-      'GET',
-      `/${type}/${id}/getPdf`,
-      { query: { preventSendBy: true } },
-    ]);
+    const document = prepare(baseUrl, ['GET', `/${type}/${id}`], readOnly);
+    const pdf = prepare(
+      baseUrl,
+      ['GET', `/${type}/${id}/getPdf`, { query: { preventSendBy: true } }],
+      readOnly,
+    );
     const hint = 'Save fewer PDFs per run: each costs 2 calls.';
     const fetched = sendCounted(document, signal, hint).then((response) =>
       readJson(document, response),
@@ -654,7 +696,7 @@ export function createClient({ baseUrl, token, maxCalls, downloadDir }: ClientOp
 
   /** The JSON of `GET path`, a document a held call acts on, read for the confirmation preview. */
   const readDocument = async (path: string, signal: AbortSignal): Promise<unknown> => {
-    const call = prepare(baseUrl, ['GET', path]);
+    const call = prepare(baseUrl, ['GET', path], readOnly);
     const hint =
       'Hold calls on fewer documents per run: the preview reads each document a held call acts on, one call each.';
     return readJson(call, await sendCounted(call, signal, hint));
@@ -741,7 +783,7 @@ export async function bookkeepingSystemError(
   signal: AbortSignal,
 ): Promise<SnippetError | undefined> {
   requireHttps(baseUrl);
-  const call = prepare(baseUrl, ['GET', '/Tools/bookkeepingSystemVersion']);
+  const call = prepare(baseUrl, ['GET', '/Tools/bookkeepingSystemVersion'], undefined);
   const response = await readJson(call, await send(call, { token, signal, retry: DEFAULT_RETRY }));
   const version =
     isRecord(response) && isRecord(response.objects) ? response.objects.version : undefined;

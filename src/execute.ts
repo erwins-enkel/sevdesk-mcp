@@ -12,7 +12,14 @@ import {
   selectProfile,
 } from './profile.ts';
 import { HostError, runSnippet, type SnippetError } from './sandbox.ts';
-import { bookkeepingSystemError, createClient, PAGE_SIZE, PDF_TYPES, replay } from './sevdesk.ts';
+import {
+  bookkeepingSystemError,
+  createClient,
+  PAGE_SIZE,
+  PDF_TYPES,
+  READ_ONLY_HINT,
+  replay,
+} from './sevdesk.ts';
 
 /** The tool description, with the configured call budget and output limit. */
 const description = ({
@@ -62,6 +69,15 @@ const CODE_OR_CONFIRM: SnippetError = {
 };
 
 /**
+ * Whether `SEVDESK_READONLY` makes every profile read-only (decision 3): any value but unset,
+ * empty, `false` and `0` (case ignored), so a mistyped value errs on the safe side.
+ */
+function readOnlySwitch(): boolean {
+  const value = process.env.SEVDESK_READONLY?.trim().toLowerCase();
+  return value !== undefined && value !== '' && value !== 'false' && value !== '0';
+}
+
+/**
  * Registers `execute`: the model's code runs in the sandbox with `sevdesk.request`,
  * `sevdesk.paginate` and `sevdesk.savePdf` against the sevDesk account of the profile it selects
  * with `account` (decision 1: among the profiles this server reaches, `pinnedProfile` narrowing them
@@ -71,8 +87,11 @@ const CODE_OR_CONFIRM: SnippetError = {
  * server instance), never at startup. With an invalid config file it returns the config error and
  * sends nothing. Reversible writes run, and the result lists every write the run sent. Irreversible
  * calls are held (decision 5): a run that succeeds returns their previews and a token, which
- * `confirm` (on the same profile, instead of `code`) redeems once to send exactly those calls. It
- * carries the destructive annotation.
+ * `confirm` (on the same profile, instead of `code`) redeems once to send exactly those calls.
+ * Read-only mode (decision 3), from `SEVDESK_READONLY` (read once per server) or the profile's
+ * `readonly`, rejects every write and irreversible call, and every `confirm`. The tool carries the
+ * read-only annotation when the switch is on or the pinned profile is read-only, otherwise the
+ * destructive one.
  */
 export function registerExecuteTool(
   server: McpServer,
@@ -84,6 +103,16 @@ export function registerExecuteTool(
   // Per profile name: the check in flight or its outcome (undefined for system 2.0).
   const checks = new Map<string, Promise<SnippetError | undefined>>();
   const confirmations = createConfirmations();
+  const envReadOnly = readOnlySwitch();
+  // A pin narrows the reachable profiles to the pinned one.
+  const pinnedReadOnly =
+    pinnedProfile !== undefined && reachable.ok && reachable.profiles[0]?.readonly === true;
+
+  /** Why calls for `profile` are read-only (decision 3), or undefined when it may write. */
+  function readOnlyReason({ name, readonly }: Profile): string | undefined {
+    if (envReadOnly) return 'SEVDESK_READONLY is on';
+    return readonly ? `profile ${name} is read-only` : undefined;
+  }
 
   /** The bookkeeping-system error of `profile`, if any. A failed check is not remembered. */
   function checkAccount(profile: Profile): Promise<SnippetError | undefined> {
@@ -112,18 +141,30 @@ export function registerExecuteTool(
     if (!selected.ok) return selected;
     const { name, token, company } = selected.profile;
     const downloadDir = selected.profile.downloadDir ?? defaultDownloadDir(name);
-    if (token !== undefined) return { ok: true, profile: { name, token, downloadDir, company } };
+    const readonly = selected.profile.readonly === true;
+    if (token !== undefined) {
+      return { ok: true, profile: { name, token, downloadDir, company, readonly } };
+    }
     const read = await readToken(name);
     return read.ok
-      ? { ok: true, profile: { name, token: read.token, downloadDir, company } }
+      ? { ok: true, profile: { name, token: read.token, downloadDir, company, readonly } }
       : read;
   }
 
   /**
    * Redeems `token` for `profile`: sends the held calls it stands for, exactly as stored, without
-   * running any code (decision 5). The bookkeeping system was checked by the run that held them.
+   * running any code (decision 5). The bookkeeping system was checked by the run that held them. A
+   * read-only profile is rejected before the token is looked at, so no token gets past read-only.
    */
   async function confirmHeld(token: string, profile: Profile): Promise<CallToolResult> {
+    const readOnly = readOnlyReason(profile);
+    if (readOnly !== undefined) {
+      return errorResult({
+        kind: 'read_only',
+        message: `The confirmation was rejected: ${readOnly}, so no held call can be sent. Nothing was sent.`,
+        hint: READ_ONLY_HINT,
+      });
+    }
     const taken = confirmations.take(token, profile.name);
     if (!taken.ok) return errorResult(taken.error);
     const signal = AbortSignal.timeout(config.limits.timeoutMs);
@@ -142,6 +183,7 @@ export function registerExecuteTool(
       token: profile.token,
       maxCalls: config.maxCalls,
       downloadDir: profile.downloadDir,
+      readOnly: readOnlyReason(profile),
     });
     const outcome = await runSnippet(code, {}, config.limits, {
       sevdesk: { request, paginate, savePdf },
@@ -171,7 +213,10 @@ export function registerExecuteTool(
     {
       description: description(config),
       inputSchema: inputSchema(reachable.ok ? reachable.profiles : []),
-      annotations: { destructiveHint: true },
+      annotations:
+        envReadOnly || pinnedReadOnly
+          ? { readOnlyHint: true, destructiveHint: false }
+          : { destructiveHint: true },
     },
     async (input) => {
       if (!loaded.ok) return errorResult(loaded.error);
