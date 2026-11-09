@@ -15,7 +15,11 @@ export const GUIDES: Record<string, Guide> = {
   offer: {
     title: 'Create an offer (Order with orderType "AN") via saveOrder',
     text: `An offer is an Order with orderType "AN" (AB = order confirmation, LI = delivery note).
-1. Contact: GET /Contact with query { name, depth: 1 } (depth 1 includes persons; name matches name, surename or familyname) or { customerNumber }. If there is none: POST /Contact with { "name": "<company>", "category": { "id": 3, "objectName": "Category" } } (3 = customer), then POST /ContactAddress (contact, street, zip, city, country from GET /StaticCountry, category from GET /Category with objectType ContactAddress) and POST /CommunicationWay (contact, type "EMAIL", value, key from GET /CommunicationWayKey, main true).
+1. Contact: GET /Contact with query { name, depth: 1 } (depth 1 includes persons; name matches name, surename or familyname) or { customerNumber }. If there is none, create the company, its contact person, the address and the email:
+- POST /Contact with { "name": "<company>", "category": { "id": 3, "objectName": "Category" } } (3 = customer)
+- POST /Contact with { "surename": "<first name>", "familyname": "<last name>", "parent": { "id": <company id>, "objectName": "Contact" }, "category": { "id": 3, "objectName": "Category" } } (the contact person; surename is the first name)
+- POST /ContactAddress with { "contact": { "id": <company id>, "objectName": "Contact" }, "street": "<street>", "zip": "<zip>", "city": "<city>", "country": { "id": <country id>, "objectName": "StaticCountry" }, "category": { "id": <category id>, "objectName": "Category" } } (country id from GET /StaticCountry, category id from GET /Category with { objectType: "ContactAddress" })
+- POST /CommunicationWay with { "contact": { "id": <person id>, "objectName": "Contact" }, "type": "EMAIL", "value": "<email>", "key": { "id": <key id>, "objectName": "CommunicationWayKey" }, "main": true } (key id from GET /CommunicationWayKey, 2 = Arbeit)
 2. contactPerson: a user id from GET /SevUser.
 3. orderNumber: GET /SevSequence/Factory/getByType with { objectType: "Order", type: "AN" } gives the format and nextSequence of the next offer number.
 4. Units: GET /Unity lists the unit ids for positions.

@@ -195,7 +195,7 @@ test('a non-JSON response is saved as a new file and only { path, contentType, b
   await mock({
     'GET /Export/datevCSV': () => ({ contentType: 'text/csv', text: 'secret;csv;row' }),
     'GET /Export/invoiceZip': () => ({ contentType: 'application/zip', bytes: zip }),
-    'GET /Export/raw': () => ({ contentType: null, bytes: new Uint8Array([1, 2, 3]) }),
+    'GET /Export/contactListCsv': () => ({ contentType: null, bytes: new Uint8Array([1, 2, 3]) }),
   });
 
   const { isError, envelope, text } = await execute(`
@@ -203,7 +203,7 @@ test('a non-JSON response is saved as a new file and only { path, contentType, b
       await sevdesk.request('GET', '/Export/datevCSV'),
       await sevdesk.request('GET', '/Export/datevCSV', { query: { startDate: 1 } }),
       await sevdesk.request('GET', '/Export/invoiceZip'),
-      await sevdesk.request('GET', '/Export/raw'),
+      await sevdesk.request('GET', '/Export/contactListCsv'),
     ];`);
 
   expect(isError).toBe(false);
@@ -212,7 +212,7 @@ test('a non-JSON response is saved as a new file and only { path, contentType, b
     { path: join(downloads(), 'Export-datevCSV-2.csv'), contentType: 'text/csv', bytes: 14 },
     { path: join(downloads(), 'Export-invoiceZip.zip'), contentType: 'application/zip', bytes: 8 },
     {
-      path: join(downloads(), 'Export-raw.bin'),
+      path: join(downloads(), 'Export-contactListCsv.bin'),
       contentType: 'application/octet-stream',
       bytes: 3,
     },
