@@ -1,8 +1,8 @@
 import de from './de.json' with { type: 'json' };
 import en from './en.json' with { type: 'json' };
 
-type MessageKey = keyof typeof en;
-type Locale = 'en' | 'de';
+export type MessageKey = keyof typeof en;
+export type Locale = 'en' | 'de';
 
 // en is the reference catalog; scripts/check-i18n.ts enforces exact key parity.
 const catalogs: Record<Locale, Record<MessageKey, string>> = { en, de };

@@ -1,5 +1,6 @@
-import { readFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join } from 'node:path';
 import { localDirs } from './paths.ts';
 import { DEFAULT_LIMITS, type SandboxLimits, type SnippetError } from './sandbox.ts';
 import { DEFAULT_BASE_URL, DEFAULT_CALL_BUDGET } from './sevdesk.ts';
@@ -243,4 +244,38 @@ export function loadConfig(file = configFile()): LoadedConfig {
   if (problems.length > 0)
     return invalid(`The config file ${file} is invalid: ${problems.join('; ')}.`);
   return { ok: true, config };
+}
+
+/**
+ * Adds `profile` to the config file, or updates the profile of that name (`setup`): its company and
+ * read-only flag are set, and every other key of the file, of the other profiles and of the profile
+ * itself (such as `downloadDir`) stays as it is. Without a file it creates one, directory included.
+ * The JSON goes into a temporary file next to it that is then renamed over it, so a failed write
+ * never leaves a half-written file. Throws when the file cannot be read or written or is not a JSON
+ * object; `loadConfig` has checked it before.
+ */
+export function saveProfile(
+  { name, company, readonly }: Pick<ProfileSettings, 'name' | 'company' | 'readonly'>,
+  file = configFile(),
+): void {
+  let json: unknown = {};
+  try {
+    json = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  if (!isRecord(json)) throw new Error(`${file} does not hold a JSON object`);
+  const profiles = isRecord(json.profiles) ? json.profiles : {};
+  const existing = profiles[name];
+  profiles[name] = { ...(isRecord(existing) ? existing : {}), company, readonly };
+  json.profiles = profiles;
+  mkdirSync(dirname(file), { recursive: true });
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, `${JSON.stringify(json, null, 2)}\n`, { flag: 'wx' });
+    renameSync(temporary, file);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
+  }
 }

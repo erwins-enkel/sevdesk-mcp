@@ -772,26 +772,84 @@ export async function replay(
   return error === undefined ? { confirmed } : { confirmed, error };
 }
 
+/** The bookkeeping system sevdesk-mcp supports (PRD §5.4). */
+export const SUPPORTED_SYSTEM = '2.0';
+
+/** The account a token stands for, at an API base. */
+interface Account {
+  baseUrl: string;
+  token: string;
+}
+
+// Control characters (C0, DEL, C1): removed from account text sevDesk sends, so it can be printed
+// on a terminal without escape sequences and stored as plain text.
+const CONTROL = /\p{Cc}/gu;
+
+/** `value` without control characters and surrounding whitespace; '' for anything but a string. */
+function plainText(value: unknown): string {
+  return typeof value === 'string' ? value.replace(CONTROL, '').trim() : '';
+}
+
+/**
+ * The parsed JSON of the account-level GET `path`. It reads JSON only, so a non-JSON answer fails
+ * rather than being saved as a file. A failed request rejects with its `HostError`.
+ */
+async function readAccount({ baseUrl, token }: Account, path: string, signal: AbortSignal) {
+  requireHttps(baseUrl);
+  const call = prepare(baseUrl, ['GET', path], undefined);
+  return readJson(call, await send(call, { token, signal, retry: DEFAULT_RETRY }));
+}
+
+/**
+ * The bookkeeping system version the account reports (`GET /Tools/bookkeepingSystemVersion`), as
+ * plain text, or undefined when it reports none. A failed request rejects with its `HostError`.
+ */
+export async function bookkeepingSystem(
+  account: Account,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const response = await readAccount(account, '/Tools/bookkeepingSystemVersion', signal);
+  const version = plainText(
+    isRecord(response) && isRecord(response.objects) ? response.objects.version : undefined,
+  );
+  return version === '' ? undefined : version;
+}
+
 /**
  * The account's bookkeeping system check: undefined for system 2.0, an `unsupported_account`
- * error for anything else (PRD §5.4). It reads JSON only, so a non-JSON answer fails rather than
- * being saved as a file. A failed request rejects with its `HostError`.
+ * error for anything else (PRD §5.4). A failed request rejects with its `HostError`.
  */
 export async function bookkeepingSystemError(
-  { baseUrl, token }: { baseUrl: string; token: string },
+  account: Account,
   profile: string,
   signal: AbortSignal,
 ): Promise<SnippetError | undefined> {
-  requireHttps(baseUrl);
-  const call = prepare(baseUrl, ['GET', '/Tools/bookkeepingSystemVersion'], undefined);
-  const response = await readJson(call, await send(call, { token, signal, retry: DEFAULT_RETRY }));
-  const version =
-    isRecord(response) && isRecord(response.objects) ? response.objects.version : undefined;
-  if (version === '2.0') return undefined;
+  const version = await bookkeepingSystem(account, signal);
+  if (version === SUPPORTED_SYSTEM) return undefined;
   const reported =
-    typeof version === 'string' ? `bookkeeping system ${version}` : 'an unknown bookkeeping system';
+    version === undefined ? 'an unknown bookkeeping system' : `bookkeeping system ${version}`;
   return {
     kind: 'unsupported_account',
-    message: `The sevDesk account of profile ${profile} uses ${reported}; sevdesk-mcp supports only system 2.0.`,
+    message: `The sevDesk account of profile ${profile} uses ${reported}; sevdesk-mcp supports only system ${SUPPORTED_SYSTEM}.`,
   };
+}
+
+/**
+ * The account's company name, as plain text. `GET /SevClient` is not in sevDesk's spec; it answers
+ * the account as the first row of `objects` (or as `objects` itself), with the company in `name`.
+ * A missing or blank name fails with an `api_error`; a failed request rejects with its `HostError`.
+ */
+export async function companyName(account: Account, signal: AbortSignal): Promise<string> {
+  const path = '/SevClient';
+  const response = await readAccount(account, path, signal);
+  const objects: unknown = isRecord(response) ? response.objects : undefined;
+  const client: unknown = Array.isArray(objects) ? objects[0] : objects;
+  const name = plainText(isRecord(client) ? client.name : undefined);
+  if (name !== '') return name;
+  throw new HostError({
+    kind: 'api_error',
+    message: `GET ${path} returned no company name.`,
+    method: 'GET',
+    path,
+  });
 }

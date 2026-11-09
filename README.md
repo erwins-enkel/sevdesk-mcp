@@ -10,8 +10,8 @@ JavaScript snippets that run in a local sandbox against the sevDesk API ("Code M
 > (reads and reversible writes such as drafts, with a token from `SEVDESK_API_TOKEN` or from a
 > profile in the OS keychain, PDFs and exports saved to disk; every result lists the writes it
 > sent). Irreversible calls (delete, send, enshrine, book, cancel, reset, status changes) are held
-> until you confirm them; read-only mode blocks every change. The audit log and `setup` are not
-> there yet. Do not use it with a real sevDesk account yet.
+> until you confirm them; read-only mode blocks every change. `sevdesk-mcp setup` adds an account
+> with its token in the OS keychain. The audit log and client registration are not there yet. Do not use it with a real sevDesk account yet.
 
 > Not developed or endorsed by sevDesk. (Nicht von sevDesk entwickelt oder unterstützt.)
 
@@ -59,9 +59,27 @@ the defaults for a broken file.
 A profile is one sevDesk account. The config file holds its name, company and read-only flag; its
 API token lives only in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret
 Service), under the service `sevdesk-mcp` with the profile name as the account. A token is never
-read from a file; a `token` key in the config file is an error. `sevdesk-mcp setup` will store
-tokens; it is not implemented yet, so use `SEVDESK_API_TOKEN` until then. On Linux without a
-Secret Service (headless, WSL, Docker), use `SEVDESK_API_TOKEN` as well.
+read from a file; a `token` key in the config file is an error.
+
+Add a profile in a terminal with `npx @erwins-enkel/sevdesk-mcp setup` (`setup --add` does the
+same):
+
+1. It asks for the profile name (1 to 32 characters `a-z`, `0-9`, `-`). An existing profile is
+   replaced only after an explicit yes.
+2. It asks for the API token without showing it, checks it against sevDesk and shows the company
+   and bookkeeping system. A rejected token or an account on another system than 2.0 is refused.
+3. It asks whether the profile is read-only (default no; when replacing, the profile's current
+   setting).
+4. It stores the token in the OS keychain and the profile (name, company, read-only) in the config
+   file, and prints the command for your MCP client: `npx -y @erwins-enkel/sevdesk-mcp --profile
+<name>`.
+
+Until the last step nothing is stored. There is no plaintext fallback: without an OS keychain
+(headless Linux, WSL, Docker), `setup` stops and explains why, as a token in a plain file can be
+read by any process and any backup and grants full access to the bookkeeping. Use
+`SEVDESK_API_TOKEN` there instead. Without a terminal (scripts, CI), `setup` stops with the same
+hint; it has no non-interactive options. Its exit code is 0 when the profile is stored and 1
+otherwise.
 
 The server never guesses which account a call is for:
 
