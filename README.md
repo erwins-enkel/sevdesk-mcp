@@ -88,7 +88,8 @@ instead of sent:
    subject; the profile and its company). The assistant shows you the preview.
 3. Only after your yes does it call `execute` with `confirm` set to the token, and no code. The
    server then sends exactly the held calls, in order, each once and never retried. It stops at
-   the first failure and reports every call as `sent`, `failed` or `not_sent`.
+   the first call sevDesk does not accept and reports every call as `sent`, `failed` or
+   `not_sent`. A call sevDesk accepted (2xx) is `sent` even if its answer cannot be read.
 
 A token works once, for 10 minutes, for the profile that held the calls, and only until the server
 restarts. If the run fails, its held calls are dropped and no token is issued. Held calls, and the

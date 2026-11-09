@@ -282,6 +282,51 @@ test('when the first held call fails on confirm, the second is not sent and the 
   expect(sends(sevdesk.requests, second)).toEqual([]);
 });
 
+test('a confirmed call answered 2xx is sent even when its answer cannot be read; the next one follows', async () => {
+  const second = '/Order/43/sendViaEmail';
+  const sevdesk = await mock({
+    'GET /Order/43': () => ({
+      json: { objects: [{ ...OFFER, id: '43', orderNumber: 'AN-1043' }] },
+    }),
+    [`POST ${SEND}`]: () => ({ text: 'not json' }),
+    [`POST ${second}`]: () => ({
+      status: 201,
+      json: { objects: { id: '10', objectName: 'Email' } },
+    }),
+  });
+  const client = await open();
+  const { token } = await hold(
+    client,
+    `for (const id of [42, 43]) await sevdesk.request('POST', '/Order/' + id + '/sendViaEmail', { body: ${JSON.stringify(MAIL)} });
+     return 'held';`,
+  );
+
+  const { isError, envelope } = await call(client, { confirm: token });
+
+  expect(isError).toBe(false);
+  expect(envelope).toEqual({
+    confirmed: [
+      {
+        method: 'POST',
+        path: SEND,
+        outcome: 'sent',
+        status: 200,
+        answerError: {
+          kind: 'api_error',
+          message: `POST ${SEND} returned invalid JSON.`,
+          status: 200,
+          method: 'POST',
+          path: SEND,
+        },
+      },
+      { method: 'POST', path: second, outcome: 'sent', status: 201, objectId: '10' },
+    ],
+    notes: [expect.stringContaining('was applied') as string],
+  });
+  expect(sends(sevdesk.requests)).toHaveLength(1);
+  expect(sends(sevdesk.requests, second)).toHaveLength(1);
+});
+
 test.each<{ status: number; headers: Record<string, string> }>([
   { status: 429, headers: { 'retry-after': '0' } },
   { status: 503, headers: {} },

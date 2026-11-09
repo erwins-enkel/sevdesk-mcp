@@ -74,7 +74,8 @@ interface SavedFile {
 /**
  * What became of a confirmed call (decision 5): `sent` with sevDesk's 2xx status and the object id
  * of a JSON answer (a non-JSON one is saved as `file`), `failed` with the status of the answer if
- * one came, or `not_sent` because an earlier call failed.
+ * one came, or `not_sent` because an earlier call failed. A 2xx means sevDesk applied the call, so
+ * it is `sent` even when its answer cannot be read or saved; `answerError` then says why.
  */
 export interface Confirmed {
   method: string;
@@ -83,6 +84,7 @@ export interface Confirmed {
   status?: number;
   objectId?: string;
   file?: SavedFile;
+  answerError?: SnippetError;
 }
 
 /** When a failed call is sent again (decision 10). */
@@ -668,14 +670,13 @@ interface ReplayOptions {
   signal: AbortSignal;
 }
 
-/** Sends a confirmed call exactly once (decision 10) and reads its 2xx answer into `entry`. */
-async function sendConfirmed(
+/** Reads a confirmed call's 2xx answer into `entry`: the object id of JSON, else the saved file. */
+async function readAnswer(
   call: Call,
+  response: Response,
   entry: Confirmed,
-  { token, downloadDir, signal }: ReplayOptions,
+  { downloadDir, signal }: ReplayOptions,
 ): Promise<void> {
-  const response = await send(call, { token, signal, retry: false });
-  entry.status = response.status;
   if (!JSON_CONTENT_TYPE.test(contentTypeOf(response))) {
     entry.file = await saveBody(call, response, downloadDir, signal);
     return;
@@ -685,9 +686,27 @@ async function sendConfirmed(
 }
 
 /**
+ * Sends a confirmed call exactly once (decision 10); a call that fails rejects with its error. Once
+ * sevDesk answers 2xx the call is applied, so `entry` is `sent` with that status, and an answer
+ * that cannot be read (not JSON as declared, invalid JSON) or saved only sets `answerError`.
+ */
+async function sendConfirmed(call: Call, entry: Confirmed, options: ReplayOptions): Promise<void> {
+  const response = await send(call, { token: options.token, signal: options.signal, retry: false });
+  entry.outcome = 'sent';
+  entry.status = response.status;
+  try {
+    await readAnswer(call, response, entry, options);
+  } catch (error) {
+    if (!(error instanceof HostError)) throw error;
+    entry.answerError = error.error;
+  }
+}
+
+/**
  * Sends the held calls of a confirmation exactly as they were stored, in order, each once and never
- * retried (decisions 5 and 10), and reports each. The first failure stops it: that call is
- * `failed`, every later one `not_sent`, and `error` says why.
+ * retried (decisions 5 and 10), and reports each. The first call that fails (no 2xx answer) stops
+ * it: that call is `failed`, every later one `not_sent`, and `error` says why. A 2xx whose answer
+ * cannot be read is no failure: the call was applied, so the next one is sent.
  */
 export async function replay(
   calls: Call[],
@@ -701,7 +720,6 @@ export async function replay(
     if (error !== undefined) continue;
     try {
       await sendConfirmed(call, entry, options);
-      entry.outcome = 'sent';
     } catch (thrown) {
       if (!(thrown instanceof HostError)) throw thrown;
       entry.outcome = 'failed';

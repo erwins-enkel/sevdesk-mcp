@@ -94,7 +94,8 @@ export function errorResult(error: SnippetError): CallToolResult {
 /**
  * The tool result of a confirmation run: `confirmed`, what became of each held call, and the error
  * that stopped it, if one did (`isError`). A note flags a failed call that may still have been
- * applied (no answer, or a 5xx).
+ * applied (no answer, or a 5xx), and another a sent call whose answer could not be read, which was
+ * applied all the same.
  */
 export function confirmedResult({
   confirmed,
@@ -108,11 +109,18 @@ export function confirmedResult({
   const unsure = confirmed.some(
     ({ outcome, status }) => outcome === 'failed' && (status === undefined || status >= 500),
   );
+  const notes: string[] = [];
   if (unsure) {
-    envelope.notes = [
+    notes.push(
       'The failed call in confirmed got no answer (no status) or a server error (5xx), so it may still have been applied. Check with a GET before sending it again.',
-    ];
+    );
   }
+  if (confirmed.some(({ answerError }) => answerError !== undefined)) {
+    notes.push(
+      'A call in confirmed with answerError was applied: sevDesk answered 2xx, only its answer could not be read or saved. Do not send it again.',
+    );
+  }
+  if (notes.length > 0) envelope.notes = notes;
   const content: CallToolResult['content'] = [{ type: 'text', text: JSON.stringify(envelope) }];
   return error === undefined ? { content } : { content, isError: true };
 }
