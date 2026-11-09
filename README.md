@@ -6,7 +6,8 @@ through just `search` and `execute`: instead of one tool per endpoint, the model
 JavaScript snippets that run in a local sandbox against the sevDesk API ("Code Mode").
 
 > **Status: early development.** The server offers `search` (explore the sevDesk API
-> specification); `execute` is not there yet. Do not use it with a real sevDesk account yet.
+> specification) and a read-only `execute` (GET calls with a token from `SEVDESK_API_TOKEN`);
+> writing is not there yet. Do not use it with a real sevDesk account yet.
 
 > Not developed or endorsed by sevDesk. (Nicht von sevDesk entwickelt oder unterstützt.)
 

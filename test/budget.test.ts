@@ -25,6 +25,7 @@ test('instructions plus all tool descriptions and input schemas stay within the 
     );
 
   expect(instructions).toContain('search');
+  expect(instructions).toContain('execute');
   expect(tools.length).toBeGreaterThan(0);
   expect(Math.ceil(chars / CHARS_PER_TOKEN)).toBeLessThanOrEqual(BUDGET_TOKENS);
 });
