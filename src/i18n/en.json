@@ -1,5 +1,7 @@
 {
-  "cli.usage": "Usage: sevdesk-mcp [command]\n\nWithout a command, starts the MCP server on stdio.\n\nCommands:\n  setup    Store a sevDesk API token and register MCP clients\n  --help   Show this help",
+  "cli.usage": "Usage: sevdesk-mcp [command]\n\nWithout a command, starts the MCP server on stdio.\n\nCommands:\n  setup      Store a sevDesk API token and register MCP clients\n  --help     Show this help\n  --version  Show the version\n\nExit codes:\n  {success}  Success\n  {failure}  Error while running\n  {usage}  Usage error (unknown command or option)",
   "cli.unknownCommand": "Unknown command: {command}",
+  "cli.unknownOption": "Unknown option: {option}",
+  "cli.unexpectedArgument": "Unexpected argument: {argument}",
   "setup.notImplemented": "The setup assistant is not implemented yet."
 }
