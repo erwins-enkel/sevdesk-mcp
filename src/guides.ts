@@ -81,7 +81,7 @@ The next steps are separate: the PDF with sevdesk.savePdf('Invoice', id); sendin
   "voucherPosDelete": null,
   "filename": "<objects.filename>"
 }
-creditDebit "C" is an expense (you bought something), "D" revenue (you sold something). Without a supplier contact, give supplierName instead. status is 50 (draft) or 100 (unpaid); a voucher becomes paid only through PUT /Voucher/{voucherId}/bookAmount and is enshrined only through PUT /Voucher/{voucherId}/enshrine, which cannot be undone. The booking account (accountDatevId) and the tax rules and rates it allows come from GET /ReceiptGuidance/forExpense (GET /ReceiptGuidance/forRevenue for "D"). With net true give sumNet instead of sumGross; all positions are either net or gross.`,
+creditDebit "C" is an expense (you bought something), "D" revenue (you sold something). Without a supplier contact, give supplierName instead. status is 50 (draft) or 100 (unpaid), and saving with 100 needs confirmation; a voucher becomes paid only through PUT /Voucher/{voucherId}/bookAmount and is enshrined only through PUT /Voucher/{voucherId}/enshrine, which cannot be undone. The booking account (accountDatevId) and the tax rules and rates it allows come from GET /ReceiptGuidance/forExpense (GET /ReceiptGuidance/forRevenue for "D"). With net true give sumNet instead of sumGross; all positions are either net or gross.`,
   },
 
   pagination: {

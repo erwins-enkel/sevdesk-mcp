@@ -6,10 +6,12 @@ through just `search` and `execute`: instead of one tool per endpoint, the model
 JavaScript snippets that run in a local sandbox against the sevDesk API ("Code Mode").
 
 > **Status: early development.** The server offers `search` (explore the sevDesk API
-> specification and curated recipes for offers, tax rules, dates and sending) and a read-only
-> `execute` (GET calls with a token from `SEVDESK_API_TOKEN` or from a profile in the OS keychain,
-> PDFs and exports saved to disk); writing and `setup` are not there yet. Do not use it with a real
-> sevDesk account yet.
+> specification and curated recipes for offers, tax rules, dates and sending) and `execute`
+> (reads and reversible writes such as drafts, with a token from `SEVDESK_API_TOKEN` or from a
+> profile in the OS keychain, PDFs and exports saved to disk; every result lists the writes it
+> sent). Irreversible calls (delete, send, enshrine, book, cancel, reset, status changes) are
+> refused until the confirmation flow lands, and `setup` is not there yet. Do not use it with a
+> real sevDesk account yet.
 
 > Not developed or endorsed by sevDesk. (Nicht von sevDesk entwickelt oder unterstützt.)
 

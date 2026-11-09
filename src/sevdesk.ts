@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises';
+import { confirmationReason } from './classify.ts';
 import { binaryFileName, fileStem, saveFile } from './downloads.ts';
 import { HostError, type HostFunction, type SnippetError } from './sandbox.ts';
 
@@ -33,17 +34,9 @@ const DOCUMENT_ID = /^[1-9]\d*$/;
 // segments, backslashes, percent-encoding, `?`, `#` and whitespace before anything is sent.
 const RELATIVE_PATH = /^(?:\/[A-Za-z0-9_-]+)+$/;
 
-// Methods that write. They need the confirmation gate, which does not exist yet.
-const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
-
-// Path segments of the irreversible operations in PRD §6: send (`sendBy`, `sendViaEmail`),
-// enshrine, `bookAmount`, cancel and reset. sevDesk serves some as GET
-// (`/CreditNote/{id}/sendByWithRender` marks the credit note as sent), so a GET is checked too.
-const IRREVERSIBLE_SEGMENT = /^(?:send|enshrine|bookamount|cancel|reset)/i;
-
-// Query flags that enshrine every exported document (`enshrine` on `/Export/datevCSV`,
-// `enshrineDocuments` on `/Export/createDatevCsvZipExportJob`), unless set to false.
-const ENSHRINE_FLAG = /^enshrine/i;
+// The methods `sevdesk.request` takes. sevDesk's spec has no PATCH, so a PATCH is always an
+// unknown write path and needs confirmation (src/classify.ts).
+const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 
 const JSON_CONTENT_TYPE = /^application\/(?:[\w.+-]+\+)?json\s*(?:;|$)/i;
 
@@ -55,6 +48,20 @@ interface Call {
   method: string;
   path: string;
   url: URL;
+  /** The JSON text of the body, if the call has one. */
+  body?: string;
+}
+
+/**
+ * A write call sent to sevDesk, as the ledger of an `execute` result lists it (decision 11):
+ * sevDesk's final HTTP status and the id of the object a 2xx JSON answer names. Without `status`
+ * no answer came (a network error, or the run ended first), so the write may have been applied.
+ */
+export interface Write {
+  method: string;
+  path: string;
+  status?: number;
+  objectId?: string;
 }
 
 /** When a failed call is sent again (decision 10). */
@@ -94,8 +101,13 @@ function invalidRequest(message: string, method?: string, path?: string): HostEr
   return new HostError({ kind: 'invalid_request', message, method, path });
 }
 
-function notEnabled(message: string, method: string, path: string): HostError {
-  return new HostError({ kind: 'not_enabled', message, method, path });
+function needsConfirmation(reason: string, method: string, path: string): HostError {
+  return new HostError({
+    kind: 'needs_confirmation',
+    message: `${reason} It needs confirmation, which execute cannot give yet. Nothing was sent.`,
+    method,
+    path,
+  });
 }
 
 function isQueryValue(value: unknown): value is string | number | boolean {
@@ -119,45 +131,41 @@ function toSearchParams(query: unknown, method: string, path: string): URLSearch
   return params;
 }
 
-/** The query parameters from the call's options, which may hold only `query` and `body`. */
-function readOptions(options: unknown, method: string, path: string): URLSearchParams {
-  if (options === undefined) return new URLSearchParams();
+/**
+ * The query parameters and body from the call's options, which may hold only `query` and `body`.
+ * A body is a JSON object, and a GET takes none.
+ */
+function readOptions(
+  options: unknown,
+  method: string,
+  path: string,
+): { params: URLSearchParams; body: Record<string, unknown> | undefined } {
+  if (options === undefined) return { params: new URLSearchParams(), body: undefined };
   if (!isRecord(options)) {
     throw invalidRequest('The options must be an object like { query: { … } }.', method, path);
   }
   const unknown = Object.keys(options).filter((key) => key !== 'query' && key !== 'body');
   if (unknown.length > 0) {
-    throw invalidRequest(`Unknown option ${unknown.join(', ')}; use { query }.`, method, path);
+    throw invalidRequest(
+      `Unknown option ${unknown.join(', ')}; use { query, body }.`,
+      method,
+      path,
+    );
   }
-  if (options.body !== undefined) throw invalidRequest('A GET call takes no body.', method, path);
-  return toSearchParams(options.query, method, path);
+  const { body } = options;
+  if (body !== undefined && method === 'GET') {
+    throw invalidRequest('A GET call takes no body.', method, path);
+  }
+  if (body !== undefined && !isRecord(body)) {
+    throw invalidRequest('body must be an object, the JSON body of the call.', method, path);
+  }
+  return { params: toSearchParams(options.query, method, path), body };
 }
 
 /**
- * Why a GET would change sevDesk data irreversibly, or undefined: a segment naming an
- * irreversible operation, `getPdf` without `preventSendBy=true` (it can mark the document as
- * sent, decision 7) or an enshrine flag. Such calls need the confirmation gate, which does not
- * exist yet. The full classification of every spec path arrives with the writes slice.
- */
-function irreversibleRead(path: string, params: URLSearchParams): string | undefined {
-  const segments = path.split('/');
-  if (segments.some((segment) => IRREVERSIBLE_SEGMENT.test(segment))) {
-    return `GET ${path} sends, enshrines, books, cancels or resets a document, which needs confirmation and is not enabled yet. Nothing was sent.`;
-  }
-  const getsPdf = segments.some((segment) => segment.toLowerCase() === 'getpdf');
-  if (getsPdf && params.get('preventSendBy') !== 'true') {
-    return 'getPdf without preventSendBy=true can mark the document as sent, which is not enabled yet. Pass { query: { preventSendBy: true } }. Nothing was sent.';
-  }
-  const flag = [...params].find(([key, value]) => ENSHRINE_FLAG.test(key) && value !== 'false');
-  if (flag) {
-    return `query.${flag[0]}=${flag[1]} enshrines the exported documents, which needs confirmation and is not enabled yet. Nothing was sent.`;
-  }
-  return undefined;
-}
-
-/**
- * Validates the code's arguments `(method, path, options)` and builds the URL. Writes and
- * irreversible reads (see `irreversibleRead`) fail closed before a request exists.
+ * Validates the code's arguments `(method, path, options)` and builds the URL and body. A call
+ * that changes sevDesk data irreversibly (`confirmationReason`) fails closed before a request
+ * exists, since the confirmation gate does not exist yet.
  */
 function prepare(baseUrl: string, [method, path, options]: unknown[]): Call {
   if (typeof method !== 'string') throw invalidRequest('method must be a string such as "GET".');
@@ -169,20 +177,17 @@ function prepare(baseUrl: string, [method, path, options]: unknown[]): Call {
       typeof path === 'string' ? path : undefined,
     );
   }
-  if (WRITE_METHODS.has(verb)) {
-    throw notEnabled(
-      `${verb} calls are not enabled yet: execute only reads (GET) so far. Nothing was sent.`,
-      verb,
-      path,
-    );
+  if (!METHODS.has(verb)) {
+    throw invalidRequest(`Unknown method ${verb}; use GET, POST, PUT or DELETE.`, verb, path);
   }
-  if (verb !== 'GET') throw invalidRequest(`Unknown method ${verb}; use GET.`, verb, path);
-  const params = readOptions(options, verb, path);
-  const irreversible = irreversibleRead(path, params);
-  if (irreversible !== undefined) throw notEnabled(irreversible, verb, path);
+  const { params, body } = readOptions(options, verb, path);
+  const reason = confirmationReason(verb, path, params, body);
+  if (reason !== undefined) throw needsConfirmation(reason, verb, path);
   const url = new URL(baseUrl + path);
   url.search = params.toString();
-  return { method: verb, path, url };
+  const call: Call = { method: verb, path, url };
+  if (body !== undefined) call.body = JSON.stringify(body);
+  return call;
 }
 
 /**
@@ -258,12 +263,15 @@ function retryDelay(
   return after <= retry.maxDelayMs ? after : undefined;
 }
 
-/** Sends a call once with the token; a failed fetch becomes a `network_error`. */
-async function fetchOnce({ method, path, url }: Call, token: string, signal: AbortSignal) {
+/** Sends a call once with the token and its JSON body; a failed fetch becomes a `network_error`. */
+async function fetchOnce({ method, path, url, body }: Call, token: string, signal: AbortSignal) {
+  const headers: Record<string, string> = { Authorization: token, Accept: 'application/json' };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
   try {
     return await fetch(url.href, {
       method,
-      headers: { Authorization: token, Accept: 'application/json' },
+      headers,
+      body,
       // A redirect from the API is unexpected; following it could carry the token elsewhere.
       redirect: 'error',
       signal,
@@ -353,6 +361,23 @@ async function readBody(
   const body = response.body ?? new Uint8Array();
   const { path, bytes } = await saveFile(downloadDir, name, body, { replace: false, signal });
   return { path, contentType, bytes };
+}
+
+/**
+ * The id of the object a write's answer names: `objects.id` (the first object of an array), or the
+ * id of the first object inside it, as a factory save answers `{ objects: { order, orderPos } }`.
+ * Like `pdfBytes`, it also reads an answer that is not wrapped in `objects`.
+ */
+function objectIdOf(response: unknown): string | undefined {
+  const objects =
+    isRecord(response) && response.objects !== undefined ? response.objects : response;
+  const object: unknown = Array.isArray(objects) ? objects[0] : objects;
+  if (!isRecord(object)) return undefined;
+  for (const candidate of [object, ...Object.values(object)]) {
+    const id = isRecord(candidate) ? candidate.id : undefined;
+    if (typeof id === 'string' || typeof id === 'number') return String(id);
+  }
+  return undefined;
 }
 
 /** The `(type, id)` of `sevdesk.savePdf`: a type of `PDF_TYPES` and a positive integer id. */
@@ -459,18 +484,20 @@ function budgetError(maxCalls: number, stopped: string, hint: string): HostError
  * returns where; `paginate` collects every object of a list, page by page, into one array;
  * `savePdf` saves a document's PDF in `downloadDir`. Between them they send at most `maxCalls`
  * calls (each page is one, `savePdf` costs two, a retry none) to `baseUrl` with the token added here
- * (never visible to the code), retried as decision 10 allows. Writes and irreversible reads fail
- * closed until the confirmation gate exists. The call over `maxCalls` is not sent and ends the run,
- * so `paginate` never returns a partial list.
+ * (never visible to the code), retried as decision 10 allows. A reversible write runs and enters
+ * `writes`, the run's ledger; an irreversible call fails closed until the confirmation gate exists.
+ * The call over `maxCalls` is not sent and ends the run, so `paginate` never returns a partial list.
  */
 export function createClient({ baseUrl, token, maxCalls, downloadDir }: ClientOptions): {
   request: HostFunction;
   paginate: HostFunction;
   savePdf: HostFunction;
+  writes: Write[];
 } {
   requireHttps(baseUrl);
   let sent = 0;
   const withinBudget = () => (sent += 1) <= maxCalls;
+  const writes: Write[] = [];
 
   /** Sends `call` within the budget; the call over it is not sent and ends the run with `hint`. */
   const sendCounted = (call: Call, signal: AbortSignal, hint: string): Promise<Response> => {
@@ -480,8 +507,36 @@ export function createClient({ baseUrl, token, maxCalls, downloadDir }: ClientOp
     return send(call, { token, signal, retry: DEFAULT_RETRY });
   };
 
+  /**
+   * Sends a write like `sendCounted` and enters it in `writes` once it is sent: then the status of
+   * sevDesk's answer, an error status included, and the id of the object a JSON answer names.
+   */
+  const sendWrite = (call: Call, signal: AbortSignal, hint: string): Promise<unknown> => {
+    const sending = sendCounted(call, signal, hint);
+    const write: Write = { method: call.method, path: call.path };
+    writes.push(write);
+    return sending.then(
+      async (response) => {
+        write.status = response.status;
+        const value = await readBody(call, response, downloadDir, signal);
+        const objectId = objectIdOf(value);
+        if (objectId !== undefined) write.objectId = objectId;
+        return value;
+      },
+      (error: unknown) => {
+        if (error instanceof HostError && error.error.status !== undefined) {
+          write.status = error.error.status;
+        }
+        throw error;
+      },
+    );
+  };
+
   const request: HostFunction = (args, signal) => {
     const call = prepare(baseUrl, args);
+    if (call.method !== 'GET') {
+      return sendWrite(call, signal, 'Spread the writes over several runs.');
+    }
     const hint = 'Fetch fewer, larger pages, or filter with query parameters.';
     return sendCounted(call, signal, hint).then((response) =>
       readBody(call, response, downloadDir, signal),
@@ -533,7 +588,7 @@ export function createClient({ baseUrl, token, maxCalls, downloadDir }: ClientOp
     });
   };
 
-  return { request, paginate, savePdf };
+  return { request, paginate, savePdf, writes };
 }
 
 /**

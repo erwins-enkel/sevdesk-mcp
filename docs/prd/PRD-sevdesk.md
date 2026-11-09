@@ -126,7 +126,7 @@ TypeScript, Node ≥ 22 (Node 20 ist seit 2026-04 end-of-life, siehe `docs/decis
 **Bestätigungspflichtig** (Klassifizierung im Code als Tabelle, per Test abgesichert):
 - jedes `DELETE`
 - Versand: `…/sendViaEmail`, `…/sendBy` (Status „versendet“)
-- Festschreiben/Buchen: `…/enshrine`, `…/bookAmount`, Storno (`…/cancelInvoice`), Statusänderungen auf Rechnungen. Eine Statusänderung erkennt der Server an einem `status`-Feld im Body von `PUT`/`POST` auf Invoice, Order, CreditNote oder Voucher (0002 Nr. 6).
+- Festschreiben/Buchen: `…/enshrine`, `…/bookAmount`, Storno (`…/cancelInvoice`), Statusänderungen auf Rechnungen. Eine Statusänderung erkennt der Server an einem `status`-Feld im Body von `PUT`/`POST` auf Invoice, Order, CreditNote oder Voucher (0002 Nr. 6); ein neuer Entwurf (Factory-Save ohne ID mit Entwurfsstatus) ist keine Statusänderung.
 - Rücksetzen (`resetToOpen`, `resetToDraft`)
 - Exporte, die Dateien an Dritte übergeben (falls vorhanden; welche das sind, klärt die Klassifizierung anhand der Spezifikation)
 - `…/getPdf` ohne `preventSendBy=true`, weil es den Versandstatus setzen kann (0002 Nr. 7)

@@ -359,7 +359,7 @@ test('sevdesk.paginate rejects paging parameters and irreversible reads unsent, 
   expect(envelope.result).toEqual([
     { kind: 'invalid_request', message: paging('limit') },
     { kind: 'invalid_request', message: paging('offset') },
-    { kind: 'not_enabled', message: expect.stringContaining('getPdf') as string },
+    { kind: 'needs_confirmation', message: expect.stringContaining('getPdf') as string },
     {
       kind: 'invalid_request',
       message:
@@ -404,50 +404,4 @@ test('a GET is retried on 429 and 5xx and succeeds on a later attempt', async ()
   expect(isError).toBe(false);
   expect(envelope.result).toEqual(contacts.objects);
   expect(snippetCalls(sevdesk.requests)).toEqual(Array<string>(3).fill('GET /Contact'));
-});
-
-test('writes and irreversible reads are rejected and never sent', async () => {
-  const pdf = { objects: { filename: 'RE-1.pdf', mimeType: 'application/pdf' } };
-  const exportJob = { objects: { id: 'job-1' } };
-  const sevdesk = await mock({
-    'GET /Invoice/1/getPdf': () => ({ json: pdf }),
-    'GET /Export/createDatevCsvZipExportJob': () => ({ json: exportJob }),
-  });
-
-  const { envelope } = await executeOnce(`
-    const calls = [
-      ['POST', '/Contact', { body: { name: 'x' } }],
-      ['put', '/Contact/1', { body: {} }],
-      ['DELETE', '/Contact/1'],
-      ['PATCH', '/Contact/1'],
-      ['GET', '/Invoice/1/getPdf'],
-      ['GET', '/Invoice/1/getPdf', { query: { preventSendBy: false } }],
-      ['GET', '/Order/1/GETPDF', { query: { download: true } }],
-      ['GET', '/CreditNote/1/sendByWithRender', { query: { sendType: 'PRN' } }],
-      ['GET', '/Invoice/1/sendBy'],
-      ['GET', '/Export/datevCSV', { query: { enshrine: true } }],
-      ['GET', '/Export/createDatevCsvZipExportJob', { query: { enshrineDocuments: 1 } }],
-    ];
-    const kinds = [];
-    for (const call of calls) {
-      try { await sevdesk.request(...call); kinds.push('sent'); } catch (e) { kinds.push(e.kind); }
-    }
-    const allowed = await sevdesk.request('GET', '/Invoice/1/getPdf', { query: { preventSendBy: true } });
-    const job = await sevdesk.request('GET', '/Export/createDatevCsvZipExportJob', {
-      query: { enshrineDocuments: false, includeEnshrined: true },
-    });
-    return { kinds, allowed, job };`);
-
-  expect(envelope.result).toEqual({
-    kinds: Array(11).fill('not_enabled'),
-    allowed: pdf,
-    job: exportJob,
-  });
-  expect(snippetCalls(sevdesk.requests)).toEqual([
-    'GET /Invoice/1/getPdf',
-    'GET /Export/createDatevCsvZipExportJob',
-  ]);
-  expect(
-    sevdesk.requests.find((r) => r.path === '/Invoice/1/getPdf')?.query.get('preventSendBy'),
-  ).toBe('true');
 });

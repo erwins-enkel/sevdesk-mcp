@@ -9,11 +9,12 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - Foundation decisions and their rationale: `docs/decisions/0001-foundation.md`.
 - Product decisions and their rationale: `docs/decisions/0002-product-decisions.md`.
 - Status: early development. `search` runs in the QuickJS sandbox with the patched spec and the
-  guides; `execute` reads sevDesk (GET only) with the profile from `SEVDESK_API_TOKEN` or a
-  config-file profile whose token is in the OS keychain, and saves PDFs (`savePdf`) and non-JSON
-  responses in the profile's download directory; both use the limits and base URL of the optional
-  config file. Every other feature
-  (writes, confirmation flow, audit log, setup) arrives as a backlog slice.
+  guides; `execute` reads sevDesk and runs reversible writes (listed in the result's `writes`
+  ledger) with the profile from `SEVDESK_API_TOKEN` or a config-file profile whose token is in the
+  OS keychain, refuses every irreversible call (`needs_confirmation`), and saves PDFs (`savePdf`)
+  and non-JSON responses in the profile's download directory; both use the limits and base URL of
+  the optional config file. Every other feature (confirmation flow, read-only mode, audit log,
+  setup) arrives as a backlog slice.
 
 ## Orientation
 
@@ -36,15 +37,16 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `timeout`/`memory_limit`/`snippet_error`). Host functions (`HostFunction`) return promises to
   the code; a `HostError` is catchable there and, uncaught, ends the run with its structured
   error; a fatal one ends the run at once. `src/envelope.ts`: `toToolResult()`, the JSON result
-  envelope (`result`, `error`, `console`, `notes`; results over the output limit, by default
-  20,000 characters, are cut). `src/search.ts`: the `search` tool. `src/guides.ts`: `GUIDES`, the
+  envelope (`result`, `error`, `console`, `writes`, `notes`; results over the output limit, by
+  default 20,000 characters, are cut). `src/search.ts`: the `search` tool. `src/guides.ts`: `GUIDES`, the
   curated recipes `search` offers as `guides` (system 2.0 only; endpoints written `METHOD /path`,
   checked against the patched spec by `test/guides.test.ts`).
-- `src/execute.ts`: the `execute` tool (bookkeeping-system check per profile and session).
-  `src/sevdesk.ts`: `createClient()`, the host side of `sevdesk.request`, `sevdesk.paginate` and
-  `sevdesk.savePdf` (HTTPS base URL, relative paths only, token added host-side, shared call
-  budget, pages of 1,000, fail-closed rules, structured errors; `request` saves a non-JSON
-  response, `savePdf` the PDF of a `PDF_TYPES` document with `preventSendBy=true`); `send()`
+- `src/execute.ts`: the `execute` tool (bookkeeping-system check per profile and session,
+  destructive annotation). `src/sevdesk.ts`: `createClient()`, the host side of `sevdesk.request`,
+  `sevdesk.paginate` and `sevdesk.savePdf` (HTTPS base URL, relative paths only, JSON bodies,
+  token added host-side, shared call budget, pages of 1,000, structured errors; `request` saves a
+  non-JSON response, `savePdf` the PDF of a `PDF_TYPES` document with `preventSendBy=true`;
+  `writes` is the run's ledger of sent writes with status and object id); `send()`
   resolves to the 2xx response and retries per decision 10 (`retry: false` sends once, for
   confirmed calls). `src/downloads.ts`: `fileStem()` (a file name that cannot leave its
   directory) and `saveFile()` (temp file, then rename; replace or next free name;
@@ -53,6 +55,12 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `selectProfile()` (`account`, else the only one, else `account_required`). `src/keychain.ts`:
   `readToken()`, a profile's token from the OS keychain via `@napi-rs/keyring` (service
   `sevdesk-mcp`, account = profile name, Linux Secret Service only), loaded lazily on first use.
+- `src/classify.ts`: the classification (PRD §6, decisions 6 and 7). `OPERATIONS` gives every
+  operation of the patched spec (`METHOD /path template`) the effect `read`, `reversible` or
+  `irreversible`; `confirmationReason()` says why a call needs confirmation (DELETE, the table,
+  unknown write paths, `getPdf` without `preventSendBy=true`, a status change in the body, an
+  enshrine flag). `test/classify.test.ts` fails on any spec operation the table lacks, so a spec
+  update that adds a path needs a classification here.
 - `spec/sevdesk-openapi.json`: the embedded sevDesk OpenAPI spec (`$ref`s resolved, © sevDesk,
   not MIT). Never edit it by hand: `bun run update-spec` regenerates it
   (`scripts/update-spec.ts`, `scripts/resolve-refs.ts`). It applies `spec/patches.json` first, the
@@ -63,9 +71,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   mirrors it, `index.ts` exposes `resolveLocale()` and `t()`.
 - `test/`: vitest; `test/budget.test.ts` is the 1,500-token gate for instructions and tool
   descriptions. `test/mock-sevdesk.ts` starts a mock sevDesk on port 0 with per-test routes
-  (JSON, text or raw bytes) and stubs the global `fetch` to send calls for the real HTTPS base
-  URL there (any other URL throws), so the code under test keeps its HTTPS rule and tests never
-  reach sevDesk. `test/setup.ts` (vitest `setupFiles`) gives every test a fresh `mkdtemp` home
+  (JSON, text or raw bytes), records each request with its body, and stubs the global `fetch` to
+  send calls for the real HTTPS base URL there (any other URL throws), so the code under test keeps
+  its HTTPS rule and tests never reach sevDesk. `test/setup.ts` (vitest `setupFiles`) gives every test a fresh `mkdtemp` home
   and points `HOME`, `USERPROFILE`, `XDG_*` and `APPDATA`/`LOCALAPPDATA` there, so in-process and
   spawned servers never touch the real local directories or `~/Downloads`; it also unsets
   `SEVDESK_API_TOKEN` and mocks `@napi-rs/keyring` with the in-memory `test/fake-keychain.ts`
@@ -160,7 +168,8 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
    method + path + body hash). `execute({ confirm })` replays exactly the stored calls without
    re-running code, stops at the first failure, reports per call. Classification fails closed:
    unknown write paths, `status` in the body of PUT/POST on Invoice/Order/CreditNote/Voucher, and
-   `getPdf` without `preventSendBy=true` all need confirmation. `savePdf` always sets
+   `getPdf` without `preventSendBy=true` all need confirmation; only a new draft (a factory save
+   without id, with the draft status) may carry a status. `savePdf` always sets
    `preventSendBy=true`; marking as sent (`sendBy`) is its own confirmed step.
 4. **Preview (9):** English, structured: amount as number + currency code, ISO 8601 dates,
    recipient, subject, document number, profile and company name.
