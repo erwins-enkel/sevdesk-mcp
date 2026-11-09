@@ -15,6 +15,8 @@ export interface Config {
   maxCalls: number;
   /** The configured profiles, in the order of the file. */
   profiles: ProfileSettings[];
+  /** Whether `execute` writes the audit log (decision 16); `"audit": false` turns it off. */
+  audit: boolean;
 }
 
 /** A profile of the config file (decision 13). Its token is never here: it lives in the OS keychain. */
@@ -43,6 +45,7 @@ export const DEFAULT_CONFIG: Config = {
   limits: DEFAULT_LIMITS,
   maxCalls: DEFAULT_CALL_BUDGET,
   profiles: [],
+  audit: true,
 };
 
 /** The outcome of reading the config file: the config, or why the file is unusable. */
@@ -59,7 +62,7 @@ const LIMIT_RANGES = {
 };
 type LimitKey = keyof typeof LIMIT_RANGES;
 
-const TOP_LEVEL_KEYS = new Set(['baseUrl', 'limits', 'profiles']);
+const TOP_LEVEL_KEYS = new Set(['baseUrl', 'limits', 'profiles', 'audit']);
 
 const HINT = 'Fix the file or delete it to use the defaults, then restart the MCP server.';
 
@@ -188,6 +191,14 @@ function readProfiles(value: unknown, problems: string[]): ProfileSettings[] {
   });
 }
 
+/** `audit` of the file: true or false, on by default; a problem is added to `problems`. */
+function readAudit(value: unknown, problems: string[]): boolean {
+  if (value === undefined) return DEFAULT_CONFIG.audit;
+  if (typeof value === 'boolean') return value;
+  problems.push('audit must be true or false');
+  return DEFAULT_CONFIG.audit;
+}
+
 /** The config from the file's parsed JSON, or the problems that make it invalid. */
 function toConfig(json: unknown): { config: Config; problems: string[] } {
   const problems: string[] = [];
@@ -209,6 +220,7 @@ function toConfig(json: unknown): { config: Config; problems: string[] } {
     },
     maxCalls: callsPerRun ?? DEFAULT_CONFIG.maxCalls,
     profiles,
+    audit: readAudit(json.audit, problems),
   };
   return { config, problems };
 }

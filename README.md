@@ -10,9 +10,10 @@ JavaScript snippets that run in a local sandbox against the sevDesk API ("Code M
 > (reads and reversible writes such as drafts, with a token from `SEVDESK_API_TOKEN` or from a
 > profile in the OS keychain, PDFs and exports saved to disk; every result lists the writes it
 > sent). Irreversible calls (delete, send, enshrine, book, cancel, reset, status changes) are held
-> until you confirm them; read-only mode blocks every change. `sevdesk-mcp setup` adds an account
-> with its token in the OS keychain, `setup --list` lists the accounts and `setup --remove`
-> removes one. The audit log and client registration are not there yet. Do not use it with a real sevDesk account yet.
+> until you confirm them; read-only mode blocks every change; a local audit log records every write
+> call. `sevdesk-mcp setup` adds an account with its token in the OS keychain, `setup --list` lists
+> the accounts and `setup --remove` removes one. Client registration is not there yet. Do not use it
+> with a real sevDesk account yet.
 
 > Not developed or endorsed by sevDesk. (Nicht von sevDesk entwickelt oder unterstützt.)
 
@@ -34,7 +35,8 @@ and `execute` run.
 {
   "baseUrl": "https://my.sevdesk.de/api/v1",
   "limits": { "timeoutSeconds": 30, "memoryMb": 64, "callsPerRun": 50, "outputChars": 20000 },
-  "profiles": { "manufare": { "company": "manu·fare GmbH", "readonly": false } }
+  "profiles": { "manufare": { "company": "manu·fare GmbH", "readonly": false } },
+  "audit": true
 }
 ```
 
@@ -49,6 +51,7 @@ and `execute` run.
 | `….company`             | required                       | the sevDesk company name, a non-empty string             |
 | `….readonly`            | `false`                        | `true` or `false` ([read-only mode](#read-only-mode))    |
 | `….downloadDir`         | `~/Downloads/sevdesk/<name>`   | where its files are saved, an absolute path              |
+| `audit`                 | `true`                         | `true` or `false` ([audit log](#audit-log))              |
 
 The server reads the file when it starts, so restart it (or your MCP client) after a change. If the
 file is not valid JSON, has an unknown key or an invalid value, both tools refuse to run and
@@ -144,6 +147,39 @@ Such a call is rejected outright, never held, so no confirmation token can get i
 always sets `preventSendBy=true`). When `SEVDESK_READONLY` is on, or the server is pinned with
 `--profile` to a read-only profile, `execute` carries the MCP `readOnlyHint` annotation. The server
 reads both switches when it starts, so restart it after a change.
+
+## Audit log
+
+Every write call `execute` handles leaves one line in a local audit log, so you can see what the
+server tried to change. It is a JSON Lines file per month (UTC), e.g. `2026-11.jsonl`, in the
+`audit` folder of the data/state directory:
+
+| OS      | Audit folder                                                                   |
+| ------- | ------------------------------------------------------------------------------ |
+| Linux   | `$XDG_STATE_HOME/sevdesk-mcp/audit/` (default `~/.local/state/sevdesk-mcp/…`)  |
+| macOS   | `~/Library/Application Support/sevdesk-mcp/audit/`                             |
+| Windows | `%LOCALAPPDATA%\sevdesk-mcp\audit\` (usually `C:\Users\<you>\AppData\Local\…`) |
+
+A line holds `time` (ISO 8601, UTC), `profile`, `method`, `path`, `query` (if any), `status`
+(sevDesk's HTTP status, if it answered), `objectId` (if the answer names one), `bodyHash` (the
+SHA-256 of the JSON body, if any) and `outcome`:
+
+- `executed`: a draft or other reversible write, sent directly.
+- `held`: an irreversible call, held for your confirmation and not sent. A run that fails drops
+  it; it is then never sent.
+- `confirmed`: a held call, sent after your confirmation; `status` shows whether sevDesk accepted
+  it.
+- `rejected`: a call that read-only mode refused, or an irreversible read that `sevdesk.paginate`
+  refused; not sent.
+
+Reads get no line. The log never holds a request body (no customer data) or the token. The
+server never deletes or rotates it; remove old months yourself. Several MCP clients, each with its
+own server, can write to it at once without breaking lines, as long as the folder is on a local
+disk (not a network share). If the log cannot be written, the call fails with an `audit_error`
+and the run stops instead of going on unrecorded: a write is not sent, an irreversible call is not
+held, and a confirmation sends nothing and keeps its token. Should writing fail only after sevDesk
+answered (e.g. a full disk), the error says the call was sent. To turn the log off, set
+`"audit": false` in the config file and restart the server.
 
 ## Files
 

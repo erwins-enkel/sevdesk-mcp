@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises';
+import { type AuditLog, NO_AUDIT } from './audit.ts';
 import { confirmationReason } from './classify.ts';
 import { binaryFileName, fileStem, saveFile } from './downloads.ts';
 import { HostError, type HostFunction, type SnippetError } from './sandbox.ts';
@@ -119,6 +120,17 @@ interface ClientOptions {
    * write. Read-only rejects every write and every irreversible call.
    */
   readOnly?: string;
+  /** The profile's audit log (decision 16), or `NO_AUDIT` with `"audit": false`. */
+  audit: AuditLog;
+}
+
+/**
+ * What every call of a client passes: read-only mode (why it is on, else undefined) and the audit
+ * log, which gets a `rejected` line for each call read-only mode or the confirmation gate refuses.
+ */
+interface Gate {
+  readOnly: string | undefined;
+  audit: AuditLog;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -144,18 +156,16 @@ export const READ_ONLY_HINT =
 
 /**
  * Read-only mode (decision 3): with `readOnly` set (why the run is read-only), a call that is not a
- * GET or that has a `reason` (why it changes data irreversibly, `confirmationReason`) fails with
- * `read_only`. It is neither sent nor held, so no confirmation token can get it through. For a GET
- * the reason is added to the message, as it can name a way to read instead.
+ * GET or that has a `reason` (why it changes data irreversibly, `confirmationReason`) gets its
+ * `rejected` audit line and fails with `read_only`. It is neither sent nor held, so no confirmation
+ * token can get it through. For a GET the reason is added to the message, as it can name a way to
+ * read instead.
  */
-function enforceReadOnly(
-  readOnly: string | undefined,
-  method: string,
-  path: string,
-  reason: string | undefined,
-): void {
+function enforceReadOnly({ readOnly, audit }: Gate, call: Call, reason: string | undefined): void {
+  const { method, path } = call;
   if (readOnly === undefined || (method === 'GET' && reason === undefined)) return;
   const why = method === 'GET' && reason !== undefined ? ` ${reason}` : '';
+  audit.write(call, 'rejected');
   throw new HostError({
     kind: 'read_only',
     message: `${method} ${path} was rejected: ${readOnly}, so only calls that change nothing run. Nothing was sent or held.${why}`,
@@ -220,13 +230,13 @@ function readOptions(
 /**
  * Validates the code's arguments `(method, path, options)` and builds the URL and body, with
  * `reason` saying why the call changes sevDesk data irreversibly (`confirmationReason`), if it does.
- * With `readOnly` set, `enforceReadOnly` rejects a write or a call with a reason first: every call
- * of a client passes here, so none gets past read-only mode.
+ * In read-only mode, `enforceReadOnly` then rejects a write or a call with a reason: every call of a
+ * client passes here, so none gets past read-only mode.
  */
 function build(
   baseUrl: string,
   [method, path, options]: unknown[],
-  readOnly: string | undefined,
+  gate: Gate,
 ): { call: Call; reason: string | undefined } {
   if (typeof method !== 'string') throw invalidRequest('method must be a string such as "GET".');
   const verb = method.toUpperCase();
@@ -242,22 +252,25 @@ function build(
   }
   const { params, body } = readOptions(options, verb, path);
   const reason = confirmationReason(verb, path, params, body);
-  enforceReadOnly(readOnly, verb, path, reason);
   const url = new URL(baseUrl + path);
   url.search = params.toString();
   const call: Call = { method: verb, path, url };
   if (body !== undefined) call.body = JSON.stringify(body);
+  enforceReadOnly(gate, call, reason);
   return { call, reason };
 }
 
 /**
- * `build` for a call that runs directly: one that changes sevDesk data irreversibly fails closed
- * before a request exists, since only `sevdesk.request` holds such a call for confirmation (in
- * read-only mode, `build` rejects it first).
+ * `build` for a call that runs directly: one that changes sevDesk data irreversibly gets its
+ * `rejected` audit line and fails closed before it is sent, since only `sevdesk.request` holds such
+ * a call for confirmation (in read-only mode, `build` rejects it first).
  */
-function prepare(baseUrl: string, args: unknown[], readOnly: string | undefined): Call {
-  const { call, reason } = build(baseUrl, args, readOnly);
-  if (reason !== undefined) throw needsConfirmation(reason, call.method, call.path);
+function prepare(baseUrl: string, args: unknown[], gate: Gate): Call {
+  const { call, reason } = build(baseUrl, args, gate);
+  if (reason !== undefined) {
+    gate.audit.write(call, 'rejected');
+    throw needsConfirmation(reason, call.method, call.path);
+  }
   return call;
 }
 
@@ -505,12 +518,8 @@ function pdfBytes({ method, path }: Call, response: unknown): Buffer {
  * The call behind `sevdesk.paginate(path, query)`: a GET validated like any other, without
  * `limit` and `offset`, which each page sets.
  */
-function preparePages(
-  baseUrl: string,
-  [path, query]: unknown[],
-  readOnly: string | undefined,
-): Call {
-  const call = prepare(baseUrl, ['GET', path, { query }], readOnly);
+function preparePages(baseUrl: string, [path, query]: unknown[], gate: Gate): Call {
+  const call = prepare(baseUrl, ['GET', path, { query }], gate);
   const paging = ['limit', 'offset'].filter((key) => call.url.searchParams.has(key));
   if (paging.length > 0) {
     throw invalidRequest(
@@ -563,6 +572,30 @@ function budgetError(maxCalls: number, stopped: string, hint: string): HostError
   );
 }
 
+/** `log`, handing the error of each of its failures to `failed` before rethrowing it. */
+function recording(log: AuditLog, failed: (error: SnippetError) => void): AuditLog {
+  const record = (step: () => void): void => {
+    try {
+      step();
+    } catch (error) {
+      if (error instanceof HostError) failed(error.error);
+      throw error;
+    }
+  };
+  return {
+    check: () => {
+      record(() => {
+        log.check();
+      });
+    },
+    write: (call, outcome, answer) => {
+      record(() => {
+        log.write(call, outcome, answer);
+      });
+    },
+  };
+}
+
 /**
  * Creates `sevdesk.request`, `sevdesk.paginate` and `sevdesk.savePdf` for one run. `request`
  * validates a call and returns the parsed JSON, or saves a non-JSON response in `downloadDir` and
@@ -576,20 +609,40 @@ function budgetError(maxCalls: number, stopped: string, hint: string): HostError
  * confirmation preview. The call over `maxCalls` is not sent (or held) and ends the run, so
  * `paginate` never returns a partial list. With `readOnly` set (decision 3) every write and every
  * irreversible call fails with `read_only` before it is sent or held; reads and `savePdf` run.
+ * Every write call gets its line in `audit` (decision 16): `executed` once a sent write settles
+ * (an unwritable log stops it before it is sent), `held`, or `rejected` by read-only mode or the
+ * gate; plain reads get none. A log that cannot be written throws a fatal `audit_error`; `settled`
+ * waits for the writes still in flight and resolves to the run's first such error, so the caller
+ * fails the run even when the code caught it, never awaited the write, or the run ended first.
  */
-export function createClient({ baseUrl, token, maxCalls, downloadDir, readOnly }: ClientOptions): {
+export function createClient({
+  baseUrl,
+  token,
+  maxCalls,
+  downloadDir,
+  readOnly,
+  audit: log,
+}: ClientOptions): {
   request: HostFunction;
   paginate: HostFunction;
   savePdf: HostFunction;
   writes: Write[];
   held: Call[];
   readDocument: (path: string, signal: AbortSignal) => Promise<unknown>;
+  settled: () => Promise<SnippetError | undefined>;
 } {
   requireHttps(baseUrl);
   let sent = 0;
   const withinBudget = () => (sent += 1) <= maxCalls;
   const writes: Write[] = [];
   const held: Call[] = [];
+  let auditFailure: SnippetError | undefined;
+  const audit = recording(log, (error) => {
+    auditFailure ??= error;
+  });
+  const gate: Gate = { readOnly, audit };
+  // Each sent write until its audit line is written, its failure swallowed (the code gets it).
+  const inFlight: Promise<unknown>[] = [];
 
   /** Sends `call` within the budget; the call over it is not sent and ends the run with `hint`. */
   const sendCounted = (call: Call, signal: AbortSignal, hint: string): Promise<Response> => {
@@ -601,30 +654,42 @@ export function createClient({ baseUrl, token, maxCalls, downloadDir, readOnly }
 
   /**
    * Sends a write like `sendCounted` and enters it in `writes` once it is sent: then the status of
-   * sevDesk's answer, an error status included, and the id of the object a JSON answer names.
+   * sevDesk's answer, an error status included, and the id of the object a JSON answer names. The
+   * audit log is checked before the write is sent and gets its `executed` line once it settles.
    */
   const sendWrite = (call: Call, signal: AbortSignal, hint: string): Promise<unknown> => {
+    audit.check();
     const sending = sendCounted(call, signal, hint);
     const write: Write = { method: call.method, path: call.path };
     writes.push(write);
-    return sending.then(
+    const written = sending.then(
       async (response) => {
         write.status = response.status;
-        const value = await readBody(call, response, downloadDir, signal);
-        const objectId = objectIdOf(value);
-        if (objectId !== undefined) write.objectId = objectId;
-        return value;
+        try {
+          const value = await readBody(call, response, downloadDir, signal);
+          const objectId = objectIdOf(value);
+          if (objectId !== undefined) write.objectId = objectId;
+          return value;
+        } finally {
+          audit.write(call, 'executed', write);
+        }
       },
       (error: unknown) => {
         if (error instanceof HostError && error.error.status !== undefined) {
           write.status = error.error.status;
         }
+        audit.write(call, 'executed', write);
         throw error;
       },
     );
+    inFlight.push(written.catch(() => undefined));
+    return written;
   };
 
-  /** Keeps an irreversible call for its confirmation instead of sending it, within the budget. */
+  /**
+   * Keeps an irreversible call for its confirmation instead of sending it, within the budget, with
+   * its `held` audit line.
+   */
   const hold = (call: Call): Promise<unknown> => {
     if (!withinBudget()) {
       throw budgetError(
@@ -633,12 +698,13 @@ export function createClient({ baseUrl, token, maxCalls, downloadDir, readOnly }
         'Hold fewer calls per run: each is sent on confirmation.',
       );
     }
+    audit.write(call, 'held');
     held.push(call);
     return Promise.resolve({ held: true });
   };
 
   const request: HostFunction = (args, signal) => {
-    const { call, reason } = build(baseUrl, args, readOnly);
+    const { call, reason } = build(baseUrl, args, gate);
     if (reason !== undefined) return hold(call);
     if (call.method !== 'GET') {
       return sendWrite(call, signal, 'Spread the writes over several runs.');
@@ -650,7 +716,7 @@ export function createClient({ baseUrl, token, maxCalls, downloadDir, readOnly }
   };
 
   const paginate: HostFunction = async (args, signal) => {
-    const call = preparePages(baseUrl, args, readOnly);
+    const call = preparePages(baseUrl, args, gate);
     const objects: unknown[] = [];
     for (;;) {
       if (!withinBudget()) {
@@ -674,11 +740,11 @@ export function createClient({ baseUrl, token, maxCalls, downloadDir, readOnly }
   // PDF is fetched with preventSendBy=true, so sevDesk never marks the document as sent (decision 7).
   const savePdf: HostFunction = (args, signal) => {
     const { type, id } = pdfArguments(args);
-    const document = prepare(baseUrl, ['GET', `/${type}/${id}`], readOnly);
+    const document = prepare(baseUrl, ['GET', `/${type}/${id}`], gate);
     const pdf = prepare(
       baseUrl,
       ['GET', `/${type}/${id}/getPdf`, { query: { preventSendBy: true } }],
-      readOnly,
+      gate,
     );
     const hint = 'Save fewer PDFs per run: each costs 2 calls.';
     const fetched = sendCounted(document, signal, hint).then((response) =>
@@ -696,13 +762,19 @@ export function createClient({ baseUrl, token, maxCalls, downloadDir, readOnly }
 
   /** The JSON of `GET path`, a document a held call acts on, read for the confirmation preview. */
   const readDocument = async (path: string, signal: AbortSignal): Promise<unknown> => {
-    const call = prepare(baseUrl, ['GET', path], readOnly);
+    const call = prepare(baseUrl, ['GET', path], gate);
     const hint =
       'Hold calls on fewer documents per run: the preview reads each document a held call acts on, one call each.';
     return readJson(call, await sendCounted(call, signal, hint));
   };
 
-  return { request, paginate, savePdf, writes, held, readDocument };
+  /** Waits for the writes still in flight, then resolves to the run's first audit failure. */
+  const settled = async (): Promise<SnippetError | undefined> => {
+    await Promise.all(inFlight);
+    return auditFailure;
+  };
+
+  return { request, paginate, savePdf, writes, held, readDocument, settled };
 }
 
 interface ReplayOptions {
@@ -710,6 +782,8 @@ interface ReplayOptions {
   /** The profile's download directory, where a non-JSON answer is saved. */
   downloadDir: string;
   signal: AbortSignal;
+  /** The profile's audit log: a `confirmed` line for each call sent. */
+  audit: AuditLog;
 }
 
 /** Reads a confirmed call's 2xx answer into `entry`: the object id of JSON, else the saved file. */
@@ -744,30 +818,62 @@ async function sendConfirmed(call: Call, entry: Confirmed, options: ReplayOption
   }
 }
 
+/** Sends a confirmed call; resolves to its error if it failed, and `entry` is `failed` then. */
+async function attempt(
+  call: Call,
+  entry: Confirmed,
+  options: ReplayOptions,
+): Promise<SnippetError | undefined> {
+  try {
+    await sendConfirmed(call, entry, options);
+    return undefined;
+  } catch (thrown) {
+    if (!(thrown instanceof HostError)) throw thrown;
+    entry.outcome = 'failed';
+    entry.status ??= thrown.error.status;
+    return thrown.error;
+  }
+}
+
+/** Runs an audit step: the error of its failure, or undefined when it succeeded. */
+function audited(step: () => void): SnippetError | undefined {
+  try {
+    step();
+    return undefined;
+  } catch (thrown) {
+    if (!(thrown instanceof HostError)) throw thrown;
+    return thrown.error;
+  }
+}
+
 /**
  * Sends the held calls of a confirmation exactly as they were stored, in order, each once and never
  * retried (decisions 5 and 10), and reports each. The first call that fails (no 2xx answer) stops
  * it: that call is `failed`, every later one `not_sent`, and `error` says why. A 2xx whose answer
- * cannot be read is no failure: the call was applied, so the next one is sent.
+ * cannot be read is no failure: the call was applied, so the next one is sent. Each call is sent
+ * only when the audit log can be written and gets its `confirmed` line once it settles; a log that
+ * cannot be written stops the replay too, and its `audit_error` is the `error` then.
  */
 export async function replay(
   calls: Call[],
   options: ReplayOptions,
 ): Promise<{ confirmed: Confirmed[]; error?: SnippetError }> {
+  const { audit } = options;
   const confirmed: Confirmed[] = [];
   let error: SnippetError | undefined;
   for (const call of calls) {
     const entry: Confirmed = { method: call.method, path: call.path, outcome: 'not_sent' };
     confirmed.push(entry);
     if (error !== undefined) continue;
-    try {
-      await sendConfirmed(call, entry, options);
-    } catch (thrown) {
-      if (!(thrown instanceof HostError)) throw thrown;
-      entry.outcome = 'failed';
-      entry.status ??= thrown.error.status;
-      error = thrown.error;
-    }
+    error = audited(() => {
+      audit.check();
+    });
+    if (error !== undefined) continue;
+    const failed = await attempt(call, entry, options);
+    error =
+      audited(() => {
+        audit.write(call, 'confirmed', entry);
+      }) ?? failed;
   }
   return error === undefined ? { confirmed } : { confirmed, error };
 }
@@ -796,7 +902,8 @@ function plainText(value: unknown): string {
  */
 async function readAccount({ baseUrl, token }: Account, path: string, signal: AbortSignal) {
   requireHttps(baseUrl);
-  const call = prepare(baseUrl, ['GET', path], undefined);
+  // A fixed account read: never rejected, and reads are not audited.
+  const call = prepare(baseUrl, ['GET', path], { readOnly: undefined, audit: NO_AUDIT });
   return readJson(call, await send(call, { token, signal, retry: DEFAULT_RETRY }));
 }
 

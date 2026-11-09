@@ -1,6 +1,9 @@
+import { rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
+import { auditLog, NO_AUDIT } from '../src/audit.ts';
+import { localDirs } from '../src/paths.ts';
 import { HostError, type SnippetError } from '../src/sandbox.ts';
 import {
   bookkeepingSystem,
@@ -50,9 +53,18 @@ function sendTo(
   ).then((response) => response.json());
 }
 
-/** The client options of these tests, with a download directory in the temporary home. */
+/**
+ * The client options of these tests, with a download directory in the temporary home and no audit
+ * log.
+ */
 function clientOptions(baseUrl = DEFAULT_BASE_URL) {
-  return { baseUrl, token: TOKEN, maxCalls: 1, downloadDir: join(homedir(), 'Downloads') };
+  return {
+    baseUrl,
+    token: TOKEN,
+    maxCalls: 1,
+    downloadDir: join(homedir(), 'Downloads'),
+    audit: NO_AUDIT,
+  };
 }
 
 /** The structured error a call rejects with; fails the test if it resolves. */
@@ -116,6 +128,32 @@ test('a write that gets no answer stays in the ledger without a status', async (
 
   await expect(failed).rejects.toMatchObject({ error: { kind: 'network_error' } });
   expect(writes).toEqual([{ method: 'POST', path: '/Contact' }]);
+});
+
+test('settled resolves to the audit failure of a sent write that nobody awaited', async () => {
+  const auditDir = join(localDirs().state, 'audit');
+  await mock({
+    'POST /Contact': () => {
+      // The log breaks after the write was checked and sent, so its line cannot be written.
+      rmSync(auditDir, { recursive: true, force: true });
+      writeFileSync(auditDir, '');
+      return { status: 201, json: { objects: { id: '7', objectName: 'Contact' } } };
+    },
+  });
+  const { request, writes, settled } = createClient({
+    ...clientOptions(),
+    audit: auditLog('mcp-test'),
+  });
+
+  void request(['POST', '/Contact', { body: { name: 'x' } }], new AbortController().signal).catch(
+    () => undefined,
+  );
+
+  expect(await settled()).toMatchObject({
+    kind: 'audit_error',
+    message: expect.stringMatching(/: POST \/Contact was sent\.$/) as unknown,
+  });
+  expect(writes).toEqual([{ method: 'POST', path: '/Contact', status: 201, objectId: '7' }]);
 });
 
 test('a 429 is retried for any method and the call succeeds on a later attempt', async () => {

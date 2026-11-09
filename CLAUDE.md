@@ -14,10 +14,12 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   OS keychain, holds every irreversible call and sends it only with the confirmation token
   (`execute({ confirm })`), and saves PDFs (`savePdf`) and non-JSON responses in the profile's
   download directory; both use the limits and base URL of the optional config file. Read-only mode
-  (`SEVDESK_READONLY` or a profile's `readonly`) rejects every write and irreversible call.
+  (`SEVDESK_READONLY` or a profile's `readonly`) rejects every write and irreversible call. Every
+  write call (executed, held, confirmed, rejected) gets a line in the monthly audit log in the
+  state directory unless the config file sets `audit: false`.
   `sevdesk-mcp setup` adds a profile interactively (token into the OS keychain), `setup --list`
   lists the profiles and `setup --remove <name>` removes one with its token. Every other feature
-  (audit log, client registration) arrives as a backlog slice.
+  (client registration) arrives as a backlog slice.
 
 ## Orientation
 
@@ -44,10 +46,10 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   Linux, `~/Library/Application Support` on macOS, `%APPDATA%`/`%LOCALAPPDATA%` on Windows), and
   `defaultDownloadDir()`, `~/Downloads/sevdesk/<profile>` unless the profile sets `downloadDir`.
   `src/config.ts`: `loadConfig()` reads `config.json` there (`baseUrl`, `limits`, `profiles`
-  without tokens; documented in the README). No file means `DEFAULT_CONFIG`; an unreadable or
-  invalid file is an `invalid_config` error that both tools return instead of running. A new
-  config key extends `toConfig()` and the README table. `saveProfile()` adds or updates one
-  profile, `deleteProfile()` removes one; both keep every other key.
+  without tokens, `audit`; documented in the README). No file means `DEFAULT_CONFIG`; an
+  unreadable or invalid file is an `invalid_config` error that both tools return instead of
+  running. A new config key extends `toConfig()` and the README table. `saveProfile()` adds or
+  updates one profile, `deleteProfile()` removes one; both keep every other key.
 - `src/sandbox.ts`: `runSnippet()`, the QuickJS sandbox (a fresh WASM module per run, by
   default 30 s and 64 MB, captured `console.log`, error kinds
   `timeout`/`memory_limit`/`snippet_error`). Host functions (`HostFunction`) return promises to
@@ -69,7 +71,16 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `savePdf` the PDF of a `PDF_TYPES` document with `preventSendBy=true`; `writes` is the run's
   ledger of sent writes with status and object id; `readDocument()` is the preview's counted read);
   `send()` resolves to the 2xx response and retries per decision 10 (`retry: false` sends once);
-  `replay()` sends confirmed calls once each, in order, stopping at the first failure.
+  `replay()` sends confirmed calls once each, in order, stopping at the first failure. Every write
+  call passes the client's `Gate` (read-only reason + audit log): `build()`/`prepare()` write
+  `rejected`, `hold()` writes `held`, `sendWrite()` checks the log before sending and writes
+  `executed` once settled, `replay()` writes `confirmed`; `settled()` waits for in-flight writes and
+  returns the run's first audit failure, which `run()` turns into the run's error.
+  `src/audit.ts`: `auditLog()`, the audit log of a profile (decision 16;
+  `<state>/audit/<YYYY-MM>.jsonl` per UTC month, one synchronous `O_APPEND` write per line so
+  several processes never tear lines; time, profile, method, path, query, status, object id,
+  SHA-256 body hash, outcome; never a body or the token; an unwritable log is a fatal
+  `audit_error`), and `NO_AUDIT` for `audit: false`.
   `src/confirm.ts`: `previewHeld()`, the structured English preview of held calls (decision 9;
   document kind, number, ISO date, amount with currency, recipient, subject), and
   `createConfirmations()`, the in-memory token store (single use, 10 minutes, bound to the profile
