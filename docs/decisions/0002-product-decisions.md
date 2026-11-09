@@ -184,6 +184,10 @@ rules.
     **Answer:** Informal "du", short and factual, gender-inclusive with a colon (as in the PRD);
     English equally short. The implementing agent maintains both catalogs; the operator reviews
     the German in review. **Source:** 0001 (i18n).
+    **Addendum (2026-11-09, issue #3):** The operator no longer reviews German CLI text in pull
+    requests; problems are reported afterwards as issues. This replaces "the operator reviews
+    the German in review" above. The implementing agent still maintains both catalogs and
+    follows the tone rules above.
 28. **Does the server send MCP `instructions` on connect?**
     **Answer:** Yes, a short usage note: `search` first, then `execute`; irreversible calls need
     `confirm`. It counts toward the 1,500-token budget. **Source:** §5.1, §10.
