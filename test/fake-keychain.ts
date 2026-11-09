@@ -37,4 +37,10 @@ export class AsyncEntry {
     fakeKeychain.tokens.set(this.#account, password);
     return Promise.resolve();
   }
+
+  // Called by src/keychain.ts through the `vi.mock` of `@napi-rs/keyring`, which fallow cannot see.
+  // fallow-ignore-next-line unused-class-member
+  deletePassword(): Promise<boolean> {
+    return Promise.resolve(fakeKeychain.tokens.delete(this.#account));
+  }
 }

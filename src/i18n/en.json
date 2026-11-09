@@ -1,9 +1,9 @@
 {
-  "cli.usage": "Usage: sevdesk-mcp [--profile <name>]\n       sevdesk-mcp setup [--add]\n       sevdesk-mcp <command>\n\nWithout a command, starts the MCP server on stdio.\n\nOptions:\n  --profile <name>  Use only this profile; execute rejects any other account\n\nCommands:\n  setup      Add a sevDesk account; its token goes into the OS keychain\n  --help     Show this help\n  --version  Show the version\n\nExit codes:\n  {success}  Success\n  {failure}  Error while running\n  {usage}  Usage error (unknown command or option)",
+  "cli.usage": "Usage: sevdesk-mcp [--profile <name>]\n       sevdesk-mcp setup [--add | --list | --remove <name>]\n       sevdesk-mcp <command>\n\nWithout a command, starts the MCP server on stdio.\n\nOptions:\n  --profile <name>  Use only this profile; execute rejects any other account\n\nCommands:\n  setup      Manage profiles (sevDesk accounts); tokens go into the OS keychain\n  --help     Show this help\n  --version  Show the version\n\nOptions for setup:\n  --add            Add a profile or replace its token (the default)\n  --list           List the profiles with company name and read-only state\n  --remove <name>  Remove a profile and delete its token from the OS keychain\n\nExit codes:\n  {success}  Success\n  {failure}  Error while running\n  {usage}  Usage error (unknown command or option)",
   "cli.unknownCommand": "Unknown command: {command}",
   "cli.unknownOption": "Unknown option: {option}",
   "cli.unexpectedArgument": "Unexpected argument: {argument}",
-  "cli.missingProfileName": "--profile needs a profile name",
+  "cli.missingProfileName": "{option} needs a profile name",
   "cli.invalidProfileName": "Invalid profile name: {profile} (1 to 32 characters: a-z, 0-9 and -)",
   "setup.noTty": "setup needs an interactive terminal and has no options for scripts. Without one (CI, Docker), set SEVDESK_API_TOKEN (and optionally SEVDESK_PROFILE) in the environment of the MCP server instead.",
   "setup.intro": "This adds a sevDesk account as a profile. Its API token goes into the OS keychain, never into a file.",
@@ -31,5 +31,19 @@
   "setup.nothingStored": "Nothing was stored.",
   "setup.done": "Profile {profile} ({company}) is set up.",
   "setup.doneReadonly": "Profile {profile} ({company}) is set up, read-only.",
-  "setup.clientEntry": "Add this command to your MCP client: npx -y {package} --profile {profile}"
+  "setup.clientEntry": "Add this command to your MCP client: npx -y {package} --profile {profile}",
+  "setup.removeNoTty": "setup --remove asks before it removes a profile and needs an interactive terminal for that. Nothing was removed.",
+  "setup.listHeader": "Profiles in {file}:",
+  "setup.listEmpty": "There are no profiles yet. sevdesk-mcp setup adds one.",
+  "setup.listEntry": "  {profile}: {company} ({access})",
+  "setup.accessReadonly": "read-only",
+  "setup.accessReadWrite": "read and write",
+  "setup.unknownProfile": "There is no profile {profile}. sevdesk-mcp setup --list shows every profile.",
+  "setup.askRemove": "Remove profile {profile} ({company}) and delete its token from the OS keychain? {choices} ",
+  "setup.notRemoved": "Profile {profile} was left as it is.",
+  "setup.keychainDeleteFailed": "The token could not be deleted from the OS keychain ({reason}).",
+  "setup.configRemoveFailed": "The token of profile {profile} is deleted from the OS keychain, but the config file {file} could not be written ({reason}). Fix that and run setup --remove {profile} again.",
+  "setup.nothingRemoved": "Nothing was removed.",
+  "setup.removed": "Profile {profile} ({company}) is removed; the OS keychain holds no token for it any more.",
+  "setup.removeClientEntry": "If an MCP client runs sevdesk-mcp with --profile {profile}, remove that entry from its config."
 }

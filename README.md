@@ -11,7 +11,8 @@ JavaScript snippets that run in a local sandbox against the sevDesk API ("Code M
 > profile in the OS keychain, PDFs and exports saved to disk; every result lists the writes it
 > sent). Irreversible calls (delete, send, enshrine, book, cancel, reset, status changes) are held
 > until you confirm them; read-only mode blocks every change. `sevdesk-mcp setup` adds an account
-> with its token in the OS keychain. The audit log and client registration are not there yet. Do not use it with a real sevDesk account yet.
+> with its token in the OS keychain, `setup --list` lists the accounts and `setup --remove`
+> removes one. The audit log and client registration are not there yet. Do not use it with a real sevDesk account yet.
 
 > Not developed or endorsed by sevDesk. (Nicht von sevDesk entwickelt oder unterstützt.)
 
@@ -80,6 +81,17 @@ read by any process and any backup and grants full access to the bookkeeping. Us
 `SEVDESK_API_TOKEN` there instead. Without a terminal (scripts, CI), `setup` stops with the same
 hint; it has no non-interactive options. Its exit code is 0 when the profile is stored and 1
 otherwise.
+
+`setup --list` prints every profile of the config file with its company and whether it is
+read-only. It reads only the config file, never the keychain, so it never shows a token, and it
+needs no terminal.
+
+`setup --remove <name>` asks before it removes the profile (default no). After a yes it deletes the
+token from the OS keychain and then the profile from the config file; every other key of the file
+stays. It needs a terminal for the question. Its exit code is 0 when the profile is removed and 1
+otherwise: after a no, for an unknown profile, or when the keychain or the config file fails. If
+only the config file fails, the token is already gone; fix the file and run `setup --remove` again.
+Remove the profile's entry from your MCP client yourself.
 
 The server never guesses which account a call is for:
 

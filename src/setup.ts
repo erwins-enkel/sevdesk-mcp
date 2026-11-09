@@ -1,18 +1,29 @@
-import { type Config, configFile, isProfileName, loadConfig, saveProfile } from './config.ts';
+import {
+  type Config,
+  configFile,
+  deleteProfile,
+  isProfileName,
+  loadConfig,
+  saveProfile,
+} from './config.ts';
 import { type Locale, type MessageKey, t } from './i18n/index.ts';
-import { probeKeychain, SERVICE, storeToken } from './keychain.ts';
+import { deleteToken, probeKeychain, SERVICE, storeToken } from './keychain.ts';
 import { name as packageName } from './manifest.ts';
 import type { Prompter } from './prompt.ts';
 import { HostError } from './sandbox.ts';
 import { bookkeepingSystem, companyName, SUPPORTED_SYSTEM } from './sevdesk.ts';
 
-/** How `setup` talks to the user: questions through `prompter`, lines to show, and errors. */
-export interface SetupIO {
-  prompter: Prompter;
+/** Where `setup` writes: lines to show, and errors. */
+export interface SetupOutput {
   /** Shows a line (stdout). */
   print: (text: string) => void;
   /** Reports why setup stopped (stderr). */
   fail: (text: string) => void;
+}
+
+/** How the interactive `setup` commands talk to the user: questions through `prompter`. */
+export interface SetupIO extends SetupOutput {
+  prompter: Prompter;
 }
 
 // A token as setup accepts it: printable ASCII without spaces, since it travels in a header.
@@ -54,6 +65,18 @@ function dialogue(locale: Locale, { prompter, print }: SetupIO) {
 }
 
 type Dialogue = ReturnType<typeof dialogue>;
+
+/** The message of a failed write, never anything else the error carries. */
+function reasonOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** The config of the config file; an invalid file stops setup. */
+function configOf(ui: Dialogue): Config {
+  const loaded = loadConfig();
+  if (!loaded.ok) throw ui.stop('setup.invalidConfig', { message: loaded.error.message });
+  return loaded.config;
+}
 
 /**
  * Checks `token` against sevDesk: the account must use the supported bookkeeping system. Shows the
@@ -126,9 +149,8 @@ async function store(
   try {
     saveProfile(profile);
   } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    const file = configFile();
-    io.fail(ui.text('setup.configWriteFailed', { service: SERVICE, profile: name, file, reason }));
+    const params = { service: SERVICE, profile: name, file: configFile(), reason: reasonOf(error) };
+    io.fail(ui.text('setup.configWriteFailed', params));
     return false;
   }
   ui.say(readonly ? 'setup.doneReadonly' : 'setup.done', { profile: name, company });
@@ -143,9 +165,7 @@ async function store(
  * the config file. Every stop before that stores nothing.
  */
 async function addProfile(ui: Dialogue, io: SetupIO): Promise<boolean> {
-  const loaded = loadConfig();
-  if (!loaded.ok) throw ui.stop('setup.invalidConfig', { message: loaded.error.message });
-  const { config } = loaded;
+  const config = configOf(ui);
   ui.say('setup.intro');
   const { name, existing } = await askProfile(ui, config);
   const token = await askToken(ui, name);
@@ -155,17 +175,91 @@ async function addProfile(ui: Dialogue, io: SetupIO): Promise<boolean> {
 }
 
 /**
+ * Runs `body` and resolves to its outcome. When it stops, the stop's message and `trailer` (what was
+ * left untouched) are reported on `io.fail` and it resolves to false.
+ */
+async function reportStops(
+  ui: Dialogue,
+  io: SetupIO,
+  trailer: MessageKey,
+  body: () => Promise<boolean>,
+): Promise<boolean> {
+  try {
+    return await body();
+  } catch (error) {
+    if (!(error instanceof SetupStopped)) throw error;
+    io.fail(error.message);
+    io.fail(ui.text(trailer));
+    return false;
+  }
+}
+
+/**
  * Runs `setup` in `locale` through `io`: adds a profile with its token in the OS keychain. Resolves
  * to true when the profile is stored; otherwise it has reported why on `io.fail`.
  */
 export async function runSetup(locale: Locale, io: SetupIO): Promise<boolean> {
   const ui = dialogue(locale, io);
-  try {
-    return await addProfile(ui, io);
-  } catch (error) {
-    if (!(error instanceof SetupStopped)) throw error;
-    io.fail(error.message);
-    io.fail(ui.text('setup.nothingStored'));
+  return reportStops(ui, io, 'setup.nothingStored', () => addProfile(ui, io));
+}
+
+/**
+ * Runs `setup --list` in `locale`: prints every profile of the config file, in the file's order,
+ * with its company and whether it is read-only. It reads only the config file, never the OS
+ * keychain, so no token can show. Returns false when the config file is invalid, reported on
+ * `out.fail`.
+ */
+export function runList(locale: Locale, out: SetupOutput): boolean {
+  const loaded = loadConfig();
+  if (!loaded.ok) {
+    out.fail(t(locale, 'setup.invalidConfig', { message: loaded.error.message }));
     return false;
   }
+  const { profiles } = loaded.config;
+  if (profiles.length === 0) {
+    out.print(t(locale, 'setup.listEmpty'));
+    return true;
+  }
+  out.print(t(locale, 'setup.listHeader', { file: configFile() }));
+  for (const { name, company, readonly } of profiles) {
+    const access = t(locale, readonly ? 'setup.accessReadonly' : 'setup.accessReadWrite');
+    out.print(t(locale, 'setup.listEntry', { profile: name, company, access }));
+  }
+  return true;
+}
+
+/**
+ * Removes the profile `name` (decision 18) after an explicit yes: its token from the OS keychain
+ * first, then its entry from the config file, so a failure never leaves a token behind that no
+ * profile names. Every stop before the keychain removes nothing; a failed config write is reported
+ * with the token already gone and resolves to false (running it again finishes the removal).
+ */
+async function removeProfile(ui: Dialogue, io: SetupIO, name: string): Promise<boolean> {
+  const profile = configOf(ui).profiles.find((entry) => entry.name === name);
+  if (profile === undefined) throw ui.stop('setup.unknownProfile', { profile: name });
+  const params = { profile: name, company: profile.company };
+  if (!(await ui.confirm('setup.askRemove', params, false))) {
+    throw ui.stop('setup.notRemoved', { profile: name });
+  }
+  const problem = await deleteToken(name);
+  if (problem !== undefined) throw ui.stop('setup.keychainDeleteFailed', { reason: problem });
+  try {
+    deleteProfile(name);
+  } catch (error) {
+    const file = configFile();
+    io.fail(ui.text('setup.configRemoveFailed', { profile: name, file, reason: reasonOf(error) }));
+    return false;
+  }
+  ui.say('setup.removed', params);
+  ui.say('setup.removeClientEntry', { profile: name });
+  return true;
+}
+
+/**
+ * Runs `setup --remove <name>` in `locale` through `io`. Resolves to true when the profile is
+ * removed; otherwise it has reported why on `io.fail`.
+ */
+export async function runRemove(locale: Locale, io: SetupIO, name: string): Promise<boolean> {
+  const ui = dialogue(locale, io);
+  return reportStops(ui, io, 'setup.nothingRemoved', () => removeProfile(ui, io, name));
 }

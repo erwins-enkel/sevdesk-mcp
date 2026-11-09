@@ -15,15 +15,17 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   (`execute({ confirm })`), and saves PDFs (`savePdf`) and non-JSON responses in the profile's
   download directory; both use the limits and base URL of the optional config file. Read-only mode
   (`SEVDESK_READONLY` or a profile's `readonly`) rejects every write and irreversible call.
-  `sevdesk-mcp setup` adds a profile interactively (token into the OS keychain). Every other
-  feature (audit log, client registration, `setup --list`/`--remove`) arrives as a backlog slice.
+  `sevdesk-mcp setup` adds a profile interactively (token into the OS keychain), `setup --list`
+  lists the profiles and `setup --remove <name>` removes one with its token. Every other feature
+  (audit log, client registration) arrives as a backlog slice.
 
 ## Orientation
 
 - `src/cli.ts`: the `sevdesk-mcp` bin. No command starts the MCP server on stdio,
   `--profile <name>` starts it pinned to that profile; `setup` (or `setup --add`) adds a profile
-  through `runSetup()`, only on a terminal (stdin and stdout TTYs, else exit 1 with the
-  `SEVDESK_API_TOKEN` hint); `--help` prints the usage, `--version` the version from
+  through `runSetup()` and `setup --remove <name>` removes one through `runRemove()`, both only on a
+  terminal (stdin and stdout TTYs, else exit 1; `interactive()`); `setup --list` lists the profiles
+  through `runList()` without one; `--help` prints the usage, `--version` the version from
   `src/manifest.ts` (the same source `createServer()` reports). Exit codes: 0 success, 1 runtime
   failure, 2 usage error (unknown command or option); the usage text documents them.
 - `src/setup.ts`: `runSetup(locale, io)`, the setup dialogue (PRD §7, decisions 4, 18, 19):
@@ -31,8 +33,11 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   company checked against sevDesk (`bookkeepingSystem()`, `companyName()` via the undocumented
   `GET /SevClient`), read-only (default no, or the replaced profile's value), then the token into
   the keychain and the profile into the config file (`saveProfile()`). Every stop before that stores
-  nothing. `src/prompt.ts`: `createPrompter()`, Node's readline with hidden input; Ctrl+C or the
-  end of the input resolves `undefined`.
+  nothing. `runList(locale, out)` prints every profile with company and read-only state from the
+  config file alone (never the keychain). `runRemove(locale, io, name)` asks (default no), then
+  deletes the token (`deleteToken()`) before the config entry (`deleteProfile()`), so no token is
+  left without a profile. `src/prompt.ts`: `createPrompter()`, Node's readline with hidden input;
+  Ctrl+C or the end of the input resolves `undefined`.
 - `src/server.ts`: `createServer({ pinnedProfile })`, the single place where MCP tools and the
   MCP `instructions` get registered; it reads the config file once per server.
 - `src/paths.ts`: `localDirs()`, the OS-standard config and data/state directories (XDG on
@@ -42,7 +47,7 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   without tokens; documented in the README). No file means `DEFAULT_CONFIG`; an unreadable or
   invalid file is an `invalid_config` error that both tools return instead of running. A new
   config key extends `toConfig()` and the README table. `saveProfile()` adds or updates one
-  profile and keeps every other key.
+  profile, `deleteProfile()` removes one; both keep every other key.
 - `src/sandbox.ts`: `runSnippet()`, the QuickJS sandbox (a fresh WASM module per run, by
   default 30 s and 64 MB, captured `console.log`, error kinds
   `timeout`/`memory_limit`/`snippet_error`). Host functions (`HostFunction`) return promises to
@@ -75,7 +80,7 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `selectProfile()` (`account`, else the only one, else `account_required`). `src/keychain.ts`:
   `readToken()`, a profile's token from the OS keychain via `@napi-rs/keyring` (service
   `sevdesk-mcp`, account = profile name, Linux Secret Service only), loaded lazily on first use;
-  `probeKeychain()` and `storeToken()` for `setup`.
+  `probeKeychain()`, `storeToken()` and `deleteToken()` for `setup`.
 - `src/classify.ts`: the classification (PRD §6, decisions 6 and 7). `OPERATIONS` gives every
   operation of the patched spec (`METHOD /path template`) the effect `read`, `reversible` or
   `irreversible`; `confirmationReason()` says why a call needs confirmation (DELETE, the table,

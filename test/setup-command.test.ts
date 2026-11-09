@@ -5,14 +5,15 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { configFile } from '../src/config.ts';
 import type { Locale } from '../src/i18n/index.ts';
 import type { Prompter } from '../src/prompt.ts';
-import { runSetup } from '../src/setup.ts';
+import { runList, runRemove, runSetup, type SetupIO } from '../src/setup.ts';
 import { writeConfig } from './config-file.ts';
 import { connect, envelopeOf } from './connect.ts';
 import { fakeKeychain } from './fake-keychain.ts';
 import { type MockRoutes, startMockSevdesk } from './mock-sevdesk.ts';
 
-// `setup` adds a profile (PRD §7, decisions 4, 18, 19), driven through a scripted prompter against
-// the fake keychain, a mock sevDesk and the temporary home of test/setup.ts.
+// `setup` adds a profile (PRD §7, decisions 4, 18, 19), `setup --list` lists the profiles and
+// `setup --remove` removes one, driven through a scripted prompter against the fake keychain, a mock
+// sevDesk and the temporary home of test/setup.ts.
 
 const TOKEN = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
 const CHECK = 'GET /Tools/bookkeepingSystemVersion';
@@ -39,8 +40,15 @@ async function mock(routes: MockRoutes = {}) {
 /** An answer: the line, undefined to cancel, or a function run when the question comes. */
 type Answer = string | undefined | (() => string | undefined);
 
-/** Runs setup in `locale` with `answers` given in turn; a question beyond them fails the test. */
-async function setup(answers: Answer[], locale: Locale = 'en') {
+/**
+ * Runs `run` (by default `setup`, which adds a profile) in `locale` with `answers` given in turn; a
+ * question beyond them fails the test.
+ */
+async function setup(
+  answers: Answer[],
+  locale: Locale = 'en',
+  run: (locale: Locale, io: SetupIO) => Promise<boolean> = runSetup,
+) {
   const asked: { question: string; hidden: boolean }[] = [];
   const prompter: Prompter = {
     ask(question, { hidden = false } = {}) {
@@ -53,12 +61,25 @@ async function setup(answers: Answer[], locale: Locale = 'en') {
   };
   const out: string[] = [];
   const err: string[] = [];
-  const done = await runSetup(locale, {
+  const done = await run(locale, {
     prompter,
     print: (text) => out.push(text),
     fail: (text) => err.push(text),
   });
   return { done, asked, out: out.join('\n'), err: err.join('\n') };
+}
+
+/** Runs `setup --remove <name>` in `locale` with `answers` given in turn. */
+function remove(name: string, answers: Answer[], locale: Locale = 'en') {
+  return setup(answers, locale, (language, io) => runRemove(language, io, name));
+}
+
+/** Runs `setup --list` in `locale`. */
+function list(locale: Locale = 'en') {
+  const out: string[] = [];
+  const err: string[] = [];
+  const done = runList(locale, { print: (text) => out.push(text), fail: (text) => err.push(text) });
+  return { done, out: out.join('\n'), err: err.join('\n') };
 }
 
 /** The files under the temporary home whose content holds `text`. */
@@ -304,4 +325,179 @@ test('an invalid config file stops setup before anything is asked', async () => 
   expect(err).toContain('is invalid: it is not valid JSON');
   expect(err).toContain('Fix the config file and run setup again.');
   expect(fakeKeychain.accesses).toEqual([]);
+});
+
+test('setup --list shows every profile with its company and access, and never touches the keychain', () => {
+  writeConfig({
+    profiles: { acme: { company: 'Acme GmbH' }, ro: { company: 'RO AG', readonly: true } },
+  });
+  fakeKeychain.tokens.set('acme', TOKEN);
+
+  const { done, out, err } = list();
+
+  expect(done).toBe(true);
+  expect(err).toBe('');
+  expect(out).toBe(
+    `Profiles in ${configFile()}:\n  acme: Acme GmbH (read and write)\n  ro: RO AG (read-only)`,
+  );
+  expect(fakeKeychain.accesses).toEqual([]);
+});
+
+test('setup --list names the access in German', () => {
+  writeConfig({
+    profiles: { acme: { company: 'Acme GmbH' }, ro: { company: 'RO AG', readonly: true } },
+  });
+
+  const { done, out } = list('de');
+
+  expect(done).toBe(true);
+  expect(out).toContain('  acme: Acme GmbH (lesend und schreibend)');
+  expect(out).toContain('  ro: RO AG (nur lesend)');
+});
+
+test('setup --list without a config file says there are no profiles', () => {
+  const { done, out, err } = list();
+
+  expect(done).toBe(true);
+  expect(err).toBe('');
+  expect(out).toBe('There are no profiles yet. sevdesk-mcp setup adds one.');
+});
+
+test('setup --list with an invalid config file fails with the problem', () => {
+  writeConfig({ profiles: { acme: { company: 'Acme GmbH', token: TOKEN } } });
+
+  const { done, out, err } = list();
+
+  expect(done).toBe(false);
+  expect(out).toBe('');
+  expect(err).toContain('unknown key "profiles.acme.token"');
+  expect(err).not.toContain(TOKEN);
+});
+
+test('setup --remove deletes the token and the config entry after a yes and keeps everything else', async () => {
+  const downloadDir = join(homedir(), 'Docs');
+  writeConfig({
+    limits: { outputChars: 99 },
+    profiles: {
+      acme: { company: 'Acme GmbH', readonly: true },
+      other: { company: 'Other AG', downloadDir },
+    },
+  });
+  fakeKeychain.tokens.set('acme', TOKEN);
+  fakeKeychain.tokens.set('other', 'other-token');
+
+  const { done, asked, out, err } = await remove('acme', ['y']);
+
+  expect(done).toBe(true);
+  expect(err).toBe('');
+  expect(asked).toEqual([
+    {
+      question: 'Remove profile acme (Acme GmbH) and delete its token from the OS keychain? [y/N] ',
+      hidden: false,
+    },
+  ]);
+  expect(out).toBe(
+    'Profile acme (Acme GmbH) is removed; the OS keychain holds no token for it any more.\n' +
+      'If an MCP client runs sevdesk-mcp with --profile acme, remove that entry from its config.',
+  );
+  expect(fakeKeychain.tokens).toEqual(new Map([['other', 'other-token']]));
+  expect(fakeKeychain.accesses.every(({ service }) => service === 'sevdesk-mcp')).toBe(true);
+  expect(configJson()).toEqual({
+    limits: { outputChars: 99 },
+    profiles: { other: { company: 'Other AG', downloadDir } },
+  });
+});
+
+test('after the only profile is removed in German, execute asks for setup', async () => {
+  writeConfig({ profiles: { acme: { company: 'Acme GmbH' } } });
+  fakeKeychain.tokens.set('acme', TOKEN);
+
+  const { done, asked, out } = await remove('acme', ['ja'], 'de');
+
+  expect(done).toBe(true);
+  expect(asked[0]?.question).toContain('[j/N]');
+  expect(out).toContain('Das Profil acme (Acme GmbH) ist entfernt');
+  expect(fakeKeychain.tokens.size).toBe(0);
+  expect(configJson()).toEqual({ profiles: {} });
+
+  const client = await connect();
+  const result = await client.callTool({ name: 'execute', arguments: { code: 'return 1' } });
+  await client.close();
+  expect(result.isError).toBe(true);
+  expect(envelopeOf(result)).toMatchObject({ error: { kind: 'setup_required' } });
+});
+
+test.each([['n'], [''], ['maybe'], [undefined]])(
+  'setup --remove after the answer %j changes nothing',
+  async (answer) => {
+    const file = writeConfig({ profiles: { acme: { company: 'Acme GmbH' } } });
+    const before = readFileSync(file, 'utf8');
+    fakeKeychain.tokens.set('acme', TOKEN);
+
+    const { done, out, err } = await remove('acme', [answer]);
+
+    expect(done).toBe(false);
+    expect(out).toBe('');
+    expect(err).toMatch(
+      /(Profile acme was left as it is\.|Setup cancelled\.)\nNothing was removed\.$/,
+    );
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    expect(fakeKeychain.tokens.get('acme')).toBe(TOKEN);
+    expect(fakeKeychain.accesses).toEqual([]);
+  },
+);
+
+test('setup --remove of an unknown profile fails before asking or touching the keychain', async () => {
+  writeConfig({ profiles: { acme: { company: 'Acme GmbH' } } });
+
+  const { done, asked, err } = await remove('nope', []);
+
+  expect(done).toBe(false);
+  expect(asked).toEqual([]);
+  expect(err).toBe(
+    'There is no profile nope. sevdesk-mcp setup --list shows every profile.\nNothing was removed.',
+  );
+  expect(fakeKeychain.accesses).toEqual([]);
+});
+
+test('a keychain that cannot delete the token leaves the profile as it is', async () => {
+  const file = writeConfig({ profiles: { acme: { company: 'Acme GmbH' } } });
+  const before = readFileSync(file, 'utf8');
+  fakeKeychain.unavailable = true;
+
+  const { done, err } = await remove('acme', ['y']);
+
+  expect(done).toBe(false);
+  expect(err).toContain(
+    'The token could not be deleted from the OS keychain (Platform secure storage failure',
+  );
+  expect(err).toContain('Nothing was removed.');
+  expect(readFileSync(file, 'utf8')).toBe(before);
+});
+
+test('a config file that cannot be written after the token is deleted is reported, and a rerun finishes', async () => {
+  writeConfig({ profiles: { acme: { company: 'Acme GmbH' } } });
+  fakeKeychain.tokens.set('acme', TOKEN);
+  const breakConfig = () => {
+    writeConfig('[]');
+    return 'y';
+  };
+
+  const failed = await remove('acme', [breakConfig]);
+
+  expect(failed.done).toBe(false);
+  expect(failed.out).toBe('');
+  expect(failed.err).toBe(
+    `The token of profile acme is deleted from the OS keychain, but the config file ${configFile()} could not be written (${configFile()} does not hold a JSON object). Fix that and run setup --remove acme again.`,
+  );
+  expect(fakeKeychain.tokens.size).toBe(0);
+  expect(readFileSync(configFile(), 'utf8')).toBe('[]');
+
+  // Fixed by hand, the profile is back without a keychain entry; removing it again succeeds.
+  writeConfig({ profiles: { acme: { company: 'Acme GmbH' } } });
+  const rerun = await remove('acme', ['y']);
+
+  expect(rerun.done).toBe(true);
+  expect(rerun.err).toBe('');
+  expect(configJson()).toEqual({ profiles: {} });
 });
