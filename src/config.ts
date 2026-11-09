@@ -22,7 +22,7 @@ export interface ProfileSettings {
   name: string;
   /** The sevDesk company name, listed next to the name so the model can tell the accounts apart. */
   company: string;
-  /** Read-only profile (decision 3). Nothing reads it yet: `execute` rejects every write anyway. */
+  /** Read-only profile (decision 3). Not enforced yet: read-only mode is its own slice (#14). */
   readonly: boolean;
   /** Where its files land, an absolute path; without it `~/Downloads/sevdesk/<name>` (decision 14). */
   downloadDir?: string;

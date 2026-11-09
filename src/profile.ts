@@ -1,11 +1,15 @@
 import { type Config, configFile, isProfileName } from './config.ts';
 import type { SnippetError } from './sandbox.ts';
 
-/** A sevDesk account the server acts for: its profile name, API token and download directory. */
+/**
+ * A sevDesk account the server acts for: its profile name, API token and download directory, and
+ * its company when the config file names one (the environment profile has none).
+ */
 export interface Profile {
   name: string;
   token: string;
   downloadDir: string;
+  company?: string;
 }
 
 /**

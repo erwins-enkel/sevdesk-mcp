@@ -6,7 +6,7 @@ import { registerSearchTool } from './search.ts';
 
 // Sent to the client on connect. It describes only the tools that exist; later tools extend it.
 const instructions =
-  'Use `search` first to find the sevDesk endpoints and parameters you need (your JavaScript runs against the OpenAPI spec), then `execute` to call the API with them. Only what the code returns comes back.';
+  'Use `search` first to find the sevDesk endpoints and parameters you need (your JavaScript runs against the OpenAPI spec), then `execute` to call the API with them. Only what the code returns comes back. Irreversible calls (sending, deleting, enshrining, booking, cancelling) are held: show the user the preview, and only after their yes call `execute` with `confirm`.';
 
 /**
  * Builds the MCP server with its instructions and tools. Tools are registered here. The config file

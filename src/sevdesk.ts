@@ -43,8 +43,8 @@ const JSON_CONTENT_TYPE = /^application\/(?:[\w.+-]+\+)?json\s*(?:;|$)/i;
 const TOKEN_HINT =
   'sevDesk rejected the API token (wrong, expired or revoked). Replace it in the OS keychain entry of this profile, or set a valid SEVDESK_API_TOKEN for this MCP server and restart it.';
 
-/** A validated call, ready to send. */
-interface Call {
+/** A validated call, ready to send; a held one is kept as it is until its confirmation. */
+export interface Call {
   method: string;
   path: string;
   url: URL;
@@ -62,6 +62,29 @@ export interface Write {
   path: string;
   status?: number;
   objectId?: string;
+}
+
+/** A non-JSON answer saved in the download directory (decision 15), never its content. */
+interface SavedFile {
+  path: string;
+  contentType: string;
+  bytes: number;
+}
+
+/**
+ * What became of a confirmed call (decision 5): `sent` with sevDesk's 2xx status and the object id
+ * of a JSON answer (a non-JSON one is saved as `file`), `failed` with the status of the answer if
+ * one came, or `not_sent` because an earlier call failed. A 2xx means sevDesk applied the call, so
+ * it is `sent` even when its answer cannot be read or saved; `answerError` then says why.
+ */
+export interface Confirmed {
+  method: string;
+  path: string;
+  outcome: 'sent' | 'failed' | 'not_sent';
+  status?: number;
+  objectId?: string;
+  file?: SavedFile;
+  answerError?: SnippetError;
 }
 
 /** When a failed call is sent again (decision 10). */
@@ -104,7 +127,7 @@ function invalidRequest(message: string, method?: string, path?: string): HostEr
 function needsConfirmation(reason: string, method: string, path: string): HostError {
   return new HostError({
     kind: 'needs_confirmation',
-    message: `${reason} It needs confirmation, which execute cannot give yet. Nothing was sent.`,
+    message: `${reason} Only sevdesk.request holds such a call for confirmation. Nothing was sent.`,
     method,
     path,
   });
@@ -163,11 +186,13 @@ function readOptions(
 }
 
 /**
- * Validates the code's arguments `(method, path, options)` and builds the URL and body. A call
- * that changes sevDesk data irreversibly (`confirmationReason`) fails closed before a request
- * exists, since the confirmation gate does not exist yet.
+ * Validates the code's arguments `(method, path, options)` and builds the URL and body, with
+ * `reason` saying why the call changes sevDesk data irreversibly (`confirmationReason`), if it does.
  */
-function prepare(baseUrl: string, [method, path, options]: unknown[]): Call {
+function build(
+  baseUrl: string,
+  [method, path, options]: unknown[],
+): { call: Call; reason: string | undefined } {
   if (typeof method !== 'string') throw invalidRequest('method must be a string such as "GET".');
   const verb = method.toUpperCase();
   if (typeof path !== 'string' || !RELATIVE_PATH.test(path)) {
@@ -182,11 +207,20 @@ function prepare(baseUrl: string, [method, path, options]: unknown[]): Call {
   }
   const { params, body } = readOptions(options, verb, path);
   const reason = confirmationReason(verb, path, params, body);
-  if (reason !== undefined) throw needsConfirmation(reason, verb, path);
   const url = new URL(baseUrl + path);
   url.search = params.toString();
   const call: Call = { method: verb, path, url };
   if (body !== undefined) call.body = JSON.stringify(body);
+  return { call, reason };
+}
+
+/**
+ * `build` for a call that runs directly: one that changes sevDesk data irreversibly fails closed
+ * before a request exists, since only `sevdesk.request` holds such a call for confirmation.
+ */
+function prepare(baseUrl: string, args: unknown[]): Call {
+  const { call, reason } = build(baseUrl, args);
+  if (reason !== undefined) throw needsConfirmation(reason, call.method, call.path);
   return call;
 }
 
@@ -343,10 +377,25 @@ async function readJson(call: Call, response: Response): Promise<unknown> {
   }
 }
 
+/** Saves a non-JSON response as a new file in `downloadDir` (decision 15) and says where. */
+async function saveBody(
+  call: Call,
+  response: Response,
+  downloadDir: string,
+  signal: AbortSignal,
+): Promise<SavedFile> {
+  // Without a content type a recipient may assume application/octet-stream (RFC 9110, 8.3).
+  const contentType = contentTypeOf(response) || 'application/octet-stream';
+  const name = binaryFileName(call.path, contentType);
+  const body = response.body ?? new Uint8Array();
+  const { path, bytes } = await saveFile(downloadDir, name, body, { replace: false, signal });
+  return { path, contentType, bytes };
+}
+
 /**
  * What `sevdesk.request` resolves to: the parsed JSON of a JSON response. Any other response is
- * saved as a new file in `downloadDir` (decision 15), and only `{ path, contentType, bytes }` comes
- * back, never its content.
+ * saved as a new file in `downloadDir`, and only `{ path, contentType, bytes }` comes back, never
+ * its content.
  */
 async function readBody(
   call: Call,
@@ -355,12 +404,7 @@ async function readBody(
   signal: AbortSignal,
 ): Promise<unknown> {
   if (JSON_CONTENT_TYPE.test(contentTypeOf(response))) return readJson(call, response);
-  // Without a content type a recipient may assume application/octet-stream (RFC 9110, 8.3).
-  const contentType = contentTypeOf(response) || 'application/octet-stream';
-  const name = binaryFileName(call.path, contentType);
-  const body = response.body ?? new Uint8Array();
-  const { path, bytes } = await saveFile(downloadDir, name, body, { replace: false, signal });
-  return { path, contentType, bytes };
+  return saveBody(call, response, downloadDir, signal);
 }
 
 /**
@@ -485,19 +529,25 @@ function budgetError(maxCalls: number, stopped: string, hint: string): HostError
  * `savePdf` saves a document's PDF in `downloadDir`. Between them they send at most `maxCalls`
  * calls (each page is one, `savePdf` costs two, a retry none) to `baseUrl` with the token added here
  * (never visible to the code), retried as decision 10 allows. A reversible write runs and enters
- * `writes`, the run's ledger; an irreversible call fails closed until the confirmation gate exists.
- * The call over `maxCalls` is not sent and ends the run, so `paginate` never returns a partial list.
+ * `writes`, the run's ledger. An irreversible call through `request` is held (decision 5): it is not
+ * sent, enters `held` and resolves to `{ held: true }`; `paginate` and `savePdf` refuse one. A held
+ * call takes a call of the budget, as does each `readDocument`, the host's read for the
+ * confirmation preview. The call over `maxCalls` is not sent (or held) and ends the run, so
+ * `paginate` never returns a partial list.
  */
 export function createClient({ baseUrl, token, maxCalls, downloadDir }: ClientOptions): {
   request: HostFunction;
   paginate: HostFunction;
   savePdf: HostFunction;
   writes: Write[];
+  held: Call[];
+  readDocument: (path: string, signal: AbortSignal) => Promise<unknown>;
 } {
   requireHttps(baseUrl);
   let sent = 0;
   const withinBudget = () => (sent += 1) <= maxCalls;
   const writes: Write[] = [];
+  const held: Call[] = [];
 
   /** Sends `call` within the budget; the call over it is not sent and ends the run with `hint`. */
   const sendCounted = (call: Call, signal: AbortSignal, hint: string): Promise<Response> => {
@@ -532,8 +582,22 @@ export function createClient({ baseUrl, token, maxCalls, downloadDir }: ClientOp
     );
   };
 
+  /** Keeps an irreversible call for its confirmation instead of sending it, within the budget. */
+  const hold = (call: Call): Promise<unknown> => {
+    if (!withinBudget()) {
+      throw budgetError(
+        maxCalls,
+        `${call.method} ${call.path} was not held.`,
+        'Hold fewer calls per run: each is sent on confirmation.',
+      );
+    }
+    held.push(call);
+    return Promise.resolve({ held: true });
+  };
+
   const request: HostFunction = (args, signal) => {
-    const call = prepare(baseUrl, args);
+    const { call, reason } = build(baseUrl, args);
+    if (reason !== undefined) return hold(call);
     if (call.method !== 'GET') {
       return sendWrite(call, signal, 'Spread the writes over several runs.');
     }
@@ -588,7 +652,82 @@ export function createClient({ baseUrl, token, maxCalls, downloadDir }: ClientOp
     });
   };
 
-  return { request, paginate, savePdf, writes };
+  /** The JSON of `GET path`, a document a held call acts on, read for the confirmation preview. */
+  const readDocument = async (path: string, signal: AbortSignal): Promise<unknown> => {
+    const call = prepare(baseUrl, ['GET', path]);
+    const hint =
+      'Hold calls on fewer documents per run: the preview reads each document a held call acts on, one call each.';
+    return readJson(call, await sendCounted(call, signal, hint));
+  };
+
+  return { request, paginate, savePdf, writes, held, readDocument };
+}
+
+interface ReplayOptions {
+  token: string;
+  /** The profile's download directory, where a non-JSON answer is saved. */
+  downloadDir: string;
+  signal: AbortSignal;
+}
+
+/** Reads a confirmed call's 2xx answer into `entry`: the object id of JSON, else the saved file. */
+async function readAnswer(
+  call: Call,
+  response: Response,
+  entry: Confirmed,
+  { downloadDir, signal }: ReplayOptions,
+): Promise<void> {
+  if (!JSON_CONTENT_TYPE.test(contentTypeOf(response))) {
+    entry.file = await saveBody(call, response, downloadDir, signal);
+    return;
+  }
+  const objectId = objectIdOf(await readJson(call, response));
+  if (objectId !== undefined) entry.objectId = objectId;
+}
+
+/**
+ * Sends a confirmed call exactly once (decision 10); a call that fails rejects with its error. Once
+ * sevDesk answers 2xx the call is applied, so `entry` is `sent` with that status, and an answer
+ * that cannot be read (not JSON as declared, invalid JSON) or saved only sets `answerError`.
+ */
+async function sendConfirmed(call: Call, entry: Confirmed, options: ReplayOptions): Promise<void> {
+  const response = await send(call, { token: options.token, signal: options.signal, retry: false });
+  entry.outcome = 'sent';
+  entry.status = response.status;
+  try {
+    await readAnswer(call, response, entry, options);
+  } catch (error) {
+    if (!(error instanceof HostError)) throw error;
+    entry.answerError = error.error;
+  }
+}
+
+/**
+ * Sends the held calls of a confirmation exactly as they were stored, in order, each once and never
+ * retried (decisions 5 and 10), and reports each. The first call that fails (no 2xx answer) stops
+ * it: that call is `failed`, every later one `not_sent`, and `error` says why. A 2xx whose answer
+ * cannot be read is no failure: the call was applied, so the next one is sent.
+ */
+export async function replay(
+  calls: Call[],
+  options: ReplayOptions,
+): Promise<{ confirmed: Confirmed[]; error?: SnippetError }> {
+  const confirmed: Confirmed[] = [];
+  let error: SnippetError | undefined;
+  for (const call of calls) {
+    const entry: Confirmed = { method: call.method, path: call.path, outcome: 'not_sent' };
+    confirmed.push(entry);
+    if (error !== undefined) continue;
+    try {
+      await sendConfirmed(call, entry, options);
+    } catch (thrown) {
+      if (!(thrown instanceof HostError)) throw thrown;
+      entry.outcome = 'failed';
+      entry.status ??= thrown.error.status;
+      error = thrown.error;
+    }
+  }
+  return error === undefined ? { confirmed } : { confirmed, error };
 }
 
 /**
