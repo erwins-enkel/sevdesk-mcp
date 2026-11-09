@@ -15,7 +15,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 ## Orientation
 
 - `src/cli.ts`: the `sevdesk-mcp` bin. No command starts the MCP server on stdio; `setup`
-  fails closed until it is implemented; `--help` prints the usage.
+  fails closed until it is implemented; `--help` prints the usage, `--version` the version
+  from `src/manifest.ts` (the same source `createServer()` reports). Exit codes: 0 success,
+  1 runtime failure, 2 usage error (unknown command or option); the usage text documents them.
 - `src/server.ts`: `createServer()`, the single place where MCP tools get registered.
 - `src/i18n/`: human-facing CLI messages. `en.json` is the reference catalog, `de.json`
   mirrors it, `index.ts` exposes `resolveLocale()` and `t()`.

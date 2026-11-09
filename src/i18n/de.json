@@ -1,5 +1,7 @@
 {
-  "cli.usage": "Aufruf: sevdesk-mcp [Befehl]\n\nOhne Befehl startet der MCP-Server auf stdio.\n\nBefehle:\n  setup    sevDesk-API-Token speichern und MCP-Clients eintragen\n  --help   Diese Hilfe anzeigen",
+  "cli.usage": "Aufruf: sevdesk-mcp [Befehl]\n\nOhne Befehl startet der MCP-Server auf stdio.\n\nBefehle:\n  setup      sevDesk-API-Token speichern und MCP-Clients eintragen\n  --help     Diese Hilfe anzeigen\n  --version  Version anzeigen\n\nExit-Codes:\n  {success}  Erfolg\n  {failure}  Fehler bei der Ausführung\n  {usage}  Falscher Aufruf (unbekannter Befehl oder unbekannte Option)",
   "cli.unknownCommand": "Unbekannter Befehl: {command}",
+  "cli.unknownOption": "Unbekannte Option: {option}",
+  "cli.unexpectedArgument": "Unerwartetes Argument: {argument}",
   "setup.notImplemented": "Der Setup-Assistent ist noch nicht implementiert."
 }
