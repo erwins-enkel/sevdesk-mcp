@@ -2,7 +2,13 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test, vi } from 'vitest';
 import { HostError, type SnippetError } from '../src/sandbox.ts';
-import { createClient, DEFAULT_BASE_URL, send } from '../src/sevdesk.ts';
+import {
+  bookkeepingSystem,
+  companyName,
+  createClient,
+  DEFAULT_BASE_URL,
+  send,
+} from '../src/sevdesk.ts';
 import { type MockResponse, type MockRoutes, startMockSevdesk } from './mock-sevdesk.ts';
 
 const TOKEN = 'test-token-5f0c2a9e7b1d4c3e';
@@ -248,4 +254,63 @@ test('an abort while waiting to retry fails the call at once with the last respo
     sevdeskMessage: 'Unavailable',
   });
   expect(sevdesk.requests).toHaveLength(1);
+});
+
+/** The account of these tests at the real API base, which the mock answers. */
+const account = { baseUrl: DEFAULT_BASE_URL, token: TOKEN };
+
+test('bookkeepingSystem resolves to the reported version as plain text, or undefined', async () => {
+  const signal = new AbortController().signal;
+  let version: unknown = '1.0\u001b[2J';
+  const sevdesk = await mock({
+    'GET /Tools/bookkeepingSystemVersion': () => ({ json: { objects: { version } } }),
+  });
+
+  expect(await bookkeepingSystem(account, signal)).toBe('1.0[2J');
+  version = 2;
+  expect(await bookkeepingSystem(account, signal)).toBeUndefined();
+  expect(sevdesk.requests[0]?.authorization).toBe(TOKEN);
+});
+
+test.each([
+  [
+    'the first row of a list',
+    { objects: [{ id: '7', objectName: 'SevClient', name: ' Acme GmbH ' }] },
+    'Acme GmbH',
+  ],
+  ['the object itself', { objects: { id: '7', objectName: 'SevClient', name: 'Acme' } }, 'Acme'],
+  [
+    'without control characters',
+    { objects: [{ name: 'Acme\u001b]0;x\u0007 GmbH' }] },
+    'Acme]0;x GmbH',
+  ],
+])('companyName reads GET /SevClient: %s', async (_, json, expected) => {
+  const sevdesk = await mock({ 'GET /SevClient': () => ({ json }) });
+
+  expect(await companyName(account, new AbortController().signal)).toBe(expected);
+  expect(calls(sevdesk.requests)).toEqual(['GET /SevClient']);
+});
+
+test.each([
+  ['no objects', { objects: [] }],
+  ['a blank name', { objects: [{ name: ' \u0007 ' }] }],
+  ['a name that is not a string', { objects: [{ name: 42 }] }],
+])('companyName fails closed on %s', async (_, json) => {
+  await mock({ 'GET /SevClient': () => ({ json }) });
+
+  expect(await errorOf(companyName(account, new AbortController().signal))).toEqual({
+    kind: 'api_error',
+    message: 'GET /SevClient returned no company name.',
+    method: 'GET',
+    path: '/SevClient',
+  });
+});
+
+test('companyName rejects a 401 with the status', async () => {
+  await mock({ 'GET /SevClient': () => ({ status: 401, json: { error: { message: 'no' } } }) });
+
+  expect(await errorOf(companyName(account, new AbortController().signal))).toMatchObject({
+    kind: 'api_error',
+    status: 401,
+  });
 });

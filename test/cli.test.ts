@@ -152,12 +152,30 @@ test('--version prints exactly the package version and exits zero', () => {
   expect(result.stderr).toBe('');
 });
 
-test('setup fails closed with the runtime-failure code, not the usage-error code', () => {
-  const result = run(['setup'], 'de_DE.UTF-8');
+test.each([
+  [['setup'], 'en_US.UTF-8', 'setup needs an interactive terminal'],
+  [['setup', '--add'], 'en_US.UTF-8', 'setup needs an interactive terminal'],
+  [['setup'], 'de_DE.UTF-8', 'setup braucht ein interaktives Terminal'],
+])('%j without a terminal fails with the SEVDESK_API_TOKEN hint (%s)', (args, locale, message) => {
+  // spawnSync pipes stdin and stdout, so the child has no terminal and stops before the keychain.
+  const result = run(args, locale);
 
   expect(result.status).toBe(FAILURE);
-  expect(result.status).not.toBe(USAGE_ERROR);
-  expect(result.stderr).toContain('Der Setup-Assistent ist noch nicht implementiert.');
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toContain(message);
+  expect(result.stderr).toContain('SEVDESK_API_TOKEN');
+});
+
+test.each([
+  [['setup', '--list'], 'Unknown option: --list'],
+  [['setup', 'acme'], 'Unexpected argument: acme'],
+  [['setup', '--add', 'acme'], 'Unexpected argument: acme'],
+])('%j is a usage error', (args, message) => {
+  const result = run(args, 'en_US.UTF-8');
+
+  expect(result.status).toBe(USAGE_ERROR);
+  expect(result.stderr).toContain(message);
+  expect(result.stderr).toContain('Usage: sevdesk-mcp');
 });
 
 test('an unknown command is a usage error and prints the usage', () => {
@@ -189,6 +207,7 @@ test('--help documents --profile, --version and the exit codes and exits zero', 
 
   expect(result.status).toBe(0);
   expect(result.stdout).toContain('Usage: sevdesk-mcp');
+  expect(result.stdout).toContain('sevdesk-mcp setup [--add]');
   expect(result.stdout).toContain('--version  Show the version');
   expect(result.stdout).toContain(
     '--profile <name>  Use only this profile; execute rejects any other account',

@@ -1,8 +1,8 @@
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { expect, test } from 'vitest';
-import { type Config, configFile, DEFAULT_CONFIG, loadConfig } from '../src/config.ts';
+import { type Config, configFile, DEFAULT_CONFIG, loadConfig, saveProfile } from '../src/config.ts';
 import { DEFAULT_LIMITS } from '../src/sandbox.ts';
 import { DEFAULT_BASE_URL, DEFAULT_CALL_BUDGET } from '../src/sevdesk.ts';
 import { writeConfig } from './config-file.ts';
@@ -194,4 +194,54 @@ test('an unreadable config file fails with the path and the reason, not with the
   const message = problem();
   expect(message).toMatch(/^The config file .+ could not be read \(E[A-Z]+\)\.$/);
   expect(message).toContain(file);
+});
+
+/** The config file's JSON as it is on disk. */
+function fileJson(): unknown {
+  return JSON.parse(readFileSync(configFile(), 'utf8'));
+}
+
+test('saveProfile creates the config file and its directory', () => {
+  saveProfile({ name: 'acme', company: 'Acme GmbH', readonly: false });
+
+  expect(fileJson()).toEqual({ profiles: { acme: { company: 'Acme GmbH', readonly: false } } });
+  expect(loaded().profiles).toEqual([{ name: 'acme', company: 'Acme GmbH', readonly: false }]);
+  expect(readdirSync(dirname(configFile()))).toEqual(['config.json']);
+});
+
+test('saveProfile updates one profile and keeps every other key as it is', () => {
+  const downloadDir = join(homedir(), 'Docs');
+  writeConfig(
+    `\uFEFF${JSON.stringify({
+      baseUrl: 'https://example.test/api',
+      limits: { outputChars: 99 },
+      profiles: {
+        acme: { company: 'Old GmbH', readonly: true, downloadDir },
+        other: { company: 'Other AG' },
+      },
+    })}`,
+  );
+
+  saveProfile({ name: 'acme', company: 'Acme GmbH', readonly: false });
+  saveProfile({ name: 'new', company: 'New KG', readonly: true });
+
+  expect(fileJson()).toEqual({
+    baseUrl: 'https://example.test/api',
+    limits: { outputChars: 99 },
+    profiles: {
+      acme: { company: 'Acme GmbH', readonly: false, downloadDir },
+      other: { company: 'Other AG' },
+      new: { company: 'New KG', readonly: true },
+    },
+  });
+  expect(loaded().profiles.map(({ name }) => name)).toEqual(['acme', 'other', 'new']);
+});
+
+test('saveProfile refuses a file that is not a JSON object and leaves it as it is', () => {
+  writeConfig('[]');
+
+  expect(() => {
+    saveProfile({ name: 'acme', company: 'Acme GmbH', readonly: false });
+  }).toThrow('does not hold a JSON object');
+  expect(readFileSync(configFile(), 'utf8')).toBe('[]');
 });
