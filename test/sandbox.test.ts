@@ -108,6 +108,32 @@ test('console.log is captured and cut at the output limit', async () => {
   );
 
   expect(logged).toMatchObject({ console: ['a 1 {"b":[2]} null', 'c'], consoleCut: false });
-  expect(flood.console.join('')).toHaveLength(250);
+  // Line breaks count toward the limit, so empty lines cannot pile up without bound.
+  expect(flood.console.join('\n')).toHaveLength(250);
   expect(flood.consoleCut).toBe(true);
+});
+
+test('only Error instances render as "Name: message"; objects with a message key stay data', async () => {
+  const logged = await runSnippet(
+    'console.log({ message: "hi", code: 1 }, new RangeError("r"), { name: "X", message: { a: 1 } })',
+    {},
+  );
+  const thrownObject = await runSnippet('throw { message: "not an Error" }', {});
+  // The check uses the VM's own Error, captured before the code ran.
+  const reassigned = await runSnippet(
+    'globalThis.Error = function () {}; throw new TypeError("t")',
+    {},
+  );
+
+  expect(logged.console).toEqual([
+    '{"message":"hi","code":1} RangeError: r {"name":"X","message":{"a":1}}',
+  ]);
+  expect(thrownObject).toMatchObject({
+    ok: false,
+    error: { kind: 'snippet_error', message: '{"message":"not an Error"}' },
+  });
+  expect(reassigned).toMatchObject({
+    ok: false,
+    error: { kind: 'snippet_error', message: 'TypeError: t' },
+  });
 });

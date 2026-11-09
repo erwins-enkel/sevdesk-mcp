@@ -10,7 +10,7 @@ export interface SandboxLimits {
   timeoutMs: number;
   /** Memory limit of the QuickJS runtime. */
   memoryBytes: number;
-  /** Characters of console output kept, and of the return value shown by the envelope. */
+  /** Characters of console output kept (line breaks included) and of the return value shown. */
   outputChars: number;
 }
 
@@ -40,10 +40,14 @@ export type SandboxOutcome = { console: string[]; consoleCut: boolean } & (
   { ok: true; json: string | undefined } | { ok: false; error: SnippetError }
 );
 
-type Completion = { ok: true; json: string | undefined } | { ok: false; thrown: unknown };
+type Completion = { ok: true; json: string | undefined } | { ok: false; message: string };
 type Keep = (handle: QuickJSHandle) => QuickJSHandle;
+type Render = (handle: QuickJSHandle) => string;
 
-/** Collects `console.log` lines up to `limit` characters in total; the rest is cut. */
+/**
+ * Collects `console.log` lines up to `limit` characters in total, each line break counting as one
+ * (so empty lines cannot pile up without bound); the rest is cut.
+ */
 function consoleCapture(limit: number) {
   const lines: string[] = [];
   let used = 0;
@@ -52,9 +56,9 @@ function consoleCapture(limit: number) {
     lines,
     isCut: () => cut,
     add(line: string) {
-      if (used + line.length <= limit) {
+      if (used + line.length + 1 <= limit) {
         lines.push(line);
-        used += line.length;
+        used += line.length + 1;
         return;
       }
       if (used < limit) lines.push(line.slice(0, limit - used));
@@ -64,16 +68,35 @@ function consoleCapture(limit: number) {
   };
 }
 
-/** Renders a value dumped out of the VM the way console output and error messages show it. */
-function describe(value: unknown): string {
-  if (typeof value === 'string') return value;
-  if (value !== null && typeof value === 'object' && 'message' in value) {
-    const name = 'name' in value && typeof value.name === 'string' ? value.name : 'Error';
-    return `${name}: ${String(value.message)}`;
-  }
-  // JSON.stringify returns undefined for undefined and functions, despite its declared type.
-  const json = JSON.stringify(value) as string | undefined;
-  return json ?? String(value);
+/**
+ * Returns how console output and error messages show a VM value: a string as it is, an `Error`
+ * instance as `Name: message`, anything else as JSON. Whether a value is an `Error` is decided
+ * inside the VM, never by its keys, so a plain object with a `message` stays data.
+ */
+function renderer(vm: QuickJSContext, keep: Keep): Render {
+  // Captures the VM's own Error before the code runs, so reassigning the global changes nothing.
+  const isError = keep(
+    vm.unwrapResult(vm.evalCode('((E) => (value) => value instanceof E)(Error)')),
+  );
+  return (handle) => {
+    if (vm.typeof(handle) === 'string') return vm.getString(handle);
+    const check = vm.callFunction(isError, vm.undefined, handle);
+    let errorInstance = false;
+    if (check.error) {
+      check.error.dispose();
+    } else {
+      errorInstance = vm.dump(check.value) === true;
+      check.value.dispose();
+    }
+    if (errorInstance) {
+      const { name, message } = vm.dump(handle) as { name: unknown; message: unknown };
+      return `${String(name)}: ${String(message)}`;
+    }
+    const value: unknown = vm.dump(handle);
+    // JSON.stringify returns undefined for undefined and functions, despite its declared type.
+    const json = JSON.stringify(value) as string | undefined;
+    return json ?? String(value);
+  };
 }
 
 /** Sets `console.log` (a capture) and each entry of `globals` (parsed from JSON text) on `vm`. */
@@ -82,14 +105,12 @@ function installGlobals(
   globals: Record<string, string>,
   capture: ReturnType<typeof consoleCapture>,
   keep: Keep,
+  render: Render,
 ): void {
   const log = keep(
     vm.newFunction('log', (...args) => {
       if (capture.isCut()) return;
-      const parts = args.map((arg) =>
-        vm.typeof(arg) === 'string' ? vm.getString(arg) : describe(vm.dump(arg)),
-      );
-      capture.add(parts.join(' '));
+      capture.add(args.map(render).join(' '));
     }),
   );
   const consoleObject = keep(vm.newObject());
@@ -104,8 +125,8 @@ function installGlobals(
 }
 
 /** Runs `code` as the body of an async function in `vm` and returns its value as JSON text. */
-function evaluate(vm: QuickJSContext, code: string, keep: Keep): Completion {
-  const fail = (error: QuickJSHandle): Completion => ({ ok: false, thrown: vm.dump(keep(error)) });
+function evaluate(vm: QuickJSContext, code: string, keep: Keep, render: Render): Completion {
+  const fail = (error: QuickJSHandle): Completion => ({ ok: false, message: render(keep(error)) });
 
   // The VM's AsyncFunction constructor compiles the code as a function body, so `return` and
   // `await` work. Whatever the code does, it stays inside the VM.
@@ -121,7 +142,7 @@ function evaluate(vm: QuickJSContext, code: string, keep: Keep): Completion {
   if (jobs.error) return fail(jobs.error);
   const state = vm.getPromiseState(promise);
   if (state.type === 'pending') {
-    return { ok: false, thrown: 'The code awaited a promise that never settles.' };
+    return { ok: false, message: 'The code awaited a promise that never settles.' };
   }
   if (state.type === 'rejected') return fail(state.error);
 
@@ -133,7 +154,7 @@ function evaluate(vm: QuickJSContext, code: string, keep: Keep): Completion {
   return { ok: true, json: vm.typeof(text) === 'string' ? vm.getString(text) : undefined };
 }
 
-function toSnippetError(thrown: unknown, timedOut: boolean, limits: SandboxLimits): SnippetError {
+function toSnippetError(message: string, timedOut: boolean, limits: SandboxLimits): SnippetError {
   if (timedOut) {
     return {
       kind: 'timeout',
@@ -141,7 +162,6 @@ function toSnippetError(thrown: unknown, timedOut: boolean, limits: SandboxLimit
       hint: 'Avoid endless loops and narrow the work.',
     };
   }
-  const message = describe(thrown);
   if (message === 'InternalError: out of memory') {
     return {
       kind: 'memory_limit',
@@ -179,13 +199,14 @@ export async function runSnippet(
   let completion: Completion;
   let corrupt = false;
   try {
-    installGlobals(vm, globals, capture, keep);
-    completion = evaluate(vm, code, keep);
+    const render = renderer(vm, keep);
+    installGlobals(vm, globals, capture, keep, render);
+    completion = evaluate(vm, code, keep, render);
   } catch (error) {
     // Recursion inside the VM's C code (e.g. the parser) can overflow the host's stack before
     // QuickJS notices. The module is corrupt then and disposing it would abort: drop it as is.
     if (!(error instanceof RangeError)) throw error;
-    completion = { ok: false, thrown: error };
+    completion = { ok: false, message: `${error.name}: ${error.message}` };
     corrupt = true;
   }
   if (!corrupt) {
@@ -197,5 +218,5 @@ export async function runSnippet(
   const output = { console: capture.lines, consoleCut: capture.isCut() };
   return completion.ok
     ? { ...output, ok: true, json: completion.json }
-    : { ...output, ok: false, error: toSnippetError(completion.thrown, timedOut, limits) };
+    : { ...output, ok: false, error: toSnippetError(completion.message, timedOut, limits) };
 }
