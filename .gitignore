@@ -3,5 +3,7 @@ node_modules/
 *.log
 .env
 .env.*
+!.env.schema
 dist/
 build/
+coverage/

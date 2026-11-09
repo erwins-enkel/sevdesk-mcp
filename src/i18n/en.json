@@ -1,0 +1,5 @@
+{
+  "cli.usage": "Usage: sevdesk-mcp [command]\n\nWithout a command, starts the MCP server on stdio.\n\nCommands:\n  setup    Store a sevDesk API token and register MCP clients\n  --help   Show this help",
+  "cli.unknownCommand": "Unknown command: {command}",
+  "setup.notImplemented": "The setup assistant is not implemented yet."
+}

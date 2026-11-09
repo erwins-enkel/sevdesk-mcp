@@ -1,0 +1,6 @@
+{
+  "ignoreDependencies": ["@typescript/typescript6"],
+  "rules": {
+    "unused-dev-dependencies": "error"
+  }
+}
