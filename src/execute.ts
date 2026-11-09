@@ -1,4 +1,5 @@
 import { type CallToolResult, fromJsonSchema, type McpServer } from '@modelcontextprotocol/server';
+import { type AuditLog, auditLog, NO_AUDIT } from './audit.ts';
 import { type Config, DEFAULT_CONFIG, type LoadedConfig } from './config.ts';
 import { createConfirmations, previewHeld } from './confirm.ts';
 import { confirmedResult, errorResult, toToolResult } from './envelope.ts';
@@ -89,9 +90,10 @@ function readOnlySwitch(): boolean {
  * calls are held (decision 5): a run that succeeds returns their previews and a token, which
  * `confirm` (on the same profile, instead of `code`) redeems once to send exactly those calls.
  * Read-only mode (decision 3), from `SEVDESK_READONLY` (read once per server) or the profile's
- * `readonly`, rejects every write and irreversible call, and every `confirm`. The tool carries the
- * read-only annotation when the switch is on or the pinned profile is read-only, otherwise the
- * destructive one.
+ * `readonly`, rejects every write and irreversible call, and every `confirm`. Every write call gets
+ * a line in the profile's audit log (decision 16) unless the config file turns it off; a log that
+ * cannot be written fails the call. The tool carries the read-only annotation when the switch is on
+ * or the pinned profile is read-only, otherwise the destructive one.
  */
 export function registerExecuteTool(
   server: McpServer,
@@ -112,6 +114,11 @@ export function registerExecuteTool(
   function readOnlyReason({ name, readonly }: Profile): string | undefined {
     if (envReadOnly) return 'SEVDESK_READONLY is on';
     return readonly ? `profile ${name} is read-only` : undefined;
+  }
+
+  /** The audit log of `profile` (decision 16), or one that records nothing with `"audit": false`. */
+  function auditFor({ name }: Profile): AuditLog {
+    return config.audit ? auditLog(name) : NO_AUDIT;
   }
 
   /** The bookkeeping-system error of `profile`, if any. A failed check is not remembered. */
@@ -155,6 +162,8 @@ export function registerExecuteTool(
    * Redeems `token` for `profile`: sends the held calls it stands for, exactly as stored, without
    * running any code (decision 5). The bookkeeping system was checked by the run that held them. A
    * read-only profile is rejected before the token is looked at, so no token gets past read-only.
+   * An audit log that cannot be written is rejected before the token is taken, so the token stays
+   * valid for when it is fixed.
    */
   async function confirmHeld(token: string, profile: Profile): Promise<CallToolResult> {
     const readOnly = readOnlyReason(profile);
@@ -165,29 +174,44 @@ export function registerExecuteTool(
         hint: READ_ONLY_HINT,
       });
     }
+    const audit = auditFor(profile);
+    try {
+      audit.check();
+    } catch (error) {
+      if (!(error instanceof HostError)) throw error;
+      return errorResult(error.error);
+    }
     const taken = confirmations.take(token, profile.name);
     if (!taken.ok) return errorResult(taken.error);
     const signal = AbortSignal.timeout(config.limits.timeoutMs);
     const { token: apiToken, downloadDir } = profile;
-    return confirmedResult(await replay(taken.calls, { token: apiToken, downloadDir, signal }));
+    return confirmedResult(
+      await replay(taken.calls, { token: apiToken, downloadDir, signal, audit }),
+    );
   }
 
   /**
    * Runs `code` for `profile`. When the run succeeds with held calls, their previews (reading each
    * document they act on, after the run) and a token come back; when the run or a preview read
-   * fails, the held calls are dropped and no token is issued (fail closed).
+   * fails, the held calls are dropped and no token is issued (fail closed). When any audit line of
+   * the run could not be written, the run fails with that `audit_error`, whatever the code did.
    */
   async function run(code: string, profile: Profile): Promise<CallToolResult> {
-    const { request, paginate, savePdf, writes, held, readDocument } = createClient({
+    const { request, paginate, savePdf, writes, held, readDocument, settled } = createClient({
       baseUrl: config.baseUrl,
       token: profile.token,
       maxCalls: config.maxCalls,
       downloadDir: profile.downloadDir,
       readOnly: readOnlyReason(profile),
+      audit: auditFor(profile),
     });
-    const outcome = await runSnippet(code, {}, config.limits, {
+    const ran = await runSnippet(code, {}, config.limits, {
       sevdesk: { request, paginate, savePdf },
     });
+    // The code may have caught the failure, or never awaited the write, or the run ended first.
+    const auditError = await settled();
+    const outcome =
+      auditError === undefined ? ran : { ...ran, ok: false as const, error: auditError };
     const { outputChars, timeoutMs } = config.limits;
     const dropped = { dropped: held.map(({ method, path }) => `${method} ${path}`) };
     if (!outcome.ok || held.length === 0)

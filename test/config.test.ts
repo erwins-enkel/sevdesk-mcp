@@ -30,12 +30,14 @@ test('without a config file the documented defaults apply', () => {
     limits: { timeoutMs: 30_000, memoryBytes: 64 * 1024 * 1024, outputChars: 20_000 },
     maxCalls: 50,
     profiles: [],
+    audit: true,
   });
   expect(DEFAULT_CONFIG).toEqual({
     baseUrl: DEFAULT_BASE_URL,
     limits: DEFAULT_LIMITS,
     maxCalls: DEFAULT_CALL_BUDGET,
     profiles: [],
+    audit: true,
   });
 });
 
@@ -50,6 +52,7 @@ test('every key in the file is converted to the units the code uses', () => {
     baseUrl: 'https://sevdesk.example/api/v2/',
     limits: { timeoutSeconds: 5, memoryMb: 32, callsPerRun: 7, outputChars: 900 },
     profiles: { 'mcp-test': { company: 'MCP Test GmbH', readonly: true }, b2: { company: 'B' } },
+    audit: false,
   });
 
   expect(loaded()).toEqual({
@@ -60,6 +63,7 @@ test('every key in the file is converted to the units the code uses', () => {
       { name: 'mcp-test', company: 'MCP Test GmbH', readonly: true },
       { name: 'b2', company: 'B', readonly: false },
     ],
+    audit: false,
   });
 });
 
@@ -127,6 +131,8 @@ test.each([
   [{ baseUrl: 'https://my.sevdesk.de/api/v1#x' }, 'baseUrl must not contain a query or fragment'],
   [{ baseUrl: 'https://user:secret@my.sevdesk.de/api/v1' }, 'baseUrl must not contain credentials'],
   [{ profiles: [] }, 'profiles must be an object of profiles by name'],
+  [{ audit: 'no' }, 'audit must be true or false'],
+  [{ audit: 0 }, 'audit must be true or false'],
   [
     { profiles: { 'Bad Name': { company: 'A' } } },
     'profile name "Bad Name" must be 1 to 32 characters a-z, 0-9 and -',
@@ -169,12 +175,12 @@ test('every problem of a file is reported at once, and a credential is never ech
   const file = writeConfig({
     baseUrl: 'ftp://user:secret@my.sevdesk.de',
     limits: { memoryMb: 1, extra: true },
-    audit: false,
+    telemetry: false,
   });
 
   const message = problem();
   expect(message).toBe(
-    `The config file ${file} is invalid: unknown key "audit"; baseUrl must use https://, not ftp://, so the token never travels in clear text; limits.memoryMb must be an integer from 16 to 2048, not 1; unknown key "limits.extra".`,
+    `The config file ${file} is invalid: unknown key "telemetry"; baseUrl must use https://, not ftp://, so the token never travels in clear text; limits.memoryMb must be an integer from 16 to 2048, not 1; unknown key "limits.extra".`,
   );
   expect(message).not.toContain('secret');
 });
