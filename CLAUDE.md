@@ -8,19 +8,20 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - Product source of truth: `docs/prd/PRD-sevdesk.md` (German).
 - Foundation decisions and their rationale: `docs/decisions/0001-foundation.md`.
 - Product decisions and their rationale: `docs/decisions/0002-product-decisions.md`.
-- Status: early development. `search` runs in the QuickJS sandbox with the patched spec and the
-  guides; `execute` reads sevDesk and runs reversible writes (listed in the result's `writes`
-  ledger) with the profile from `SEVDESK_API_TOKEN` or a config-file profile whose token is in the
-  OS keychain, holds every irreversible call and sends it only with the confirmation token
-  (`execute({ confirm })`), and saves PDFs (`savePdf`) and non-JSON responses in the profile's
-  download directory; both use the limits and base URL of the optional config file. Read-only mode
-  (`SEVDESK_READONLY` or a profile's `readonly`) rejects every write and irreversible call. Every
-  write call (executed, held, confirmed, rejected) gets a line in the monthly audit log in the
-  state directory unless the config file sets `audit: false`.
-  `sevdesk-mcp setup` adds a profile interactively (token into the OS keychain) and registers it in
-  the installed Claude Desktop, Claude Code, ChatGPT Desktop / Codex and OpenCode, `setup --list`
-  lists the profiles and `setup --remove <name>` removes one with its token and offers to remove its
-  client entries. Every other feature arrives as a backlog slice.
+- Status: the M0 Code Mode spine is in place (version 0.0.0, not yet on npm). `search` runs in the
+  QuickJS sandbox with the patched spec and the guides; `execute` reads sevDesk, runs reversible
+  writes (listed in the result's `writes` ledger), holds every irreversible call until
+  `execute({ confirm })`, and saves PDFs (`savePdf`) and non-JSON responses in the profile's
+  download directory, within the limits and base URL of the optional config file. Profiles come
+  from `SEVDESK_API_TOKEN` or the config file, their tokens from the OS keychain. Read-only mode
+  (`SEVDESK_READONLY` or a profile's `readonly`) rejects every write and irreversible call; every
+  write call gets a line in the monthly audit log unless the config file sets `audit: false`.
+  `sevdesk-mcp setup` adds a profile (token into the OS keychain) and registers it in the
+  installed Claude Desktop, Claude Code, ChatGPT Desktop / Codex and OpenCode, `setup --list`
+  lists the profiles and `setup --remove <name>` removes one with its token and client entries.
+  Priority A runs end to end against the spec-following mock in `bun run test`, and by hand
+  against a real account with `bun run test:e2e`. Not built yet (PRD §9): the update checks, the
+  `.mcpb`, the release workflow, receipt upload, elicitation and the curated v2 tools.
 
 ## Orientation
 
@@ -143,6 +144,15 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   drives `setup` through a scripted prompter against the Acme mock and writes fake client configs
   (`writeClient()`, `backupsOf()`); `test/setup.ts` also unsets `CLAUDE_CONFIG_DIR` and
   `CODEX_HOME`, so client registration only ever finds fake configs in the temporary home.
+  `test/guide-template.ts`: `template()` and `fill()`, a guide's JSON template as snippet code.
+  `test/e2e/`: the manual E2E run against a real account (decision 29; `bun run test:e2e` with
+  `vitest.e2e.config.ts`; `*.e2e.ts` never matches `bun run test`, so neither `verify` nor CI
+  runs it). `live.e2e.ts` spawns the server over stdio with `SEVDESK_E2E_TOKEN` and its own
+  temporary home, drives Priority A on the persistent fixtures "MCP Test GmbH" and tag
+  `mcp-test`, records what `getPdf` without `preventSendBy=true` does to the status, and prints
+  a report without token or mail address. `cleanup.ts`: `cleanUp()` deletes only this run's
+  tagged drafts, all or none (`cleanupGuard()`), through `confirm`; `test/e2e-cleanup.test.ts`
+  checks it offline.
   `scripts/`: the i18n drift gate, the pinned actionlint runner and `update-spec`.
 - While serving, stdout belongs to the MCP protocol: log to stderr only.
 - Model-facing text (tool descriptions, guides, errors returned to the model) is English and
@@ -304,6 +314,8 @@ env vars vs `.env.schema`), `lint:actions` (actionlint on `.github/workflows/`).
 
 - Fix formatting: `bun run format`. One test file: `bunx vitest run test/cli.test.ts`.
 - Smoke the binary: `bun run build && node dist/cli.js` (speaks MCP on stdio).
+- `bun run test:e2e` is not part of `verify`: it runs by hand against a real account with
+  `SEVDESK_E2E_TOKEN` (plus `SEVDESK_E2E_MAIL_TO` for the mail test) and skips without the token.
 - Hooks: pre-commit runs lint-staged (eslint --fix + prettier on staged files), commit-msg
   runs commitlint (Conventional Commits), pre-push runs `bun run verify`.
 - When you change a CI step, change the `verify` script too, and vice versa. CI runs the

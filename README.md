@@ -245,7 +245,20 @@ bun install       # dependencies + git hooks
 bun run verify    # everything CI checks
 bun run build && node dist/cli.js   # start the server on stdio
 bun run update-spec   # refresh the embedded sevDesk API specification
+bun run test:e2e      # by hand only: Priority A against a real sevDesk account
 ```
+
+`bun run test:e2e` runs the offer flow against the account of `SEVDESK_E2E_TOKEN` and skips
+without it. It is never part of `bun run test`, `bun run verify` or CI. It works only with
+contacts and offers, never invoices. Every offer goes to the contact "MCP Test GmbH" and carries
+the tag `mcp-test` and the run id in its head text; the contact and the tag are created on the
+first run and kept. With `SEVDESK_E2E_MAIL_TO` set, one offer is mailed to that address and only
+there. At the end the run deletes its own offers that are still tagged drafts, through the
+confirmation flow, and deletes nothing if any of them is not. Mailed offers are no longer drafts:
+the report lists them, with anything else left behind, for deletion by hand. The report also
+says whether `getPdf` without `preventSendBy=true` changed an offer's status, and it contains
+neither the token nor the mail address. An interrupted run can leave offers too; find them by the
+tag and the run id.
 
 The product requirements live in [`docs/prd/PRD-sevdesk.md`](docs/prd/PRD-sevdesk.md), the
 foundation decisions in [`docs/decisions/0001-foundation.md`](docs/decisions/0001-foundation.md).
