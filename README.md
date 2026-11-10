@@ -102,8 +102,8 @@ Once the profile is removed, it offers to remove the client entries that start i
 
 ### Changing profiles and settings: `config`
 
-`sevdesk-mcp config` opens a menu in the terminal. It first shows the config file, whether the
-audit log is on and where it is, and every profile with its company, read-only state, download
+`sevdesk-mcp config` opens a menu in the terminal. It first shows the running version and its
+updates, the config file, whether the audit log is on and where it is, and every profile with its company, read-only state, download
 directory and, for each installed MCP client, the entries that start it and their kind (`npx` or
 `local build`). The overview reads only the config file and the client configs, never the
 keychain. Move with the arrow keys or type an item's number (1 to 9), choose with Enter, go back
@@ -116,6 +116,16 @@ with Esc or q. The output is plain text without colours, so it reads the same wi
   remove it (as `setup --remove`).
 - **Add a profile:** runs the `setup` dialogue.
 - **Audit log:** turn it off or on.
+- **Update** (local checkout only, see below): offered first when commits are waiting.
+
+Run from a local checkout, `config` fetches the branch's upstream once when it opens (`git fetch`,
+no user data) and shows the version with branch, commit and date, and whether commits are
+waiting. If it cannot check, it says why ("unknown") and never claims to be up to date. When commits
+are waiting, the branch has none of its own and no tracked file is changed, the menu offers
+"Update to <commit>". It lists the waiting commits, asks (default yes) and then updates exactly as
+the `version` tool does (see "Beta testing from a local checkout"). After an update, `config` ends; run
+it again to see the new version. An installed package shows its version and does not check for
+updates here.
 
 Each change is written at once, keeping every other key of the file; restart the MCP clients so
 they pick it up. Ctrl+C leaves at any point without a half-written change. Like `setup`, `config`
@@ -310,6 +320,7 @@ folder under `node_modules` (as with `npx` or a global install), and as a local 
    `~/.bun/bin`. If the install or the build fails after the fast-forward, it says so and nothing
    is rolled back: run `bun install && bun run build` in the checkout. A client fetches the tool
    list once, so after the build that first brings `version`, restart the client once.
+   `sevdesk-mcp config` shows the same state and offers the same update in the terminal.
 5. Once the package is published, switch with `npx @erwins-enkel/sevdesk-mcp setup` and the same
    profile name: replace the profile (it asks for the token again), then answer yes when it asks to
    replace each client's entry with the `npx` one.

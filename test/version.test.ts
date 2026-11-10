@@ -1,103 +1,17 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { name, version } from '../src/manifest.ts';
 import { connect, envelopeOf } from './connect.ts';
+import { commit, fixture, git, PACKAGE, pushUpstream, tempDir } from './git-fixture.ts';
 
-// `version` over an in-memory connection against real git repositories in a temporary directory:
+// `version` over an in-memory connection against the real git repositories of test/git-fixture.ts:
 // a bare `origin`, the `checkout` the server runs from, and an `other` clone that pushes new
-// commits. The checkout is a tiny package whose build copies VERSION into dist/built.txt and whose
-// postinstall writes installed.txt, so a test sees which steps ran. Nothing touches this repository.
+// commits. Nothing touches this repository.
 
 // Every test spawns git (and bun) several times, which takes a while on Windows.
 vi.setConfig({ testTimeout: 60_000 });
-
-const PACKAGE = {
-  name: 'fixture',
-  private: true,
-  scripts: { build: 'node build.mjs', postinstall: 'node installed.mjs' },
-};
-
-const FILES: Record<string, string> = {
-  'package.json': JSON.stringify(PACKAGE, null, 2),
-  'build.mjs': `import { copyFileSync, mkdirSync } from 'node:fs';
-mkdirSync('dist', { recursive: true });
-copyFileSync('VERSION', 'dist/built.txt');
-`,
-  'installed.mjs': `import { writeFileSync } from 'node:fs';
-writeFileSync('installed.txt', 'installed');
-`,
-  '.gitignore': 'node_modules/\ndist/\ninstalled.txt\n',
-  VERSION: 'v1',
-};
-
-/** The test's environment without inherited GIT_* variables, which a git hook may set. */
-function cleanEnv(): NodeJS.ProcessEnv {
-  return Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('GIT_')),
-  );
-}
-
-/** Runs git in `dir` with a fixed identity and plain settings; resolves to its trimmed stdout. */
-function git(dir: string, ...args: string[]): string {
-  const config = [
-    ['user.name', 'Test'],
-    ['user.email', 'test@example.com'],
-    ['commit.gpgsign', 'false'],
-    ['core.autocrlf', 'false'],
-  ].flatMap(([key, value]) => ['-c', `${String(key)}=${String(value)}`]);
-  return execFileSync('git', [...config, ...args], {
-    cwd: dir,
-    env: cleanEnv(),
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
-}
-
-/** Writes `files` into `repo` and commits them as `subject`. */
-function commit(repo: string, subject: string, files: Record<string, string>): void {
-  for (const [file, content] of Object.entries(files)) writeFileSync(join(repo, file), content);
-  git(repo, 'add', '.');
-  git(repo, 'commit', '--quiet', '-m', subject);
-}
-
-interface Fixture {
-  dir: string;
-  origin: string;
-  checkout: string;
-  other: string;
-}
-
-const fixtures: string[] = [];
-
-afterEach(() => {
-  for (const dir of fixtures.splice(0)) rmSync(dir, { recursive: true, force: true });
-});
-
-/** A bare origin on `main`, the checkout with one commit pushed to it, and a second clone. */
-function fixture(): Fixture {
-  const dir = mkdtempSync(join(tmpdir(), 'sevdesk-mcp-version-'));
-  fixtures.push(dir);
-  const origin = join(dir, 'origin.git');
-  const checkout = join(dir, 'checkout');
-  const other = join(dir, 'other');
-  git(dir, 'init', '--quiet', '--bare', '-b', 'main', origin);
-  git(dir, 'init', '--quiet', '-b', 'main', checkout);
-  commit(checkout, 'chore: start', FILES);
-  git(checkout, 'remote', 'add', 'origin', origin);
-  git(checkout, 'push', '--quiet', '-u', 'origin', 'main');
-  git(dir, 'clone', '--quiet', origin, other);
-  return { dir, origin, checkout, other };
-}
-
-/** Commits `subjects` in `other`, each changing VERSION to the subject, and pushes them. */
-function pushUpstream(other: string, ...subjects: string[]): string {
-  for (const subject of subjects) commit(other, subject, { VERSION: subject });
-  git(other, 'push', '--quiet');
-  return git(other, 'rev-parse', 'HEAD');
-}
 
 /** Calls `version` on a server for `checkout` and returns the result with its parsed envelope. */
 async function callVersion(checkout: string, args: Record<string, string> = {}) {
@@ -211,8 +125,7 @@ test('a branch without an upstream reports its HEAD and says why it cannot compa
 });
 
 test('a folder that is no git checkout of its own reports the version and no git state', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'sevdesk-mcp-version-'));
-  fixtures.push(dir);
+  const dir = tempDir();
 
   const { isError, result, notes } = await callVersion(dir);
 

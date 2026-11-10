@@ -193,6 +193,14 @@ rules.
     checkout is at, and nothing is rolled back. The `git fetch` is a connection besides sevDesk and
     npm (decision 21): only from a local checkout, only when `version` is called, and it carries no
     user data. The version answer of an installed package comes with the update check (§5.6).
+    **Addendum (2026-11-10, version and updates in `config`):** `config` shows the running version
+    and whether an update is waiting. Run from a local checkout, it fetches the branch's upstream
+    once when it opens, a second trigger for the `git fetch` above with the same limits: no user
+    data, nothing outside the checkout's own upstream. It shows the result for the whole run, as
+    "unknown" with the reason when it cannot check. When `version` would offer an update, the main
+    menu offers it too, lists the waiting commits and, after a yes (the default), runs the same
+    checks and update. `config` then ends, so no code of the old version keeps running. An
+    installed package shows its version and "not checked here" until the §5.6 check exists.
 19. **Setup without a terminal, and accessibility of the CLI.**
     **Answer:** Without a TTY, `setup` aborts with a hint to `SEVDESK_API_TOKEN`; there are no
     non-interactive flags. Output is plain text, status is never conveyed by colour alone,

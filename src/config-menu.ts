@@ -11,6 +11,7 @@ import {
   setProfileKey,
 } from './config.ts';
 import { type Locale, type MessageKey, t } from './i18n/index.ts';
+import { version } from './manifest.ts';
 import { defaultDownloadDir } from './paths.ts';
 import {
   runCheck,
@@ -21,11 +22,19 @@ import {
   type SetupIO,
 } from './setup.ts';
 import { columns } from './terminal.ts';
+import {
+  type CheckoutState,
+  checkoutState,
+  type Comparison,
+  type UpdateOutcome,
+  updateCheckout,
+} from './version.ts';
 
 // The `config` command (issue #46): an interactive menu over the config file, the OS keychain (only
 // through setup's own steps) and the installed MCP clients. Every change is written at once, whole
 // or not at all, after the question that leads to it is answered, so leaving it (Esc, q, Ctrl+C)
-// never leaves a half-written change.
+// never leaves a half-written change. Run from a local checkout, it also shows the version and the
+// commits waiting upstream (one `git fetch` when it opens) and offers the update `version` offers.
 
 type Params = Record<string, string>;
 
@@ -55,8 +64,14 @@ function displayPath(path: string): string {
   return path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
 }
 
-/** The `config` menu in `locale`, talking through `io`. */
-function menu(locale: Locale, io: SetupIO) {
+/** The date part (YYYY-MM-DD) of an ISO 8601 date. */
+const day = (date: string) => date.slice(0, 10);
+
+/**
+ * The `config` menu in `locale`, talking through `io`; `checkout` is the package root of a local
+ * checkout, undefined for an installed package.
+ */
+function menu(locale: Locale, io: SetupIO, checkout: string | undefined) {
   const text = (key: MessageKey, params?: Params) => t(locale, key, params);
   const say = (key: MessageKey, params?: Params) => {
     io.print(text(key, params));
@@ -123,15 +138,60 @@ function menu(locale: Locale, io: SetupIO) {
     for (const line of columns(rows)) io.print(`  ${line}`);
   }
 
+  // The git state of `checkout`, read once when `config` opens; undefined for an installed package.
+  let checked: CheckoutState | undefined;
+
+  /** "1 commit" or "N commits". */
+  const commits = (count: number) =>
+    text(count === 1 ? 'config.commitsOne' : 'config.commitsMany', { count: String(count) });
+
+  /** The version row's text: the package version, and for a checkout its branch, HEAD and date. */
+  function versionText(): string {
+    const head = checked?.repo;
+    if (checkout === undefined) return text('config.versionNpm', { version });
+    if (head === undefined) return version;
+    const params = { version, commit: head.head.commit, date: day(head.head.date) };
+    return head.branch === undefined
+      ? text('config.versionDetached', params)
+      : text('config.versionLocal', { ...params, branch: head.branch });
+  }
+
   /**
-   * The overview: after an empty line, the config file and the audit log in columns, then every
-   * profile with company, read-only state, download directory and its entries in the installed MCP
-   * clients. It reads the config file and the client configs, never the OS keychain.
+   * The updates row's text: whether commits wait upstream, and why they cannot be updated to here.
+   * Anything not checked says so; only a comparison that worked can read as up to date.
+   */
+  function updatesText(): string {
+    if (checked === undefined) return text('config.updatesNpm');
+    const { repo, comparison, problem = '' } = checked;
+    if (repo === undefined || comparison === undefined) {
+      return text('config.updatesUnknown', { reason: problem.replace(/\.$/, '') });
+    }
+    const upstream = repo.upstream ?? '';
+    const { ahead, behind } = comparison;
+    if (behind === 0) return text('config.upToDate', { upstream });
+    const params = { commits: commits(behind), upstream };
+    if (ahead > 0) {
+      return text('config.behindOwnCommits', {
+        ...params,
+        branch: repo.branch ?? '',
+        own: commits(ahead),
+      });
+    }
+    return text(repo.changed ? 'config.behindChanged' : 'config.behind', params);
+  }
+
+  /**
+   * The overview: after an empty line, the version, the updates, the config file and the audit log
+   * in columns, then every profile with company, read-only state, download directory and its entries
+   * in the installed MCP clients. It reads the config file and the client configs, never the OS
+   * keychain; the git state is the one read when `config` opened.
    */
   function overview(config: Config): void {
     io.print('');
     const state = text(config.audit ? 'config.on' : 'config.off');
     const settings = columns([
+      [text('config.versionLabel'), versionText()],
+      [text('config.updatesLabel'), updatesText()],
       [text('config.fileLabel'), displayPath(configFile())],
       [
         text('config.auditLabel'),
@@ -146,6 +206,8 @@ function menu(locale: Locale, io: SetupIO) {
 
   // Set once a menu is cancelled (Ctrl+C, end of input): every menu then leaves at once.
   let cancelled = false;
+  // Set once an update ran: `config` then ends, so no code of the old version keeps running.
+  let ended = false;
 
   /**
    * Shows `menu.actions` under its title, its `leave` item last and the key hint below, and runs the
@@ -170,7 +232,7 @@ function menu(locale: Locale, io: SetupIO) {
    */
   async function loop(next: (config: Config) => Menu | undefined): Promise<boolean> {
     let ok = true;
-    while (!cancelled) {
+    while (!cancelled && !ended) {
       const config = load();
       if (config === undefined) return false;
       const menu = next(config);
@@ -269,9 +331,87 @@ function menu(locale: Locale, io: SetupIO) {
     });
   }
 
-  /** The main menu's actions: one per profile, add a profile, the audit log switch. */
+  /** Lists the commits waiting on `upstream`, newest first, and how many older ones are left out. */
+  function showIncoming({ behind, incoming }: Comparison, upstream: string): void {
+    say('config.incoming', { commits: commits(behind), upstream });
+    const rows = incoming.map(({ commit, date, subject }) => [commit, day(date), subject]);
+    for (const line of columns(rows)) io.print(`  ${line}`);
+    if (behind > incoming.length) {
+      say('config.incomingMore', { count: String(behind - incoming.length) });
+    }
+  }
+
+  /** Reports what became of the update of `dir`; resolves to whether it went well. */
+  function report(outcome: UpdateOutcome, dir: string): boolean {
+    switch (outcome.kind) {
+      case 'updated': {
+        const { plan, installed, built } = outcome;
+        // Already at the commit (updated meanwhile): nothing ran.
+        if (!built) {
+          say('config.unchanged');
+          return true;
+        }
+        const done = installed ? 'config.updatedInstalled' : 'config.updated';
+        io.success(text(done, { commits: commits(plan.commits), to: plan.to.slice(0, 7) }));
+        say('config.updatedReload');
+        return true;
+      }
+      case 'refused': {
+        const { reason, hint } = outcome;
+        io.fail([text('config.updateRefused', { reason }), hint].filter(Boolean).join('\n'));
+        return false;
+      }
+      case 'failed': {
+        const { step, output } = outcome;
+        io.fail(text('config.updateFailed', { to: outcome.to.slice(0, 7), step, output, dir }));
+        return false;
+      }
+    }
+  }
+
+  /**
+   * Lists the commits waiting on `upstream`, asks whether to update `dir` to `to` (default yes) and,
+   * after a yes, updates it as `version` does. Any update that ran ends `config`; a no changes nothing
+   * and goes back to the menu, and so does a cancel, which counts as not gone well. Resolves to
+   * whether the update went well.
+   */
+  async function update(dir: string, to: string, comparison: Comparison, upstream: string) {
+    showIncoming(comparison, upstream);
+    const question = text('config.askUpdate', { choices: text('setup.defaultYes') });
+    const answer = (await io.prompter.ask(question))?.trim().toLowerCase();
+    if (answer === undefined) {
+      io.fail(text('config.cancelled'));
+      return false;
+    }
+    if (text('setup.noAnswers').split(',').includes(answer)) {
+      say('config.unchanged');
+      return true;
+    }
+    say('config.updating');
+    const outcome = await updateCheckout(dir, to);
+    ended = true;
+    return report(outcome, dir);
+  }
+
+  /**
+   * The main menu's actions: the update when one is offered, one per profile, add a profile, the
+   * audit log switch.
+   */
   function mainActions(config: Config): Action[] {
+    const offered: Action[] = [];
+    const { repo, comparison, offer } = checked ?? {};
+    if (checkout !== undefined && comparison !== undefined && offer !== undefined) {
+      const upstream = repo?.upstream ?? '';
+      offered.push({
+        label: text('config.update', {
+          to: offer.slice(0, 7),
+          commits: commits(comparison.behind),
+        }),
+        run: () => update(checkout, offer, comparison, upstream),
+      });
+    }
     return [
+      ...offered,
       ...config.profiles.map(({ name, company }) => ({
         label: text('config.profileItem', { profile: name, company }),
         run: () => profileMenu(name),
@@ -295,7 +435,11 @@ function menu(locale: Locale, io: SetupIO) {
      * Shows the heading once the config file proves valid, then the overview and the main menu until
      * the user leaves. Resolves to whether every action went well and the config file stayed valid.
      */
-    run: () => {
+    run: async () => {
+      if (checkout !== undefined) {
+        say('config.checking');
+        checked = await checkoutState(checkout);
+      }
       let headed = false;
       return loop((config) => {
         if (!headed) io.heading(text('config.header'));
@@ -313,12 +457,14 @@ function menu(locale: Locale, io: SetupIO) {
 }
 
 /**
- * Runs `config` in `locale` through `io` (issue #46): an overview of the profiles and the installed
- * MCP clients, and a menu to toggle a profile's read-only flag, set or reset its download directory,
- * register or unregister it in the clients, check its connection, remove it, add a profile (the
- * `setup` dialogue) and toggle the audit log. Resolves to true when the user leaves and every action
- * went well; otherwise it has reported why on `io.fail`.
+ * Runs `config` in `locale` through `io` (issue #46): an overview of the version, the profiles and
+ * the installed MCP clients, and a menu to toggle a profile's read-only flag, set or reset its
+ * download directory, register or unregister it in the clients, check its connection, remove it,
+ * add a profile (the `setup` dialogue) and toggle the audit log. With `checkout`, the package root
+ * of a local checkout, it first fetches the upstream, shows the commits waiting there and offers the
+ * update, after which it ends. Resolves to true when the user leaves and every action went well;
+ * otherwise it has reported why on `io.fail`.
  */
-export function runConfig(locale: Locale, io: SetupIO): Promise<boolean> {
-  return menu(locale, io).run();
+export function runConfig(locale: Locale, io: SetupIO, checkout?: string): Promise<boolean> {
+  return menu(locale, io, checkout).run();
 }
