@@ -464,7 +464,7 @@ async function discardBody(response: Response): Promise<undefined> {
 }
 
 /**
- * The id of the object a write's answer names:`objects.id` (the first object of an array), or the
+ * The id of the object a write's answer names: `objects.id` (the first object of an array), or the
  * id of the first object inside it, as a factory save answers `{ objects: { order, orderPos } }`.
  * Like `pdfBytes`, it also reads an answer that is not wrapped in `objects`.
  */
@@ -633,20 +633,20 @@ function recording(log: AuditLog, failed: (error: SnippetError) => void): AuditL
  * returns where; `paginate` collects every object of a list, page by page, into one array;
  * `savePdf` saves a document's PDF in `downloadDir`. Between them they send at most `maxCalls`
  * calls (each page is one, `savePdf` costs three for a draft, which it renders again first, and two
- * otherwise, a retry none) to `baseUrl` with the token added here
- * (never visible to the code), retried as decision 10 allows. A reversible write runs and enters
- * `writes`, the run's ledger. An irreversible call through `request` is held (decision 5): it is not
- * sent, enters `held` and resolves to `{ held: true }`; `paginate` and `savePdf` refuse one. A held
- * call takes a call of the budget, as does each `readDocument`, the host's read for the
- * confirmation preview. The call over `maxCalls` is not sent (or held) and ends the run, so
- * `paginate` never returns a partial list. With `readOnly` set (decision 3) every write and every
- * irreversible call fails with `read_only` before it is sent or held; reads and `savePdf` run, the
- * render of a draft included, the one write read-only mode lets through.
- * Every write call gets its line in `audit` (decision 16): `executed` once a sent write settles
- * (an unwritable log stops it before it is sent), `held`, or `rejected` by read-only mode or the
- * gate; plain reads get none. A log that cannot be written throws a fatal `audit_error`; `settled`
- * waits for the writes still in flight and resolves to the run's first such error, so the caller
- * fails the run even when the code caught it, never awaited the write, or the run ended first.
+ * otherwise, a retry none) to `baseUrl` with the token added here (never visible to the code),
+ * retried as decision 10 allows. A reversible write runs and enters `writes`, the run's ledger. An
+ * irreversible call through `request` is held (decision 5): it is not sent, enters `held` and
+ * resolves to `{ held: true }`; `paginate` and `savePdf` refuse one. A held call takes a call of
+ * the budget, as does each `readDocument`, the host's read for the confirmation preview. The call
+ * over `maxCalls` is not sent (or held) and ends the run, so `paginate` never returns a partial
+ * list. With `readOnly` set (decision 3) every write and every irreversible call fails with
+ * `read_only` before it is sent or held; reads and `savePdf` run, the render of a draft included,
+ * the one write read-only mode lets through. Every write call gets its line in `audit` (decision
+ * 16): `executed` once a sent write settles (an unwritable log stops it before it is sent), `held`,
+ * or `rejected` by read-only mode or the gate; plain reads get none. A log that cannot be written
+ * throws a fatal `audit_error`; `settled` waits for the writes still in flight and resolves to the
+ * run's first such error, so the caller fails the run even when the code caught it, never awaited
+ * the write, or the run ended first.
  */
 export function createClient({
   baseUrl,

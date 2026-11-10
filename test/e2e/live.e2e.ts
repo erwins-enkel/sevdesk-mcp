@@ -25,12 +25,12 @@ import {
 // stdio, with the guides' templates as bodies: the persistent contact "MCP Test GmbH" (created once
 // if missing), an offer draft tagged mcp-test with the run id in its headText, its PDF (saved again
 // after a change of its header, which the new PDF must show: savePdf renders a draft again, issue
-// #49), and the mail to SEVDESK_E2E_MAIL_TO. It records what getPdf without preventSendBy=true does to the live
-// status (decision 7). Only contacts and offers, never invoices. Afterwards it deletes this run's
-// tagged drafts through the confirmation flow (test/e2e/cleanup.ts), all or none, and lists the
-// offers left for manual deletion. The server gets a temporary home, so the real config file, audit
-// log and Downloads folder stay untouched. The report printed at the end names neither the token
-// nor the mail address, so it can go into the issue as it is.
+// #49), and the mail to SEVDESK_E2E_MAIL_TO. It records what getPdf without preventSendBy=true does
+// to the live status (decision 7). Only contacts and offers, never invoices. Afterwards it deletes
+// this run's tagged drafts through the confirmation flow (test/e2e/cleanup.ts), all or none, and
+// lists the offers left for manual deletion. The server gets a temporary home, so the real config
+// file, audit log and Downloads folder stay untouched. The report printed at the end names neither
+// the token nor the mail address, so it can go into the issue as it is.
 
 /** An environment variable's value, or undefined when it is unset or blank. */
 function setting(value: string | undefined): string | undefined {

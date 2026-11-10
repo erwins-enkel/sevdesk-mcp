@@ -216,9 +216,10 @@ Such a call is rejected outright, never held, so no confirmation token can get i
 `execute` with `confirm` is rejected as well. Reads and `sevdesk.savePdf` keep working (`savePdf`
 always sets `preventSendBy=true`). The render `savePdf` sends for a draft is the one write that
 read-only mode lets through: it changes no status, it keeps the PDF current, and it is listed in
-`writes` and the audit log. The same render sent through `sevdesk.request` is rejected. When `SEVDESK_READONLY` is on, or the server is pinned with
-`--profile` to a read-only profile, `execute` carries the MCP `readOnlyHint` annotation. The server
-reads both switches when it starts, so restart it after a change.
+`writes` and the audit log. The same render sent through `sevdesk.request` is rejected. When
+`SEVDESK_READONLY` is on, or the server is pinned with `--profile` to a read-only profile, `execute`
+carries the MCP `readOnlyHint` annotation. The server reads both switches when it starts, so restart
+it after a change.
 
 ## Audit log
 
