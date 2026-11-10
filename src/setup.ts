@@ -24,11 +24,16 @@ import { root } from './manifest.ts';
 import type { Prompter } from './prompt.ts';
 import { HostError } from './sandbox.ts';
 import { bookkeepingSystem, companyName, SUPPORTED_SYSTEM } from './sevdesk.ts';
+import { columns } from './terminal.ts';
 
-/** Where `setup` writes: lines to show, and errors. */
+/** Where `setup` writes: lines to show, headings, successes, and errors. */
 export interface SetupOutput {
-  /** Shows a line (stdout). */
+  /** Shows a line of information (stdout). */
   print: (text: string) => void;
+  /** Shows a line that heads what follows (stdout). */
+  heading: (text: string) => void;
+  /** Reports something that went well (stdout). */
+  success: (text: string) => void;
   /** Reports why setup stopped (stderr). */
   fail: (text: string) => void;
 }
@@ -47,7 +52,7 @@ class SetupStopped extends Error {}
 type Params = Record<string, string>;
 
 /** The setup dialogue in `locale`: messages, questions, and the stops that end it. */
-function dialogue(locale: Locale, { prompter, print }: SetupIO) {
+function dialogue(locale: Locale, { prompter, print, success }: SetupIO) {
   const text = (key: MessageKey, params?: Params) => t(locale, key, params);
   const words = (key: MessageKey) => text(key).split(',');
 
@@ -63,6 +68,10 @@ function dialogue(locale: Locale, { prompter, print }: SetupIO) {
     ask,
     say: (key: MessageKey, params?: Params) => {
       print(text(key, params));
+    },
+    /** Reports an outcome that went well. */
+    succeed: (key: MessageKey, params?: Params) => {
+      success(text(key, params));
     },
     stop: (key: MessageKey, params?: Params) => new SetupStopped(text(key, params)),
     /** A yes/no question; an empty or unrecognised answer is `byDefault`. */
@@ -165,7 +174,7 @@ async function store(
     io.fail(ui.text('setup.configWriteFailed', params));
     return false;
   }
-  ui.say(readonly ? 'setup.doneReadonly' : 'setup.done', { profile: name, company });
+  ui.succeed(readonly ? 'setup.doneReadonly' : 'setup.done', { profile: name, company });
   return true;
 }
 
@@ -186,8 +195,8 @@ function serversOf(ui: Dialogue, io: SetupIO, installed: InstalledClient, params
 
 /**
  * Applies `edit` to the servers of an installed client's config after the user said yes, and
- * reports the outcome: `done` and the backup, or why the file was left as it is (on `io.fail`).
- * Returns whether the file was written.
+ * reports the outcome: `done` (on `io.success`) and the backup, or why the file was left as it is
+ * (on `io.fail`). Returns whether the file was written.
  */
 function applyEdit(
   ui: Dialogue,
@@ -208,7 +217,7 @@ function applyEdit(
     io.fail(ui.text('setup.clientChanged', params));
     return false;
   }
-  ui.say(done, params);
+  ui.succeed(done, params);
   if (outcome.backup !== undefined) ui.say('setup.backedUp', { backup: outcome.backup });
   return true;
 }
@@ -390,8 +399,8 @@ export async function runSetup(locale: Locale, io: SetupIO): Promise<boolean> {
 }
 
 /**
- * Runs `setup --list` in `locale`: prints every profile of the config file, in the file's order,
- * with its company and whether it is read-only. It reads only the config file, never the OS
+ * Runs `setup --list` in `locale`: prints every profile of the config file, in the file's order and
+ * aligned in columns, with its company and whether it is read-only. It reads only the config file, never the OS
  * keychain, so no token can show. Returns false when the config file is invalid, reported on
  * `out.fail`.
  */
@@ -406,11 +415,13 @@ export function runList(locale: Locale, out: SetupOutput): boolean {
     out.print(t(locale, 'setup.listEmpty'));
     return true;
   }
-  out.print(t(locale, 'setup.listHeader', { file: configFile() }));
-  for (const { name, company, readonly } of profiles) {
-    const access = t(locale, readonly ? 'setup.accessReadonly' : 'setup.accessReadWrite');
-    out.print(t(locale, 'setup.listEntry', { profile: name, company, access }));
-  }
+  out.heading(t(locale, 'setup.listHeader', { file: configFile() }));
+  const rows = profiles.map(({ name, company, readonly }) => [
+    name,
+    company,
+    t(locale, readonly ? 'setup.accessReadonly' : 'setup.accessReadWrite'),
+  ]);
+  for (const line of columns(rows)) out.print(`  ${line}`);
   return true;
 }
 
@@ -436,7 +447,7 @@ async function removeProfile(ui: Dialogue, io: SetupIO, name: string): Promise<b
     io.fail(ui.text('setup.configRemoveFailed', { profile: name, file, reason: reasonOf(error) }));
     return false;
   }
-  ui.say('setup.removed', params);
+  ui.succeed('setup.removed', params);
   return offerRemoval(ui, io, name);
 }
 
@@ -493,7 +504,7 @@ export async function runCheck(locale: Locale, io: SetupIO, name: string): Promi
     const read = await readToken(name);
     if (!read.ok) throw ui.stop('config.tokenUnreadable', { reason: read.error.message });
     await checkAccount(ui, config, read.token);
-    ui.say('config.connectionOk', { profile: name });
+    ui.succeed('config.connectionOk', { profile: name });
     return true;
   });
 }

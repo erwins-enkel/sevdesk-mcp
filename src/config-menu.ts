@@ -1,4 +1,5 @@
-import { isAbsolute } from 'node:path';
+import { homedir } from 'node:os';
+import { isAbsolute, sep } from 'node:path';
 import { auditDir } from './audit.ts';
 import { installedClients, profileEntries, readServers } from './clients.ts';
 import {
@@ -19,6 +20,7 @@ import {
   runUnregister,
   type SetupIO,
 } from './setup.ts';
+import { columns } from './terminal.ts';
 
 // The `config` command (issue #46): an interactive menu over the config file, the OS keychain (only
 // through setup's own steps) and the installed MCP clients. Every change is written at once, whole
@@ -46,6 +48,13 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** `path` as the overview shows it: the home directory as `~`, nothing cut. */
+function displayPath(path: string): string {
+  const home = homedir();
+  if (path === home) return '~';
+  return path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
+}
+
 /** The `config` menu in `locale`, talking through `io`. */
 function menu(locale: Locale, io: SetupIO) {
   const text = (key: MessageKey, params?: Params) => t(locale, key, params);
@@ -62,8 +71,8 @@ function menu(locale: Locale, io: SetupIO) {
   }
 
   /**
-   * Writes a change to the config file with `write`, then says `done` and that the MCP clients need
-   * a restart. A failed write is reported and leaves the file as it was.
+   * Writes a change to the config file with `write`, then reports `done` as a success and says that
+   * the MCP clients need a restart. A failed write is reported and leaves the file as it was.
    */
   function change(write: () => void, done: MessageKey, params: Params = {}): boolean {
     try {
@@ -72,68 +81,83 @@ function menu(locale: Locale, io: SetupIO) {
       io.fail(text('config.writeFailed', { file: configFile(), reason: reasonOf(error) }));
       return false;
     }
-    say(done, params);
+    io.success(text(done, params));
     say('config.restart');
     return true;
   }
 
-  /** The lines of the client entries that start `profile`, one per installed client. */
-  function clientLines(profile: string): string[] {
+  /** The rows of the client entries that start `profile`, one per installed client: name, entries. */
+  function clientRows(profile: string): string[][] {
     return installedClients().map((installed) => {
-      const params = { client: installed.client.name, file: installed.file };
+      const { name } = installed.client;
       let servers;
       try {
         servers = readServers(installed).servers;
       } catch (error) {
-        return text('config.clientUnreadable', { ...params, reason: reasonOf(error) });
+        const params = { file: displayPath(installed.file), reason: reasonOf(error) };
+        return [name, text('config.clientUnreadable', params)];
       }
-      const entries = profileEntries(servers, profile).map(({ name, kind }) =>
+      const entries = profileEntries(servers, profile).map((entry) =>
         text('config.entry', {
-          entry: name,
-          kind: text(kind === 'npx' ? 'config.kindNpx' : 'config.kindLocal'),
+          entry: entry.name,
+          kind: text(entry.kind === 'npx' ? 'config.kindNpx' : 'config.kindLocal'),
         }),
       );
-      const shown = entries.length === 0 ? text('config.noEntry') : entries.join(', ');
-      return text('config.clientEntries', { ...params, entries: shown });
+      return [name, entries.length === 0 ? text('config.noEntry') : entries.join(', ')];
     });
   }
 
   /**
-   * The overview: the config file, the audit log, and every profile with company, read-only state,
-   * download directory and its entries in the installed MCP clients. It reads the config file and
-   * the client configs, never the OS keychain.
+   * A profile in the overview: after an empty line, its name, company and read-only state as the
+   * heading, then its download directory and its entries in the installed MCP clients in columns.
+   */
+  function profileBlock({ name, company, readonly, downloadDir }: ProfileSettings): void {
+    io.print('');
+    const access = text(readonly ? 'setup.accessReadonly' : 'setup.accessReadWrite');
+    for (const line of columns([[name, company, access]])) io.heading(line);
+    const downloads =
+      downloadDir === undefined
+        ? text('config.downloadsDefault', { dir: displayPath(defaultDownloadDir(name)) })
+        : displayPath(downloadDir);
+    const rows = [[text('config.downloadsLabel'), downloads], ...clientRows(name)];
+    for (const line of columns(rows)) io.print(`  ${line}`);
+  }
+
+  /**
+   * The overview: after an empty line, the config file and the audit log in columns, then every
+   * profile with company, read-only state, download directory and its entries in the installed MCP
+   * clients. It reads the config file and the client configs, never the OS keychain.
    */
   function overview(config: Config): void {
-    say('config.file', { file: configFile() });
-    const audit = text(config.audit ? 'config.on' : 'config.off');
-    say('config.audit', { state: audit, dir: auditDir() });
+    io.print('');
+    const state = text(config.audit ? 'config.on' : 'config.off');
+    const settings = columns([
+      [text('config.fileLabel'), displayPath(configFile())],
+      [
+        text('config.auditLabel'),
+        text('config.auditState', { state, dir: displayPath(auditDir()) }),
+      ],
+    ]);
+    for (const line of settings) io.print(line);
     if (config.profiles.length === 0) say('config.noProfiles');
     if (installedClients().length === 0) say('config.noClients');
-    for (const { name, company, readonly, downloadDir } of config.profiles) {
-      const access = text(readonly ? 'setup.accessReadonly' : 'setup.accessReadWrite');
-      say('setup.listEntry', { profile: name, company, access });
-      if (downloadDir === undefined) {
-        say('config.downloadsDefault', { dir: defaultDownloadDir(name) });
-      } else {
-        say('config.downloads', { dir: downloadDir });
-      }
-      for (const line of clientLines(name)) io.print(line);
-    }
+    for (const profile of config.profiles) profileBlock(profile);
   }
 
   // Set once a menu is cancelled (Ctrl+C, end of input): every menu then leaves at once.
   let cancelled = false;
 
   /**
-   * Shows `menu.actions` under its title with the key hint, and its `leave` item last, and runs the
+   * Shows `menu.actions` under its title, its `leave` item last and the key hint below, and runs the
    * action picked. Resolves to `leave` when the user picks that, goes back or cancels, else to the
    * action's outcome.
    */
   async function pick({ title, params, actions, leave }: Menu): Promise<boolean | 'leave'> {
-    const choice = await io.prompter.choose(`${text(title, params)}\n${text('config.keys')}`, [
-      ...actions.map(({ label }) => label),
-      text(leave),
-    ]);
+    const choice = await io.prompter.choose(
+      text(title, params),
+      [...actions.map(({ label }) => label), text(leave)],
+      { hint: text('config.keys') },
+    );
     if (choice === undefined) cancelled = true;
     const action = typeof choice === 'number' ? actions[choice] : undefined;
     return action === undefined ? 'leave' : await action.run();
@@ -268,11 +292,14 @@ function menu(locale: Locale, io: SetupIO) {
 
   return {
     /**
-     * Shows the overview and the main menu until the user leaves. Resolves to whether every action
-     * went well and the config file stayed valid.
+     * Shows the heading once the config file proves valid, then the overview and the main menu until
+     * the user leaves. Resolves to whether every action went well and the config file stayed valid.
      */
-    run: () =>
-      loop((config) => {
+    run: () => {
+      let headed = false;
+      return loop((config) => {
+        if (!headed) io.heading(text('config.header'));
+        headed = true;
         overview(config);
         return {
           title: 'config.mainTitle',
@@ -280,7 +307,8 @@ function menu(locale: Locale, io: SetupIO) {
           actions: mainActions(config),
           leave: 'config.quit',
         };
-      }),
+      });
+    },
   };
 }
 

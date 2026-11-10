@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from 'vitest';
 import { auditDir } from '../src/audit.ts';
@@ -35,6 +35,13 @@ const localEntry = (profile: string) => ({
   command: process.execPath,
   args: [join(checkout, 'dist', 'cli.js'), '--profile', profile],
 });
+
+/** `path` under the home directory as the overview shows it, with `~` for the home directory. */
+function tilde(path: string): string {
+  const rest = relative(homedir(), path);
+  expect(rest.startsWith('..')).toBe(false);
+  return join('~', rest);
+}
 
 /** Runs `config` in `locale` with `answers` given in turn to its menus and questions. */
 function config(answers: Parameters<typeof setup>[0], locale: Locale = 'en') {
@@ -82,16 +89,25 @@ test('the overview shows every profile with its state and client entries, and re
 
   expect(done).toBe(true);
   expect(err).toBe('');
-  expect(out).toContain(`Config file: ${configFile()}`);
-  expect(out).toContain(`Audit log: off (${auditDir()})`);
-  expect(out).toContain('  acme: Acme GmbH (read-only)');
-  expect(out).toContain(
-    `    Downloads: ${join(homedir(), 'Downloads', 'sevdesk', 'acme')} (default)`,
+  // The heading once, then the overview in columns, the home directory shown as `~`.
+  expect(out).toBe(
+    [
+      'sevdesk-mcp config',
+      '',
+      `Config file  ${tilde(configFile())}`,
+      `Audit log    off (${tilde(auditDir())})`,
+      '',
+      'acme  Acme GmbH  read-only',
+      `  Downloads    ${join('~', 'Downloads', 'sevdesk', 'acme')} (default)`,
+      '  Claude Code  sevdesk-acme (local build)',
+      '',
+      'other  Other AG  read and write',
+      '  Downloads    /srv/pdfs',
+      '  Claude Code  sevdesk-other (npx)',
+    ].join('\n'),
   );
-  expect(out).toContain('    Claude Code: sevdesk-acme (local build)');
-  expect(out).toContain('  other: Other AG (read and write)');
-  expect(out).toContain('    Downloads: /srv/pdfs');
-  expect(out).toContain('    Claude Code: sevdesk-other (npx)');
+  expect(asked[0]?.question).toBe('What do you want to change?');
+  expect(asked[0]?.hint).toBe('arrow keys or 1-9, Enter to choose, Esc or q to go back');
   expect(asked[0]?.items).toEqual([
     'Profile acme (Acme GmbH)',
     'Profile other (Other AG)',
@@ -111,8 +127,11 @@ test('toggling read-only changes only that key, and the server rejects or accept
   const on = await config(['Profile acme', 'Make it read-only', BACK, BACK]);
 
   expect(on.done).toBe(true);
-  expect(on.out).toContain('Profile acme is read-only now.');
-  expect(on.out).toContain('Restart your MCP clients so they pick up the change.');
+  expect(on.successes).toBe('Profile acme is read-only now.');
+  expect(on.out).toContain(
+    'Profile acme is read-only now.\nRestart your MCP clients so they pick up the change.',
+  );
+  expect(on.asked[1]?.question).toBe('Profile acme (Acme GmbH)');
   expect(on.asked[2]?.items?.[0]).toBe('Allow writes again (read and write)');
   expect(json(configFile())).toEqual({
     limits: { timeoutSeconds: 20 },
@@ -125,7 +144,7 @@ test('toggling read-only changes only that key, and the server rejects or accept
 
   const off = await config(['Profile acme', 'Allow writes again', BACK, BACK]);
 
-  expect(off.out).toContain('Profile acme can read and write now.');
+  expect(off.successes).toBe('Profile acme can read and write now.');
   expect(json(configFile())).toEqual({
     ...(before as object),
     profiles: { acme: { company: 'Acme GmbH', downloadDir: '/srv/pdfs', readonly: false } },
@@ -150,7 +169,7 @@ test('the download directory is set to an absolute path, a relative one is refus
 
   expect(set.done).toBe(false);
   expect(set.err).toBe('pdfs is not an absolute path; nothing was changed.');
-  expect(set.out).toContain('Profile acme saves its files in /srv/acme now.');
+  expect(set.successes).toBe('Profile acme saves its files in /srv/acme now.');
   expect(json(configFile())).toEqual({
     profiles: { acme: { company: 'Acme GmbH', readonly: false, downloadDir: '/srv/acme' } },
   });
@@ -159,7 +178,7 @@ test('the download directory is set to an absolute path, a relative one is refus
 
   expect(reset.done).toBe(true);
   const fallback = join(homedir(), 'Downloads', 'sevdesk', 'acme');
-  expect(reset.out).toContain(`Profile acme saves its files in ${fallback} now, the default.`);
+  expect(reset.successes).toBe(`Profile acme saves its files in ${fallback} now, the default.`);
   expect(json(configFile())).toEqual({
     profiles: { acme: { company: 'Acme GmbH', readonly: false } },
   });
@@ -171,7 +190,7 @@ test('the audit log is turned off and on again, with every other key kept', asyn
   const off = await config(['Turn the audit log off', BACK]);
 
   expect(off.done).toBe(true);
-  expect(off.out).toContain('The audit log is off: execute writes no more lines to it.');
+  expect(off.successes).toBe('The audit log is off: execute writes no more lines to it.');
   expect(json(configFile())).toEqual({
     profiles: { acme: { company: 'Acme GmbH' } },
     audit: false,
@@ -180,7 +199,7 @@ test('the audit log is turned off and on again, with every other key kept', asyn
 
   const on = await config(['Turn the audit log on', BACK]);
 
-  expect(on.out).toContain('The audit log is on.');
+  expect(on.successes).toBe('The audit log is on.');
   expect(json(configFile())).toEqual({ profiles: { acme: { company: 'Acme GmbH' } }, audit: true });
 });
 
@@ -196,13 +215,16 @@ test('a profile is added to and removed from the installed clients, each with a 
   expect(json(file)).toEqual({
     mcpServers: { files: { command: 'files-mcp' }, sevdesk: localEntry('acme') },
   });
-  expect(add.out).toContain('Claude Code: sevdesk is added.');
+  expect(add.successes).toBe('Claude Code: sevdesk is added. Restart Claude Code to use it.');
   expect(backupsOf(file)).toHaveLength(1);
 
   const drop = await config(['Profile acme', 'Remove it from the MCP clients', 'y', BACK, BACK]);
 
   expect(drop.done).toBe(true);
-  expect(drop.out).toContain('    Claude Code: no entry');
+  expect(drop.successes).toBe(
+    'Claude Code: sevdesk removed. Restart Claude Code for the change to apply.',
+  );
+  expect(drop.out).toContain('  Claude Code  no entry');
   expect(json(file)).toEqual({ mcpServers: { files: { command: 'files-mcp' } } });
   expect(backupsOf(file)).toHaveLength(2);
   expect(json(configFile())).toEqual({ profiles: { acme: { company: 'Acme GmbH' } } });
@@ -214,12 +236,17 @@ test('the connection check uses the keychain token against sevDesk and never sho
   acme();
   fakeKeychain.tokens.set('acme', TOKEN);
 
-  const { done, out, err } = await config(['Profile acme', 'Check the connection', BACK, BACK]);
+  const { done, out, successes, err } = await config([
+    'Profile acme',
+    'Check the connection',
+    BACK,
+    BACK,
+  ]);
 
   expect(done).toBe(true);
   expect(err).toBe('');
   expect(out).toContain('Company: Acme GmbH\nBookkeeping system: 2.0');
-  expect(out).toContain('The connection of profile acme works.');
+  expect(successes).toBe('The connection of profile acme works.');
   expect(out).not.toContain(TOKEN);
   expect(sevdesk.requests.map(({ method, path }) => `${method} ${path}`)).toEqual([CHECK, COMPANY]);
   expect(sevdesk.requests.every(({ authorization }) => authorization === TOKEN)).toBe(true);
@@ -259,12 +286,12 @@ test('a profile is removed after a yes: token and config entry gone, back to the
 test('adding a profile hands over to the setup dialogue', async () => {
   await mock();
 
-  const { done, out } = await config(['Add a profile', 'acme', TOKEN, '', 'Quit']);
+  const { done, out, successes } = await config(['Add a profile', 'acme', TOKEN, '', 'Quit']);
 
   expect(done).toBe(true);
   expect(out).toContain('There are no profiles yet.');
-  expect(out).toContain('Profile acme (Acme GmbH) is set up.');
-  expect(out).toContain('  acme: Acme GmbH (read and write)');
+  expect(successes).toBe('Profile acme (Acme GmbH) is set up.');
+  expect(out).toContain('\nacme  Acme GmbH  read and write\n');
   expect(fakeKeychain.tokens).toEqual(new Map([['acme', TOKEN]]));
   expect(filesHolding(TOKEN)).toEqual([]);
 });
@@ -290,15 +317,33 @@ test('Ctrl+C at a question leaves the menu and changes nothing', async () => {
 test('the menu speaks German', async () => {
   acme();
 
-  const { done, asked, out } = await config(['Profil acme', 'Nur lesend machen', BACK, BACK], 'de');
+  const { done, asked, out, successes } = await config(
+    ['Profil acme', 'Nur lesend machen', BACK, BACK],
+    'de',
+  );
 
   expect(done).toBe(true);
-  expect(out).toContain('Konfigurationsdatei: ');
-  expect(out).toContain('Das Profil acme ist jetzt nur lesend.');
-  expect(asked[0]?.question).toContain('Was möchtest du ändern?');
+  expect(out).toContain(`Konfigurationsdatei  ${tilde(configFile())}\nAudit-Log            an (`);
+  expect(out).toContain(`  Downloads  ${join('~', 'Downloads', 'sevdesk', 'acme')} (Standard)`);
+  expect(successes).toBe('Das Profil acme ist jetzt nur lesend.');
+  expect(asked[0]?.question).toBe('Was möchtest du ändern?');
+  expect(asked[0]?.hint).toBe('Pfeiltasten oder 1-9, Enter wählt, Esc oder q geht zurück');
+  expect(asked[1]?.question).toBe('Profil acme (Acme GmbH)');
   expect(json(configFile())).toEqual({
     profiles: { acme: { company: 'Acme GmbH', readonly: true } },
   });
+});
+
+test('an unreadable client config shows in its row and the menu goes on', async () => {
+  acme();
+  const file = claudeCode();
+  writeFileSync(file, '{ nope');
+
+  const { done, out, err } = await config([BACK]);
+
+  expect(done).toBe(true);
+  expect(err).toBe('');
+  expect(out).toContain(`\n  Claude Code  ${tilde(file)} could not be read (`);
 });
 
 test('an invalid config file stops the menu before it shows anything', async () => {

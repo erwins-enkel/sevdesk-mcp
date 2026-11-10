@@ -191,27 +191,31 @@ test.each([
 });
 
 test.each([
-  ['en_US.UTF-8', '  acme: Acme GmbH (read and write)\n  ro: RO AG (read-only)'],
-  ['de_DE.UTF-8', '  acme: Acme GmbH (lesend und schreibend)\n  ro: RO AG (nur lesend)'],
-])('setup --list prints the profiles without a terminal (%s)', (locale, lines) => {
-  // A spawned process uses the real keychain; listing reads only the config file.
-  const file = writeConfig({
-    profiles: { acme: { company: 'Acme GmbH' }, ro: { company: 'RO AG', readonly: true } },
-  });
+  ['en_US.UTF-8', '    acme  Acme GmbH  read and write\n    ro    RO AG      read-only'],
+  ['de_DE.UTF-8', '    acme  Acme GmbH  lesend und schreibend\n    ro    RO AG      nur lesend'],
+])(
+  'setup --list prints the profiles in columns, without colour, without a terminal (%s)',
+  (locale, lines) => {
+    // A spawned process uses the real keychain; listing reads only the config file.
+    const file = writeConfig({
+      profiles: { acme: { company: 'Acme GmbH' }, ro: { company: 'RO AG', readonly: true } },
+    });
 
-  const result = run(['setup', '--list'], locale);
+    const result = run(['setup', '--list'], locale);
 
-  expect(result.status).toBe(0);
-  expect(result.stderr).toBe('');
-  expect(result.stdout).toContain(file);
-  expect(result.stdout).toContain(`:\n${lines}\n`);
-});
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toContain(file);
+    expect(result.stdout).toContain(`:\n${lines}\n`);
+    expect(result.stdout).not.toContain('\u001b[');
+  },
+);
 
 test('setup --list without a config file exits zero with the empty message', () => {
   const result = run(['setup', '--list'], 'en_US.UTF-8');
 
   expect(result.status).toBe(0);
-  expect(result.stdout).toBe('There are no profiles yet. sevdesk-mcp setup adds one.\n');
+  expect(result.stdout).toBe('  There are no profiles yet. sevdesk-mcp setup adds one.\n');
   expect(existsSync(configFile())).toBe(false);
 });
 
@@ -222,6 +226,7 @@ test('setup --list with an invalid config file fails', () => {
 
   expect(result.status).toBe(FAILURE);
   expect(result.stdout).toBe('');
+  expect(result.stderr).toMatch(/^✖ /);
   expect(result.stderr).toContain('is invalid: it is not valid JSON');
 });
 

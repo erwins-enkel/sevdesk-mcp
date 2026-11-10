@@ -84,7 +84,7 @@ test('setup adds the entry to Claude Desktop after a yes, keeps every other key 
   const file = writeClient(desktopFile(), desktopConfig);
   const before = readFileSync(file);
 
-  const { done, asked, out, err } = await setup(['acme', TOKEN, '', 'y']);
+  const { done, asked, out, successes, err } = await setup(['acme', TOKEN, '', 'y']);
 
   expect(err).toBe('');
   expect(done).toBe(true);
@@ -96,7 +96,10 @@ test('setup adds the entry to Claude Desktop after a yes, keeps every other key 
   const backups = backupsOf(file);
   expect(backups).toHaveLength(1);
   expect(readFileSync(backups[0] ?? '')).toEqual(before);
-  expect(out).toContain('Claude Desktop: sevdesk is added. Restart Claude Desktop to use it.');
+  expect(successes).toContain(
+    'Claude Desktop: sevdesk is added. Restart Claude Desktop to use it.',
+  );
+  expect(successes).not.toContain('The previous file is saved as');
   expect(out).toContain(`The previous file is saved as ${backups[0] ?? ''}.`);
   expect(out).toContain(
     `For other MCP clients, use this command: npx -y ${PACKAGE} --profile acme`,
@@ -389,7 +392,7 @@ test('setup --remove removes exactly the entries of the profile from both client
   });
   const before = { desktop: readFileSync(desktop), code: readFileSync(code) };
 
-  const { done, asked, out, err } = await remove('acme', ['y', 'y', '']);
+  const { done, asked, out, successes, err } = await remove('acme', ['y', 'y', '']);
 
   expect(err).toBe('');
   expect(done).toBe(true);
@@ -404,7 +407,7 @@ test('setup --remove removes exactly the entries of the profile from both client
   expect(json(code)).toEqual(codeConfig);
   expect(readFileSync(backupsOf(desktop)[0] ?? '')).toEqual(before.desktop);
   expect(readFileSync(backupsOf(code)[0] ?? '')).toEqual(before.code);
-  expect(out).toContain(
+  expect(successes).toContain(
     'Claude Desktop: sevdesk-acme removed. Restart Claude Desktop for the change to apply.',
   );
   expect(out).toContain(

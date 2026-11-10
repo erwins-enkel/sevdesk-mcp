@@ -4,7 +4,7 @@ import { basename, dirname, join } from 'node:path';
 import { afterEach, vi } from 'vitest';
 import type { Locale } from '../src/i18n/index.ts';
 import type { Prompter } from '../src/prompt.ts';
-import { runRemove, runSetup, type SetupIO } from '../src/setup.ts';
+import { runRemove, runSetup, type SetupIO, type SetupOutput } from '../src/setup.ts';
 import { type MockRoutes, startMockSevdesk } from './mock-sevdesk.ts';
 
 // Drives the `setup` dialogue (PRD §7, decisions 4, 18, 19) through a scripted prompter against the
@@ -51,7 +51,7 @@ export async function setup(
   locale: Locale = 'en',
   run: (locale: Locale, io: SetupIO) => Promise<boolean> = runSetup,
 ) {
-  const asked: { question: string; hidden: boolean; items?: string[] }[] = [];
+  const asked: { question: string; hidden: boolean; items?: string[]; hint?: string }[] = [];
   const next = (question: string): Answer => {
     if (asked.length > answers.length) throw new Error(`Unexpected question: ${question}`);
     return answers[asked.length - 1];
@@ -63,8 +63,13 @@ export async function setup(
       if (answer === BACK) throw new Error(`A question got a menu answer: ${question}`);
       return Promise.resolve(typeof answer === 'function' ? answer() : answer);
     },
-    choose(title, items) {
-      asked.push({ question: title, hidden: false, items });
+    choose(title, items, { hint } = {}) {
+      asked.push({
+        question: title,
+        hidden: false,
+        items,
+        ...(hint === undefined ? {} : { hint }),
+      });
       const answer = next(title);
       if (answer === undefined || answer === BACK) {
         return Promise.resolve(answer === BACK ? 'back' : undefined);
@@ -76,14 +81,35 @@ export async function setup(
     },
     close: () => undefined,
   };
+  const { output, lines } = recordOutput();
+  const done = await run(locale, { prompter, ...output });
+  return { done, asked, ...lines() };
+}
+
+/**
+ * An output that records what it is given, unmarked: marks and the gutter belong to the terminal edge
+ * (test/terminal.test.ts). `lines()` gives every line but the failures in order (`out`), the successes
+ * alone (`successes`) and the failures (`err`).
+ */
+export function recordOutput() {
   const out: string[] = [];
+  const successes: string[] = [];
   const err: string[] = [];
-  const done = await run(locale, {
-    prompter,
+  const output: SetupOutput = {
     print: (text) => out.push(text),
+    heading: (text) => out.push(text),
+    success: (text) => {
+      out.push(text);
+      successes.push(text);
+    },
     fail: (text) => err.push(text),
+  };
+  const lines = () => ({
+    out: out.join('\n'),
+    successes: successes.join('\n'),
+    err: err.join('\n'),
   });
-  return { done, asked, out: out.join('\n'), err: err.join('\n') };
+  return { output, lines };
 }
 
 /** Runs `setup --remove <name>` in `locale` with `answers` given in turn. */
