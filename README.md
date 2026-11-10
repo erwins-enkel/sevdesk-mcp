@@ -214,7 +214,9 @@ In read-only mode every call that is not a GET, and every call that would be hel
 (including a GET such as `getPdf` without `preventSendBy=true`), fails with a `read_only` error.
 Such a call is rejected outright, never held, so no confirmation token can get it through, and
 `execute` with `confirm` is rejected as well. Reads and `sevdesk.savePdf` keep working (`savePdf`
-always sets `preventSendBy=true`). When `SEVDESK_READONLY` is on, or the server is pinned with
+always sets `preventSendBy=true`). The render `savePdf` sends for a draft is the one write that
+read-only mode lets through: it changes no status, it keeps the PDF current, and it is listed in
+`writes` and the audit log. The same render sent through `sevdesk.request` is rejected. When `SEVDESK_READONLY` is on, or the server is pinned with
 `--profile` to a read-only profile, `execute` carries the MCP `readOnlyHint` annotation. The server
 reads both switches when it starts, so restart it after a change.
 
@@ -261,7 +263,10 @@ profile's download directory and returns only the path. That directory is
 - `sevdesk.savePdf(type, id)` saves the PDF of an order (offer), invoice or credit note as
   `<document number>.pdf`, or as `<Type>-<id>.pdf` when it has no number, and replaces an older
   copy of the same name. It always asks sevDesk not to mark the document as sent
-  (`preventSendBy=true`).
+  (`preventSendBy=true`). sevDesk keeps the PDF it rendered last, so `savePdf` renders a draft
+  again first (`POST /{Type}/{id}/render` with `forceReload`, listed in `writes` and the audit
+  log): its PDF always shows the draft as it is now. That costs 3 calls. Any other document gets
+  the PDF sevDesk stored, the one it sent, in 2 calls.
 - Any other response that is not JSON, such as a CSV export, is saved as a new file named after the
   request path, e.g. `Export-datevCSV.csv`. An existing file is kept; the new one gets `-2`, `-3`,
   … appended.
