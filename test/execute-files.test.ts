@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import { OPERATIONS } from '../src/classify.ts';
+import { localDirs } from '../src/paths.ts';
 import { PDF_TYPES } from '../src/sevdesk.ts';
 import { writeConfig } from './config-file.ts';
 import { connect, envelopeOf } from './connect.ts';
@@ -17,6 +19,9 @@ const CHECK = '/Tools/bookkeepingSystemVersion';
 // A small PDF with bytes that do not survive a text round trip.
 const PDF = Buffer.from('%PDF-1.4\n%\xff\xfe\x00\x80 sevdesk-mcp test\n%%EOF\n', 'latin1');
 const BASE64 = PDF.toString('base64');
+// The status of a draft, which savePdf renders again, and of a sent document, which it does not.
+const DRAFT = '100';
+const SENT = '200';
 const closers: (() => Promise<void>)[] = [];
 
 beforeEach(() => {
@@ -41,9 +46,14 @@ function downloads(name = 'env'): string {
   return join(homedir(), 'Downloads', 'sevdesk', name);
 }
 
-/** The response of `GET /{Type}/{id}`: one document with `field` set to `number`. */
-function document(field: string, number: string | null) {
-  return () => ({ json: { objects: [{ id: '7', [field]: number }] } });
+/** The response of `GET /{Type}/{id}`: one document with `field` set to `number`, and `status`. */
+function document(field: string, number: string | null, status = SENT) {
+  return () => ({ json: { objects: [{ id: '7', [field]: number, status }] } });
+}
+
+/** The answer to a forced render: the PDF's metadata and the whole PDF in base64. */
+function rendered() {
+  return () => ({ status: 201, json: { objects: { pdf: BASE64, docId: 'd4605b19248a' } } });
 }
 
 /**
@@ -66,10 +76,11 @@ function snippetCalls(requests: MockRequest[]): string[] {
     .map((request) => `${request.method} ${request.path}`);
 }
 
-/** Every file under the temporary home, relative to it. */
+/** Every file under the temporary home, relative to it, without the audit log of a write. */
 function filesInHome(): string[] {
+  const audit = join(localDirs().state, 'audit');
   return readdirSync(homedir(), { recursive: true, withFileTypes: true })
-    .filter((entry) => entry.isFile())
+    .filter((entry) => entry.isFile() && entry.parentPath !== audit)
     .map((entry) => relative(homedir(), join(entry.parentPath, entry.name)))
     .sort();
 }
@@ -90,11 +101,13 @@ async function execute(code: string, account?: string) {
   }
 }
 
-test('savePdf saves the PDF under its document number without marking it sent; only the path comes back', async () => {
+test('savePdf renders a draft again, then saves its PDF under its number without marking it sent; only the path comes back', async () => {
   const sevdesk = await mock({
-    'GET /Order/7': document('orderNumber', 'AN-1042'),
+    'GET /Order/7': document('orderNumber', 'AN-1042', DRAFT),
+    'POST /Order/7/render': rendered(),
     'GET /Order/7/getPdf': pdf(true),
-    'GET /Invoice/8': document('invoiceNumber', 'RE-1001'),
+    'GET /Invoice/8': document('invoiceNumber', 'RE-1001', DRAFT),
+    'POST /Invoice/8/render': rendered(),
     'GET /Invoice/8/getPdf': pdf(false),
   });
 
@@ -111,14 +124,25 @@ test('savePdf saves the PDF under its document number without marking it sent; o
   expect(readFileSync(join(downloads(), 'RE-1001.pdf'))).toEqual(PDF);
   expect(snippetCalls(sevdesk.requests)).toEqual([
     'GET /Order/7',
+    'POST /Order/7/render',
     'GET /Order/7/getPdf',
     'GET /Invoice/8',
+    'POST /Invoice/8/render',
     'GET /Invoice/8/getPdf',
   ]);
   const queries = sevdesk.requests
     .filter((request) => request.path !== CHECK)
     .map((request) => Object.fromEntries(request.query));
-  expect(queries).toEqual([{}, { preventSendBy: 'true' }, {}, { preventSendBy: 'true' }]);
+  expect(queries).toEqual([{}, {}, { preventSendBy: 'true' }, {}, {}, { preventSendBy: 'true' }]);
+  const renders = sevdesk.requests.filter((request) => request.method === 'POST');
+  expect(renders.map((request) => JSON.parse(request.body) as unknown)).toEqual([
+    { forceReload: true },
+    { forceReload: true },
+  ]);
+  expect(envelope.writes).toEqual([
+    { method: 'POST', path: '/Order/7/render', status: 201 },
+    { method: 'POST', path: '/Invoice/8/render', status: 201 },
+  ]);
   expect(text).not.toContain(BASE64);
   expect(text).not.toContain('PDF-1.4');
   expect(filesInHome()).toEqual(
@@ -142,6 +166,80 @@ test('without a document number the PDF is named <Type>-<id>.pdf and replaces an
   });
   expect(readFileSync(join(downloads(), 'CreditNote-7.pdf'))).toEqual(PDF);
   expect(readdirSync(downloads())).toEqual(['CreditNote-7.pdf']);
+});
+
+test('a document that is no draft gets the PDF sevDesk stored, without a render', async () => {
+  const sevdesk = await mock({
+    'GET /Order/7': document('orderNumber', 'AN-1042', SENT),
+    'POST /Order/7/render': rendered(),
+    'GET /Order/7/getPdf': pdf(),
+    'GET /CreditNote/7': document('creditNoteNumber', 'GU-1001', '1000'),
+    'POST /CreditNote/7/render': rendered(),
+    'GET /CreditNote/7/getPdf': pdf(),
+  });
+
+  const { isError, envelope } = await execute(
+    "return [(await sevdesk.savePdf('Order', 7)).fileName, (await sevdesk.savePdf('CreditNote', 7)).fileName]",
+  );
+
+  expect(isError).toBe(false);
+  expect(envelope).toEqual({ result: ['AN-1042.pdf', 'GU-1001.pdf'] });
+  expect(snippetCalls(sevdesk.requests)).toEqual([
+    'GET /Order/7',
+    'GET /Order/7/getPdf',
+    'GET /CreditNote/7',
+    'GET /CreditNote/7/getPdf',
+  ]);
+});
+
+test('a render that fails fails savePdf: no getPdf, no file, the render in the ledger', async () => {
+  const sevdesk = await mock({
+    'GET /Order/7': document('orderNumber', 'AN-1042', DRAFT),
+    'POST /Order/7/render': () => ({
+      status: 500,
+      json: { objects: null, error: { message: 'Rendering failed' } },
+    }),
+    'GET /Order/7/getPdf': pdf(),
+  });
+
+  const { isError, envelope } = await execute(`
+    try { await sevdesk.savePdf('Order', 7); return 'saved'; }
+    catch (e) { return { kind: e.kind, message: e.message, status: e.status, sevdeskMessage: e.sevdeskMessage }; }`);
+
+  expect(isError).toBe(false);
+  expect(envelope).toEqual({
+    result: {
+      kind: 'api_error',
+      message: 'POST /Order/7/render returned HTTP 500.',
+      status: 500,
+      sevdeskMessage: 'Rendering failed',
+    },
+    writes: [{ method: 'POST', path: '/Order/7/render', status: 500 }],
+    notes: [expect.stringContaining('may still have been applied') as string],
+  });
+  // A POST answered 5xx is sent once (decision 10).
+  expect(snippetCalls(sevdesk.requests)).toEqual(['GET /Order/7', 'POST /Order/7/render']);
+  expect(filesInHome()).toEqual([]);
+});
+
+test('a document without a status fails savePdf before any render or getPdf', async () => {
+  const sevdesk = await mock({
+    'GET /Order/7': () => ({ json: { objects: [{ id: '7', orderNumber: 'AN-1042' }] } }),
+    'POST /Order/7/render': rendered(),
+    'GET /Order/7/getPdf': pdf(),
+  });
+
+  const { isError, envelope } = await execute("return await sevdesk.savePdf('Order', 7)");
+
+  expect(isError).toBe(true);
+  expect(envelope.error).toEqual({
+    kind: 'api_error',
+    message: 'GET /Order/7 returned no document status.',
+    method: 'GET',
+    path: '/Order/7',
+  });
+  expect(snippetCalls(sevdesk.requests)).toEqual(['GET /Order/7']);
+  expect(filesInHome()).toEqual([]);
 });
 
 test('a document number with path separators or dots cannot leave the download directory', async () => {
@@ -316,10 +414,11 @@ test('a download directory that cannot be written is a catchable download_error'
   });
 });
 
-test('savePdf costs two calls of the budget; the one over it is not sent and ends the run', async () => {
-  writeConfig({ limits: { callsPerRun: 1 } });
+test("a draft's savePdf costs three calls of the budget; the one over it is not sent and ends the run", async () => {
+  writeConfig({ limits: { callsPerRun: 2 } });
   const sevdesk = await mock({
-    'GET /Order/7': document('orderNumber', 'AN-1042'),
+    'GET /Order/7': document('orderNumber', 'AN-1042', DRAFT),
+    'POST /Order/7/render': rendered(),
     'GET /Order/7/getPdf': pdf(),
   });
 
@@ -331,10 +430,11 @@ test('savePdf costs two calls of the budget; the one over it is not sent and end
   expect(envelope.error).toEqual({
     kind: 'call_budget',
     message:
-      'The run reached the limit of 1 sevDesk calls and was stopped; GET /Order/7/getPdf was not sent.',
-    hint: 'Save fewer PDFs per run: each costs 2 calls.',
+      'The run reached the limit of 2 sevDesk calls and was stopped; GET /Order/7/getPdf was not sent.',
+    hint: 'Save fewer PDFs per run: each costs up to 3 calls.',
   });
-  expect(snippetCalls(sevdesk.requests)).toEqual(['GET /Order/7']);
+  expect(envelope.writes).toEqual([{ method: 'POST', path: '/Order/7/render', status: 201 }]);
+  expect(snippetCalls(sevdesk.requests)).toEqual(['GET /Order/7', 'POST /Order/7/render']);
   expect(filesInHome().filter((file) => file.endsWith('.pdf'))).toEqual([]);
 });
 
@@ -366,10 +466,10 @@ interface SpecSchema {
   items?: SpecSchema;
 }
 
-test("savePdf covers exactly the spec's getPdf documents, each with its number field", () => {
+test("savePdf covers exactly the spec's getPdf documents, each with its number field and a reversible render", () => {
   const spec = JSON.parse(
     readFileSync(new URL('../spec/sevdesk-openapi.json', import.meta.url), 'utf8'),
-  ) as { paths: Record<string, { get?: SpecOperation }> };
+  ) as { paths: Record<string, { get?: SpecOperation; post?: unknown }> };
   const paths = Object.keys(spec.paths);
 
   const types = paths.flatMap((path) => /^\/(\w+)\/\{\w+\}\/getPdf$/.exec(path)?.[1] ?? []);
@@ -379,5 +479,10 @@ test("savePdf covers exactly the spec's getPdf documents, each with its number f
     const get = path === undefined ? undefined : spec.paths[path]?.get;
     const schema = get?.responses['200']?.content['application/json']?.schema;
     expect(schema?.properties?.objects?.items?.properties, type).toHaveProperty(field);
+    const render = paths.find((candidate) =>
+      new RegExp(`^/${type}/\\{\\w+\\}/render$`).test(candidate),
+    );
+    expect(render === undefined ? undefined : spec.paths[render]?.post, type).toBeDefined();
+    expect(OPERATIONS[`POST ${String(render)}`], type).toBe('reversible');
   }
 });

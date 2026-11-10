@@ -209,8 +209,11 @@ const IRREVERSIBLE_SEGMENT = /^(?:send|enshrine|bookamount|cancel|reset)/i;
 // `enshrineDocuments` on `/Export/createDatevCsvZipExportJob`), unless set to false.
 const ENSHRINE_FLAG = /^enshrine/i;
 
-// The document types whose status a write can change (decision 6), with the status of a draft.
-const DRAFT_STATUS = new Map([
+/**
+ * The document types whose status a write can change (decision 6), with the status of a draft.
+ * `sevdesk.savePdf` renders a draft's PDF again before fetching it.
+ */
+export const DRAFT_STATUS = new Map([
   ['Invoice', '100'],
   ['Order', '100'],
   ['CreditNote', '100'],

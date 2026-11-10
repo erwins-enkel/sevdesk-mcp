@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { type AuditLog, NO_AUDIT } from './audit.ts';
-import { confirmationReason } from './classify.ts';
+import { confirmationReason, DRAFT_STATUS } from './classify.ts';
 import { binaryFileName, fileStem, saveFile } from './downloads.ts';
 import { HostError, type HostFunction, type SnippetError } from './sandbox.ts';
 
@@ -17,8 +17,8 @@ export const DEFAULT_CALL_BUDGET = 50;
 export const PAGE_SIZE = 1000;
 
 /**
- * The document types `sevdesk.savePdf` saves (those with a `getPdf` endpoint), each with the field
- * that holds its document number, the name of the saved file (decision 14).
+ * The document types `sevdesk.savePdf` saves (those with a `getPdf` and a `render` endpoint), each
+ * with the field that holds its document number, the name of the saved file (decision 14).
  */
 export const PDF_TYPES = {
   Order: 'orderNumber',
@@ -457,8 +457,14 @@ async function readBody(
   return saveBody(call, response, downloadDir, signal);
 }
 
+/** Reads nothing of a 2xx answer whose status is all that counts: its body is cancelled. */
+async function discardBody(response: Response): Promise<undefined> {
+  await response.body?.cancel();
+  return undefined;
+}
+
 /**
- * The id of the object a write's answer names: `objects.id` (the first object of an array), or the
+ * The id of the object a write's answer names:`objects.id` (the first object of an array), or the
  * id of the first object inside it, as a factory save answers `{ objects: { order, orderPos } }`.
  * Like `pdfBytes`, it also reads an answer that is not wrapped in `objects`.
  */
@@ -487,12 +493,33 @@ function pdfArguments([type, id, ...rest]: unknown[]): { type: PdfType; id: stri
   return { type: type as PdfType, id: text };
 }
 
+/** The document in the response of `GET /{Type}/{id}`: the first row of `objects`, if any. */
+function documentOf(response: unknown): unknown {
+  const objects = isRecord(response) ? response.objects : undefined;
+  return Array.isArray(objects) ? objects[0] : undefined;
+}
+
 /** The document number in the response of `GET /{Type}/{id}`, if it has one. */
 function documentNumber(response: unknown, field: string): string | undefined {
-  const objects = isRecord(response) ? response.objects : undefined;
-  const document: unknown = Array.isArray(objects) ? objects[0] : undefined;
+  const document = documentOf(response);
   const number = isRecord(document) ? document[field] : undefined;
   return typeof number === 'string' ? number : undefined;
+}
+
+/**
+ * The status of the document in the response of `call`, `GET /{Type}/{id}`, as text. A document
+ * without one fails: without it a draft cannot be told from a sent document.
+ */
+function documentStatus({ method, path }: Call, response: unknown): string {
+  const document = documentOf(response);
+  const status = isRecord(document) ? document.status : undefined;
+  if (typeof status === 'string' || typeof status === 'number') return String(status);
+  throw new HostError({
+    kind: 'api_error',
+    message: `${method} ${path} returned no document status.`,
+    method,
+    path,
+  });
 }
 
 /**
@@ -605,14 +632,16 @@ function recording(log: AuditLog, failed: (error: SnippetError) => void): AuditL
  * validates a call and returns the parsed JSON, or saves a non-JSON response in `downloadDir` and
  * returns where; `paginate` collects every object of a list, page by page, into one array;
  * `savePdf` saves a document's PDF in `downloadDir`. Between them they send at most `maxCalls`
- * calls (each page is one, `savePdf` costs two, a retry none) to `baseUrl` with the token added here
+ * calls (each page is one, `savePdf` costs three for a draft, which it renders again first, and two
+ * otherwise, a retry none) to `baseUrl` with the token added here
  * (never visible to the code), retried as decision 10 allows. A reversible write runs and enters
  * `writes`, the run's ledger. An irreversible call through `request` is held (decision 5): it is not
  * sent, enters `held` and resolves to `{ held: true }`; `paginate` and `savePdf` refuse one. A held
  * call takes a call of the budget, as does each `readDocument`, the host's read for the
  * confirmation preview. The call over `maxCalls` is not sent (or held) and ends the run, so
  * `paginate` never returns a partial list. With `readOnly` set (decision 3) every write and every
- * irreversible call fails with `read_only` before it is sent or held; reads and `savePdf` run.
+ * irreversible call fails with `read_only` before it is sent or held; reads and `savePdf` run, the
+ * render of a draft included, the one write read-only mode lets through.
  * Every write call gets its line in `audit` (decision 16): `executed` once a sent write settles
  * (an unwritable log stops it before it is sent), `held`, or `rejected` by read-only mode or the
  * gate; plain reads get none. A log that cannot be written throws a fatal `audit_error`; `settled`
@@ -658,10 +687,17 @@ export function createClient({
 
   /**
    * Sends a write like `sendCounted` and enters it in `writes` once it is sent: then the status of
-   * sevDesk's answer, an error status included, and the id of the object a JSON answer names. The
-   * audit log is checked before the write is sent and gets its `executed` line once it settles.
+   * sevDesk's answer, an error status included, and the id of the object a JSON answer names. `read`
+   * reads a 2xx answer, by default as `sevdesk.request` resolves it. The audit log is checked before
+   * the write is sent and gets its `executed` line once it settles.
    */
-  const sendWrite = (call: Call, signal: AbortSignal, hint: string): Promise<unknown> => {
+  const sendWrite = (
+    call: Call,
+    signal: AbortSignal,
+    hint: string,
+    read: (response: Response) => Promise<unknown> = (response) =>
+      readBody(call, response, downloadDir, signal),
+  ): Promise<unknown> => {
     audit.check();
     const sending = sendCounted(call, signal, hint);
     const write: Write = { method: call.method, path: call.path };
@@ -670,7 +706,7 @@ export function createClient({
       async (response) => {
         write.status = response.status;
         try {
-          const value = await readBody(call, response, downloadDir, signal);
+          const value = await read(response);
           const objectId = objectIdOf(value);
           if (objectId !== undefined) write.objectId = objectId;
           return value;
@@ -740,7 +776,21 @@ export function createClient({
     }
   };
 
-  // The document's number names the file, so it is fetched first; an unknown id fails there. The
+  /**
+   * Renders the PDF of the draft `/{type}/{id}` again from its current data (`forceReload`), so
+   * getPdf no longer returns the one sevDesk stored before the draft changed. A reversible write,
+   * in `writes` and the audit log, whose answer is not read. It is the one write read-only mode lets
+   * through (decision 3): it changes no status, and without it the saved PDF could be outdated.
+   */
+  const renderDraft = (type: PdfType, id: string, signal: AbortSignal, hint: string) => {
+    const args = ['POST', `/${type}/${id}/render`, { body: { forceReload: true } }];
+    const render = prepare(baseUrl, args, { ...gate, readOnly: undefined });
+    return sendWrite(render, signal, hint, discardBody);
+  };
+
+  // The document is fetched first: its number names the file, its status tells a draft, and an
+  // unknown id fails there. A draft, the only document that can still change, is rendered again
+  // before its PDF is fetched; any other document gets the PDF sevDesk stored, the one it sent. The
   // PDF is fetched with preventSendBy=true, so sevDesk never marks the document as sent (decision 7).
   const savePdf: HostFunction = (args, signal) => {
     const { type, id } = pdfArguments(args);
@@ -750,11 +800,14 @@ export function createClient({
       ['GET', `/${type}/${id}/getPdf`, { query: { preventSendBy: true } }],
       gate,
     );
-    const hint = 'Save fewer PDFs per run: each costs 2 calls.';
+    const hint = 'Save fewer PDFs per run: each costs up to 3 calls.';
     const fetched = sendCounted(document, signal, hint).then((response) =>
       readJson(document, response),
     );
     return fetched.then(async (fields) => {
+      if (documentStatus(document, fields) === DRAFT_STATUS.get(type)) {
+        await renderDraft(type, id, signal, hint);
+      }
       const number = documentNumber(fields, PDF_TYPES[type]);
       const stem = number === undefined ? undefined : fileStem(number);
       const fileName = `${stem ?? `${type}-${id}`}.pdf`;
