@@ -1,7 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import { localDirs } from '../src/paths.ts';
 import { READ_ONLY_HINT } from '../src/sevdesk.ts';
 import { writeConfig } from './config-file.ts';
 import { connect, envelopeOf } from './connect.ts';
@@ -10,7 +11,8 @@ import { type MockRequest, type MockRoutes, startMockSevdesk } from './mock-sevd
 
 // Read-only mode (PRD §6, decision 3): `SEVDESK_READONLY` or a profile's `readonly: true` rejects
 // every write and every irreversible call before it reaches sevDesk, never holding it, so no
-// confirmation token can get it through; reads and `savePdf` still run.
+// confirmation token can get it through; reads and `savePdf` still run, the render of a draft
+// included.
 
 const TOKEN = 'token-readonly-5e2a';
 const CHECK = '/Tools/bookkeepingSystemVersion';
@@ -25,6 +27,7 @@ const BLOCKED: [string, string, object?][] = [
   ['PUT', '/Contact/1', { body: { name: COMPANY } }],
   ['DELETE', '/Contact/1'],
   ['POST', '/Order/42/sendViaEmail', { body: { toEmail: 'max@example.com', subject: 'AN-1042' } }],
+  ['POST', '/Invoice/7/render', { body: { forceReload: true } }],
   ['GET', '/Order/42/getPdf'],
 ];
 
@@ -155,11 +158,14 @@ describe.each(setups)('$name', ({ profile, source, arrange }) => {
     expect(snippetCalls(sevdesk.requests)).toEqual([]);
   });
 
-  test('savePdf and getPdf with preventSendBy=true still work', async () => {
+  test('savePdf, its render of a draft and getPdf with preventSendBy=true still work', async () => {
     arrange();
     const file = { base64Encoded: true, content: PDF.toString('base64') };
     const sevdesk = await mock({
-      'GET /Invoice/7': () => ({ json: { objects: [{ id: '7', invoiceNumber: 'RE-1001' }] } }),
+      'GET /Invoice/7': () => ({
+        json: { objects: [{ id: '7', invoiceNumber: 'RE-1001', status: '100' }] },
+      }),
+      'POST /Invoice/7/render': () => ({ status: 201, json: { objects: { docId: 'd4605b19' } } }),
       'GET /Invoice/7/getPdf': () => ({ json: { objects: file } }),
     });
 
@@ -172,8 +178,30 @@ describe.each(setups)('$name', ({ profile, source, arrange }) => {
 
     const path = join(homedir(), 'Downloads', 'sevdesk', profile, 'RE-1001.pdf');
     expect(isError).toBe(false);
-    expect(envelope).toEqual({ result: { saved: { path, fileName: 'RE-1001.pdf' }, read: true } });
+    expect(envelope).toEqual({
+      result: { saved: { path, fileName: 'RE-1001.pdf' }, read: true },
+      writes: [{ method: 'POST', path: '/Invoice/7/render', status: 201 }],
+    });
     expect(readFileSync(path)).toEqual(PDF);
+    expect(snippetCalls(sevdesk.requests)).toEqual([
+      'GET /Invoice/7',
+      'POST /Invoice/7/render',
+      'GET /Invoice/7/getPdf',
+      'GET /Invoice/7/getPdf',
+    ]);
+    const audit = join(localDirs().state, 'audit');
+    const lines = readdirSync(audit).flatMap((name) =>
+      readFileSync(join(audit, name), 'utf8').split('\n').filter(Boolean),
+    );
+    expect(lines.map((line) => JSON.parse(line) as unknown)).toEqual([
+      expect.objectContaining({
+        profile,
+        method: 'POST',
+        path: '/Invoice/7/render',
+        status: 201,
+        outcome: 'executed',
+      }),
+    ]);
     const pdfQueries = sevdesk.requests
       .filter((request) => request.path === '/Invoice/7/getPdf')
       .map((request) => request.query.toString());

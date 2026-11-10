@@ -18,7 +18,8 @@ type Effect = 'read' | 'reversible' | 'irreversible';
  * can mark the document as sent unless `preventSendBy=true` (decision 7). No operation hands files
  * to a third party: every export returns its file or job id to the caller, and a DATEV export
  * that enshrines its documents is caught by its enshrine flag (`ENSHRINE_FLAG`). A reversible
- * write can still change a document's status, which `statusChange` catches (decision 6).
+ * write can still change a document's status, which `statusChange` catches (decision 6). `render`
+ * is reversible: it renders the stored PDF again from the document's data and changes no status.
  */
 export const OPERATIONS: Record<string, Effect> = {
   'GET /Tools/bookkeepingSystemVersion': 'read',
@@ -180,6 +181,8 @@ export const OPERATIONS: Record<string, Effect> = {
   'GET /Category': 'read',
   'GET /Unity': 'read',
   'GET /SevSequence/Factory/getByType': 'read',
+  'POST /Order/{orderId}/render': 'reversible',
+  'POST /CreditNote/{creditNoteId}/render': 'reversible',
 };
 
 /** A table operation, split for matching. */
@@ -206,8 +209,11 @@ const IRREVERSIBLE_SEGMENT = /^(?:send|enshrine|bookamount|cancel|reset)/i;
 // `enshrineDocuments` on `/Export/createDatevCsvZipExportJob`), unless set to false.
 const ENSHRINE_FLAG = /^enshrine/i;
 
-// The document types whose status a write can change (decision 6), with the status of a draft.
-const DRAFT_STATUS = new Map([
+/**
+ * The document types whose status a write can change (decision 6), with the status of a draft.
+ * `sevdesk.savePdf` renders a draft's PDF again before fetching it.
+ */
+export const DRAFT_STATUS = new Map([
   ['Invoice', '100'],
   ['Order', '100'],
   ['CreditNote', '100'],

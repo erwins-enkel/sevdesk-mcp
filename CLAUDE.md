@@ -123,8 +123,10 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   JSON bodies, token added host-side, shared call budget, pages of 1,000, structured errors;
   `request` saves a non-JSON response and holds an irreversible call in `held` as `{ held: true }`;
   with `readOnly` set, `build()` rejects every write and irreversible call as `read_only` first;
-  `savePdf` the PDF of a `PDF_TYPES` document with `preventSendBy=true`; `writes` is the run's
-  ledger of sent writes with status and object id; `readDocument()` is the preview's counted read);
+  `savePdf` the PDF of a `PDF_TYPES` document with `preventSendBy=true`, a draft rendered again
+  first (`renderDraft()`, `POST /{Type}/{id}/render` with `forceReload`, a write that runs even in
+  read-only mode); `writes` is the run's ledger of sent writes with status and object id;
+  `readDocument()` is the preview's counted read);
   `send()` resolves to the 2xx response and retries per decision 10 (`retry: false` sends once);
   `replay()` sends confirmed calls once each, in order, stopping at the first failure. Every write
   call passes the client's `Gate` (read-only reason + audit log): `build()`/`prepare()` write
@@ -188,7 +190,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `vitest.e2e.config.ts`; `*.e2e.ts` never matches `bun run test`, so neither `verify` nor CI
   runs it). `live.e2e.ts` spawns the server over stdio with `SEVDESK_E2E_TOKEN` and its own
   temporary home, drives Priority A on the persistent fixtures "MCP Test GmbH" and tag
-  `mcp-test`, records what `getPdf` without `preventSendBy=true` does to the status, and prints
+  `mcp-test`, checks that a PDF saved after a change of the offer's header shows it (PDF text via
+  `pdfjs-dist`), records what `getPdf` without `preventSendBy=true` does to the status, and prints
   a report without token or mail address. `cleanup.ts`: `cleanUp()` deletes only this run's
   tagged drafts, all or none (`cleanupGuard()`), through `confirm`; `test/e2e-cleanup.test.ts`
   checks it offline.
@@ -275,8 +278,8 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
    at all → server still starts, `search` works, `execute` returns a setup hint.
 2. **Read-only (3):** `SEVDESK_READONLY` OR profile `readonly`; neither lifts the other. It
    rejects every non-GET and every call classified irreversible, including GETs (`getPdf`
-   without `preventSendBy=true`); rejected, never held, so no token bypasses it. Then `execute`
-   carries `readOnlyHint`.
+   without `preventSendBy=true`); rejected, never held, so no token bypasses it. The one exception
+   is `savePdf`'s render of a draft (issue #49). Then `execute` carries `readOnlyHint`.
 3. **Confirmation (5, 6, 7):** irreversible calls are held (`{ held: true }`, the run continues);
    one token per run covers all held calls (single use, 10 min, in memory, bound to profile +
    method + path + body hash). `execute({ confirm })` replays exactly the stored calls without
@@ -284,7 +287,8 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
    unknown write paths, `status` in the body of PUT/POST on Invoice/Order/CreditNote/Voucher, and
    `getPdf` without `preventSendBy=true` all need confirmation; only a new draft (a factory save
    without id, with the draft status) may carry a status. `savePdf` always sets
-   `preventSendBy=true`; marking as sent (`sendBy`) is its own confirmed step.
+   `preventSendBy=true` and renders a draft again first (`render` is reversible), so its PDF is
+   never stale; marking as sent (`sendBy`) is its own confirmed step.
 4. **Preview (9):** English, structured: amount as number + currency code, ISO 8601 dates,
    recipient, subject, document number, profile and company name.
 5. **Retries (10):** GET on 429/5xx, any method on 429; never POST/PUT/DELETE on 5xx, never a

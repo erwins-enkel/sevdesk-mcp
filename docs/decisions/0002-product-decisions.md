@@ -50,6 +50,11 @@ rules.
    confirmation, so no token can get them past read-only. `savePdf` keeps working because it
    always sets `preventSendBy=true`. When the global switch is on or the pinned profile is
    read-only, `execute` carries the `readOnlyHint` annotation. **Source:** §6.
+   **Addendum (2026-11-10, issue #49):** `savePdf` renders a draft again before fetching its PDF
+   (decision 7). That render, `POST /{Type}/{id}/render`, is the one write read-only mode lets
+   through, and only inside `savePdf`. It changes no status, and without it the saved PDF could be
+   outdated. It is listed in `writes` and gets an `executed` audit line like any other write. The
+   same render sent through `sevdesk.request` is still rejected.
 4. **What happens when no OS keychain is available (headless Linux, WSL, Docker)?**
    **Answer:** `setup` aborts. There is no plaintext fallback. The message explains why (a token in a
    plain file can be read by any process and any backup, and it grants full access to the
@@ -79,6 +84,15 @@ rules.
    `request` without `preventSendBy=true` is irreversible and needs confirmation. On the "PDF
    only" delivery path the document status stays unchanged; marking it as sent (`sendBy`) is a
    separate step that needs confirmation. **Source:** §4 A.4, §6.
+   **Addendum (2026-11-10, issue #49):** sevDesk stores a document's PDF once it is rendered, and
+   `getPdf` keeps returning that file after the document changed. So `savePdf` renders a draft
+   (status 100) again first with `POST /{Type}/{id}/render` and `{ "forceReload": true }`, then
+   fetches it with `preventSendBy=true`. A draft then costs 3 calls. The render is reversible
+   (measured on a live offer draft: status, `sendDate`, `sendType` and `update` stay unchanged).
+   A failed render fails `savePdf`, which never falls back to the stored PDF. Any other document
+   is not rendered and gets the PDF sevDesk stored, the one it sent, in 2 calls. A sent or
+   enshrined document's PDF is never re-rendered. The spec lacks the Order and CreditNote render,
+   so `spec/patches.json` adds them from sevDesk's changelog.
 8. **Elicitation in v1 or v1.x?** §6 step 3 lists it in the flow, §9 puts it in v1.x.
    **Answer:** v1.x. Client support (Claude Desktop, ChatGPT Desktop, Cowork) is inconsistent today,
    so v1 relies on the token alone. Once built, the server elicits additionally during the

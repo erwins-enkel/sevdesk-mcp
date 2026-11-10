@@ -135,6 +135,8 @@ function account(existing: boolean) {
       return created({ order, orderPos: positions });
     },
     'GET /Order/42': list([order]),
+    'POST /Order/42/render': () =>
+      created({ pdf: PDF.toString('base64'), docId: 'd4605b19248ad176443b7cb382679b1f' }),
     'GET /Order/42/getPdf': () => ({
       json: {
         objects: {
@@ -361,10 +363,13 @@ function audited(outcome: string, method: string, path: string, status?: number,
 /** Where the offer's PDF lands: the profile's download directory in this test's home. */
 const pdfPath = () => join(homedir(), 'Downloads', 'sevdesk', PROFILE, 'AN-1042.pdf');
 
-/** The result of the draft run: the offer's id, its saved PDF and the one write. */
+/** The result of the draft run: the offer's id, its saved PDF, the draft and its render. */
 const draftResult = () => ({
   result: { id: '42', pdf: { path: pdfPath(), fileName: 'AN-1042.pdf' } },
-  writes: [{ method: 'POST', path: '/Order/Factory/saveOrder', status: 201, objectId: '42' }],
+  writes: [
+    { method: 'POST', path: '/Order/Factory/saveOrder', status: 201, objectId: '42' },
+    { method: 'POST', path: '/Order/42/render', status: 201 },
+  ],
 });
 
 /** The draft as the recipe writes it: the guide's example offer, 3 days at 1,200 EUR net. */
@@ -500,6 +505,7 @@ test(
       audited('executed', 'POST', '/ContactAddress', 201, '9'),
       audited('executed', 'POST', '/CommunicationWay', 201, '10'),
       audited('executed', 'POST', '/Order/Factory/saveOrder', 201, '42'),
+      audited('executed', 'POST', '/Order/42/render', 201),
       audited('held', 'POST', SEND),
       audited('confirmed', 'POST', SEND, 201, '5'),
     ]);
@@ -526,11 +532,17 @@ test(
     const pdf = sevdesk.requests.filter(({ path }) => path === '/Order/42/getPdf');
     expect(pdf.map(({ query }) => query.get('preventSendBy'))).toEqual(['true']);
     expect(order.status).toBe('100');
+    const onOffer = ({ path }: MockRequest) => path.startsWith('/Order/42');
+    // The draft is rendered again before its PDF is fetched, so the PDF is never an older one.
+    expect(sevdesk.requests.filter(onOffer).map(({ method, path }) => `${method} ${path}`)).toEqual(
+      ['GET /Order/42', 'POST /Order/42/render', 'GET /Order/42/getPdf'],
+    );
+    expect(bodies(sevdesk.requests, 'POST', '/Order/42/render')).toEqual([{ forceReload: true }]);
     const writesOnOffer = () =>
-      sevdesk.requests.filter(
-        ({ method, path }) => method !== 'GET' && path.startsWith('/Order/42'),
-      );
-    expect(writesOnOffer()).toEqual([]);
+      sevdesk.requests
+        .filter((request) => request.method !== 'GET' && onOffer(request))
+        .map(({ method, path }) => `${method} ${path}`);
+    expect(writesOnOffer()).toEqual(['POST /Order/42/render']);
 
     const markSent = fill(template(delivery, 'PUT /Order/{orderId}/sendBy with '), {});
     const mark = await call('execute', {
@@ -544,7 +556,7 @@ test(
         held: [{ method: 'PUT', path: SEND_BY, body: held, ...OFFER_PREVIEW, recipient: COMPANY }],
       },
     });
-    expect(writesOnOffer()).toEqual([]);
+    expect(writesOnOffer()).toEqual(['POST /Order/42/render']);
     expect(order.status).toBe('100');
 
     const { token } = mark.envelope.confirmation as { token: string };
@@ -557,12 +569,11 @@ test(
     });
 
     expect(bodies(sevdesk.requests, 'PUT', SEND_BY)).toEqual([held]);
-    expect(writesOnOffer().map(({ method, path }) => `${method} ${path}`)).toEqual([
-      `PUT ${SEND_BY}`,
-    ]);
+    expect(writesOnOffer()).toEqual(['POST /Order/42/render', `PUT ${SEND_BY}`]);
     expect(order.status).toBe('200');
     expect(auditTrail()).toEqual([
       audited('executed', 'POST', '/Order/Factory/saveOrder', 201, '42'),
+      audited('executed', 'POST', '/Order/42/render', 201),
       audited('held', 'PUT', SEND_BY),
       audited('confirmed', 'PUT', SEND_BY, 200, '42'),
     ]);

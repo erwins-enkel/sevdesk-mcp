@@ -747,5 +747,244 @@
         }
       }
     ]
+  },
+  {
+    "why": "Render endpoints that sevDesk's changelog lists but the spec lacks: it has only POST /Invoice/{invoiceId}/render, while the changelog names /{CreditNote,Invoice,Letter,Order}/{id}/render (Letter is left out: the spec has no Letter paths). Evidence: tech.sevdesk.com/api_news/posts/2026_02_breaking_changes_q1_2026; POST /Order/{orderId}/render with { \"forceReload\": true } answered 201 on a live account and left status, sendDate, sendType and update unchanged (issue #49). Modelled on invoiceRender.",
+    "changes": [
+      {
+        "path": "/paths/~1Order~1{orderId}~1render",
+        "to": {
+          "post": {
+            "tags": ["Order"],
+            "summary": "Render the pdf document of an order",
+            "description": "Renders the pdf document of an order again from its current data. sevdesk keeps the pdf it rendered last, and getPdf returns that stored file until the document is rendered again with forceReload. On a draft, status, sendDate and sendType stay unchanged.",
+            "operationId": "orderRender",
+            "parameters": [
+              {
+                "name": "orderId",
+                "in": "path",
+                "description": "ID of order to render",
+                "required": true,
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            ],
+            "requestBody": {
+              "description": "Define if the document should be forcefully re-rendered.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "properties": {
+                      "forceReload": {
+                        "description": "Define if a forceful re-render should occur.",
+                        "type": "boolean"
+                      }
+                    },
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            "responses": {
+              "201": {
+                "description": "Returns meta-data about pdf.",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "properties": {
+                        "pdf": {
+                          "type": "string",
+                          "description": "Base64-encoded PDF",
+                          "example": "base64 pdf"
+                        },
+                        "docId": {
+                          "type": "string",
+                          "example": "d4605b19248ad176443b7cb382679b1f"
+                        },
+                        "parameters": {
+                          "type": "array",
+                          "items": {
+                            "properties": {
+                              "key": {
+                                "type": "string",
+                                "example": "language"
+                              },
+                              "name": {
+                                "type": "string",
+                                "example": "Sprache"
+                              },
+                              "values": {
+                                "type": "array",
+                                "items": {
+                                  "properties": {
+                                    "name": {
+                                      "type": "string",
+                                      "example": "deutsch"
+                                    },
+                                    "translationCade": {
+                                      "type": "string",
+                                      "example": "SEVDOC_LANG_DE_DE"
+                                    },
+                                    "value": {
+                                      "type": "string",
+                                      "example": "de_DE"
+                                    }
+                                  },
+                                  "type": "object"
+                                }
+                              },
+                              "visible": {
+                                "type": "boolean",
+                                "example": true
+                              },
+                              "value": {
+                                "type": "string",
+                                "example": "de_DE"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "400": {
+                "description": "Bad request"
+              },
+              "401": {
+                "description": "Authentication required"
+              },
+              "500": {
+                "description": "Server Error"
+              }
+            },
+            "security": [
+              {
+                "api_key": []
+              }
+            ]
+          }
+        }
+      },
+      {
+        "path": "/paths/~1CreditNote~1{creditNoteId}~1render",
+        "to": {
+          "post": {
+            "tags": ["CreditNote"],
+            "summary": "Render the pdf document of a credit note",
+            "description": "Renders the pdf document of a credit note again from its current data. sevdesk keeps the pdf it rendered last, and getPdf returns that stored file until the document is rendered again with forceReload.",
+            "operationId": "creditNoteRender",
+            "parameters": [
+              {
+                "name": "creditNoteId",
+                "in": "path",
+                "description": "ID of creditNote to render",
+                "required": true,
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            ],
+            "requestBody": {
+              "description": "Define if the document should be forcefully re-rendered.",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "properties": {
+                      "forceReload": {
+                        "description": "Define if a forceful re-render should occur.",
+                        "type": "boolean"
+                      }
+                    },
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            "responses": {
+              "201": {
+                "description": "Returns meta-data about pdf.",
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "properties": {
+                        "pdf": {
+                          "type": "string",
+                          "description": "Base64-encoded PDF",
+                          "example": "base64 pdf"
+                        },
+                        "docId": {
+                          "type": "string",
+                          "example": "d4605b19248ad176443b7cb382679b1f"
+                        },
+                        "parameters": {
+                          "type": "array",
+                          "items": {
+                            "properties": {
+                              "key": {
+                                "type": "string",
+                                "example": "language"
+                              },
+                              "name": {
+                                "type": "string",
+                                "example": "Sprache"
+                              },
+                              "values": {
+                                "type": "array",
+                                "items": {
+                                  "properties": {
+                                    "name": {
+                                      "type": "string",
+                                      "example": "deutsch"
+                                    },
+                                    "translationCade": {
+                                      "type": "string",
+                                      "example": "SEVDOC_LANG_DE_DE"
+                                    },
+                                    "value": {
+                                      "type": "string",
+                                      "example": "de_DE"
+                                    }
+                                  },
+                                  "type": "object"
+                                }
+                              },
+                              "visible": {
+                                "type": "boolean",
+                                "example": true
+                              },
+                              "value": {
+                                "type": "string",
+                                "example": "de_DE"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "400": {
+                "description": "Bad request"
+              },
+              "401": {
+                "description": "Authentication required"
+              },
+              "500": {
+                "description": "Server Error"
+              }
+            },
+            "security": [
+              {
+                "api_key": []
+              }
+            ]
+          }
+        }
+      }
+    ]
   }
 ]

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/client';
 import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { GUIDES } from '../../src/guides.ts';
 import { fill, template } from '../guide-template.ts';
@@ -22,13 +23,14 @@ import {
 // The manual E2E run against a real sevDesk account (issue #21, PRD §8, decision 29), started with
 // `bun run test:e2e` and never in CI. It drives PRD §4 Priority A through a server spawned over
 // stdio, with the guides' templates as bodies: the persistent contact "MCP Test GmbH" (created once
-// if missing), an offer draft tagged mcp-test with the run id in its headText, its PDF, and the
-// mail to SEVDESK_E2E_MAIL_TO. It records what getPdf without preventSendBy=true does to the live
-// status (decision 7). Only contacts and offers, never invoices. Afterwards it deletes this run's
-// tagged drafts through the confirmation flow (test/e2e/cleanup.ts), all or none, and lists the
-// offers left for manual deletion. The server gets a temporary home, so the real config file, audit
-// log and Downloads folder stay untouched. The report printed at the end names neither the token
-// nor the mail address, so it can go into the issue as it is.
+// if missing), an offer draft tagged mcp-test with the run id in its headText, its PDF (saved again
+// after a change of its header, which the new PDF must show: savePdf renders a draft again, issue
+// #49), and the mail to SEVDESK_E2E_MAIL_TO. It records what getPdf without preventSendBy=true does
+// to the live status (decision 7). Only contacts and offers, never invoices. Afterwards it deletes
+// this run's tagged drafts through the confirmation flow (test/e2e/cleanup.ts), all or none, and
+// lists the offers left for manual deletion. The server gets a temporary home, so the real config
+// file, audit log and Downloads folder stay untouched. The report printed at the end names neither
+// the token nor the mail address, so it can go into the issue as it is.
 
 /** An environment variable's value, or undefined when it is unset or blank. */
 function setting(value: string | undefined): string | undefined {
@@ -49,6 +51,9 @@ const PERSON = { 'first name': 'Max', 'last name': 'Mustermann' };
 
 const runId = randomUUID();
 const marker = runMarker(runId);
+// The text the offer's header gets after its first PDF: letters and digits only, so a PDF cannot
+// split or reshape it.
+const headerMarker = `R${runId.replaceAll('-', '').slice(0, 12)}`;
 /** The lines printed at the end. */
 const report: string[] = [`sevdesk-mcp E2E run ${runId}`];
 /** The id of every offer this run created, from the writes ledgers. */
@@ -120,6 +125,37 @@ async function confirmHeld(envelope: Record<string, unknown>, expected: string):
   const confirmed = await execute({ confirm: confirmation.token });
   expect(confirmed.isError).toBe(false);
   expect(confirmed.envelope.confirmed).toMatchObject([{ outcome: 'sent' }]);
+}
+
+/**
+ * The text of the PDF at `path`, all pages, without whitespace: a PDF may split its text anywhere,
+ * so only a marker without whitespace is found reliably.
+ */
+async function pdfText(path: string): Promise<string> {
+  const task = getDocument({ data: new Uint8Array(readFileSync(path)), verbosity: 0 });
+  try {
+    const pdf = await task.promise;
+    const pages: string[] = [];
+    for (let page = 1; page <= pdf.numPages; page += 1) {
+      const { items } = await (await pdf.getPage(page)).getTextContent();
+      pages.push(items.map((item) => ('str' in item ? item.str : '')).join(''));
+    }
+    return pages.join('').replace(/\s+/g, '');
+  } finally {
+    await task.destroy();
+  }
+}
+
+/** Saves the PDF of offer `id` with savePdf: its text, and whether the run rendered it again. */
+async function savePdfText(id: string): Promise<{ text: string; rendered: boolean }> {
+  const { result, writes = [] } = await run(
+    `return await sevdesk.savePdf('Order', ${JSON.stringify(id)});`,
+  );
+  const render = `/Order/${id}/render`;
+  return {
+    text: await pdfText((result as { path: string }).path),
+    rendered: (writes as { path: string }[]).some(({ path }) => path === render),
+  };
 }
 
 /** The offer `id` as sevDesk has it now. */
@@ -290,6 +326,26 @@ function liveRun(apiToken: string): void {
       expect(readFileSync(path).subarray(0, 4).toString('latin1')).toBe('%PDF');
       const after = await readOffer(id);
       report.push(`savePdf (preventSendBy=true) on ${label(after)}: ${change(before, after)}`);
+      expect([after.status, after.sendDate]).toEqual([before.status, before.sendDate]);
+    });
+
+    test('issue #49: a PDF saved after a change of the offer draft shows the change', async () => {
+      const id = earlier(offerId, 'offer from the PDF-only test');
+      const before = await readOffer(id);
+      const first = await savePdfText(id);
+      const header = `Angebot ${before.number ?? ''} ${headerMarker}`;
+      await run(
+        `await sevdesk.request('PUT', '/Order/${id}', { body: { header: ${JSON.stringify(header)} } }); return true;`,
+      );
+      const second = await savePdfText(id);
+      const after = await readOffer(id);
+      const shows = second.text.includes(headerMarker);
+      report.push(
+        `savePdf after changing the header of ${label(after)}: the PDF ${shows ? 'shows' : 'does not show'} the change; ${change(before, after)}`,
+      );
+      expect([first.rendered, second.rendered]).toEqual([true, true]);
+      expect(first.text.includes(headerMarker)).toBe(false);
+      expect(shows).toBe(true);
       expect([after.status, after.sendDate]).toEqual([before.status, before.sendDate]);
     });
 
