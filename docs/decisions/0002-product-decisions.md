@@ -146,6 +146,15 @@ rules.
     overwritten silently. The entry is named `sevdesk`, or `sevdesk-<profile>` when several exist,
     and runs `npx -y @erwins-enkel/sevdesk-mcp --profile <name>`. There is no default profile and
     no `setup --default` (decision 1). **Source:** §7.
+    **Addendum (2026-11-10, issue #22):** Until the package is on npm the `npx` entry cannot start,
+    so the operator beta-tests from a local checkout. When `setup` runs from a local checkout (its
+    package root does not lie under a `node_modules` folder), the entry runs the absolute path of
+    the running Node executable (GUI clients often lack the user's `PATH`) with the checkout's
+    built `dist/cli.js` and `--profile <name>`; an installed package keeps the `npx` entry above.
+    `setup` says which kind of entry it writes. Everything else above holds: the entry names, the
+    backup first, a question per client, no silent overwrite, and `setup --remove` run from the
+    checkout also offers to remove the entries that start its build. Switching to the published
+    package later is an ordinary "replace entry?" question when `setup` runs again through `npx`.
 19. **Setup without a terminal, and accessibility of the CLI.**
     **Answer:** Without a TTY, `setup` aborts with a hint to `SEVDESK_API_TOKEN`; there are no
     non-interactive flags. Output is plain text, status is never conveyed by colour alone,

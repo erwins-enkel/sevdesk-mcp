@@ -6,6 +6,7 @@ import {
   type InstalledClient,
   installedClients,
   launchArgv,
+  launchKind,
   readServers,
   rewriteServers,
 } from './clients.ts';
@@ -19,7 +20,7 @@ import {
 } from './config.ts';
 import { type Locale, type MessageKey, t } from './i18n/index.ts';
 import { deleteToken, probeKeychain, SERVICE, storeToken } from './keychain.ts';
-import { name as packageName } from './manifest.ts';
+import { root } from './manifest.ts';
 import type { Prompter } from './prompt.ts';
 import { HostError } from './sandbox.ts';
 import { bookkeepingSystem, companyName, SUPPORTED_SYSTEM } from './sevdesk.ts';
@@ -313,8 +314,9 @@ async function clientStep(
  * Adds a profile (PRD §7, decisions 4, 18, 19): asks for its name, checks the OS keychain, asks for
  * the token (hidden) and checks it against sevDesk, asks whether the profile is read-only (default
  * no, or the replaced profile's value), then stores the token in the keychain and the profile in
- * the config file. Every stop before that stores nothing. Then it offers to register the profile in
- * each installed MCP client and shows the command for other clients.
+ * the config file. Every stop before that stores nothing. Then it says which kind of entry the
+ * clients get (`npx`, or the build of the local checkout it runs from), offers to register the
+ * profile in each installed MCP client and shows the command for other clients.
  */
 async function addProfile(ui: Dialogue, io: SetupIO): Promise<boolean> {
   const config = configOf(ui);
@@ -325,8 +327,9 @@ async function addProfile(ui: Dialogue, io: SetupIO): Promise<boolean> {
   const readonly = await ui.confirm('setup.askReadonly', {}, existing?.readonly ?? false);
   if (!(await store(ui, io, { name, company, readonly }, token))) return false;
   const entry = entryName(name, config.profiles.length + (existing === undefined ? 1 : 0));
+  ui.say(launchKind() === 'local' ? 'setup.entryKindLocal' : 'setup.entryKindNpx', { root });
   const hints: [MessageKey, MessageKey] = ['setup.clientEntry', 'setup.otherClientsEntry'];
-  return clientStep(ui, io, hints, { package: packageName, profile: name }, (clients) =>
+  return clientStep(ui, io, hints, { command: launchArgv(name).join(' ') }, (clients) =>
     registerClients(ui, io, clients, name, entry),
   );
 }

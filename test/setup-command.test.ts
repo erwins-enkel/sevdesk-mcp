@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { configFile } from '../src/config.ts';
 import type { Locale } from '../src/i18n/index.ts';
 import { runList } from '../src/setup.ts';
@@ -13,6 +13,9 @@ import { CHECK, COMPANY, filesHolding, mock, remove, setup, TOKEN } from './setu
 // `setup` adds a profile (PRD §7, decisions 4, 18, 19), `setup --list` lists the profiles and
 // `setup --remove` removes one, driven through a scripted prompter against the fake keychain, a mock
 // sevDesk and the temporary home of test/setup.ts.
+
+// setup runs as from an installed package here, so its client entries run npx (decision 18).
+vi.mock('../src/manifest.ts', () => import('./installed-package.ts'));
 
 /** Runs `setup --list` in `locale`. */
 function list(locale: Locale = 'en') {

@@ -17,7 +17,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   (`SEVDESK_READONLY` or a profile's `readonly`) rejects every write and irreversible call; every
   write call gets a line in the monthly audit log unless the config file sets `audit: false`.
   `sevdesk-mcp setup` adds a profile (token into the OS keychain) and registers it in the
-  installed Claude Desktop, Claude Code, ChatGPT Desktop / Codex and OpenCode, `setup --list`
+  installed Claude Desktop, Claude Code, ChatGPT Desktop / Codex and OpenCode (run from a local
+  checkout, with an entry that starts its build, for the beta before npm), `setup --list`
   lists the profiles and `setup --remove <name>` removes one with its token and client entries.
   Priority A runs end to end against the spec-following mock in `bun run test`, and by hand
   against a real account with `bun run test:e2e`. Not built yet (PRD §9): the update checks, the
@@ -37,7 +38,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   company checked against sevDesk (`bookkeepingSystem()`, `companyName()` via the undocumented
   `GET /SevClient`), read-only (default no, or the replaced profile's value), then the token into
   the keychain and the profile into the config file (`saveProfile()`). Every stop before that stores
-  nothing. Then `registerClients()` asks per installed client (`installedClients()`) and
+  nothing. Then it says which kind of entry the clients get (`launchKind()`: `npx` or the local
+  build), `registerClients()` asks per installed client (`installedClients()`) and
   `unregisterClients()` does the same after `--remove`; a cancel there reports `setup.clientsLeft`,
   and a client config that fails makes the run resolve false. `runList(locale, out)` prints every
   profile with company and read-only state from the config file alone (never the keychain). `runRemove(locale, io, name)` asks (default no), then
@@ -54,9 +56,12 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `openCodeDir()` (`XDG_CONFIG_HOME/opencode` on every OS); a relative override makes the client
   unknowable (undefined). `src/clients.ts`: the MCP clients `setup` registers in (decision 18):
   `CLIENTS` (one row per client: name, installed config file, config format, entry shape; Claude
-  Desktop, Claude Code, ChatGPT Desktop / Codex, OpenCode), `entryName()`, `launchArgv()` (never a
-  token), `entryState()`, `entriesUsing()` and `rewriteServers()` (fresh re-read, a
-  `<file>.sevdesk-mcp-<time>.bak` of the bytes read, then the write in the client's format).
+  Desktop, Claude Code, ChatGPT Desktop / Codex, OpenCode), `entryName()`, `launchKind()` (`npx`
+  when `root` of `src/manifest.ts`, the package root, lies under `node_modules`, else `local`),
+  `launchArgv()` (never a token; `local` runs `process.execPath` with the checkout's
+  `dist/cli.js`), `entryState()`, `entriesUsing()` (this package or this root's build) and
+  `rewriteServers()` (fresh re-read, a `<file>.sevdesk-mcp-<time>.bak` of the bytes read, then
+  the write in the client's format).
   `src/client-formats.ts`: `ConfigFormat` (the servers in a file's text, the text with new servers)
   and its rows: `CLAUDE_JSON` (`mcpServers`, written anew), `CODEX_TOML` (`mcp_servers`, edited with
   `@decimalturn/toml-patch` so comments stay, re-parsed before it is written) and `OPENCODE_JSONC`
@@ -144,6 +149,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   drives `setup` through a scripted prompter against the Acme mock and writes fake client configs
   (`writeClient()`, `backupsOf()`); `test/setup.ts` also unsets `CLAUDE_CONFIG_DIR` and
   `CODEX_HOME`, so client registration only ever finds fake configs in the temporary home.
+  Tests run from a local checkout, so `setup` writes local-build entries there
+  (`test/setup-clients-local.test.ts`); the test files that check the `npx` entry mock
+  `src/manifest.ts` with `test/installed-package.ts`, whose `root` lies under `node_modules`.
   `test/guide-template.ts`: `template()` and `fill()`, a guide's JSON template as snippet code.
   `test/e2e/`: the manual E2E run against a real account (decision 29; `bun run test:e2e` with
   `vitest.e2e.config.ts`; `*.e2e.ts` never matches `bun run test`, so neither `verify` nor CI
@@ -270,8 +278,11 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
 10. **Setup (18, 19, 20):** profile names `[a-z0-9-]{1,32}`; read-only asked (default no); 1.0
     accounts refused; `--remove` offers to remove client entries. Client configs: back up first,
     ask per client, never overwrite silently; entry `sevdesk`/`sevdesk-<profile>` running
-    `npx -y @erwins-enkel/sevdesk-mcp --profile <name>`. No TTY → abort with the env-var hint.
-    Plain text, never colour-only, honour `NO_COLOR`. macOS, Windows and Linux are supported.
+    `npx -y @erwins-enkel/sevdesk-mcp --profile <name>`; run from a local checkout (package root
+    not under `node_modules`) it runs `<absolute node> <checkout>/dist/cli.js --profile <name>`
+    instead, and `setup` says which kind it wrote (local beta, issue #22). No TTY → abort with the
+    env-var hint. Plain text, never colour-only, honour `NO_COLOR`. macOS, Windows and Linux are
+    supported.
 11. **Copy (27, 28):** German CLI text uses "du", short, factual, gender-inclusive with a colon.
     MCP `instructions` (search first, then execute; irreversible needs `confirm`) count toward
     the 1,500-token budget. Elicitation (v1.x, decision 8) text is localised.

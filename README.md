@@ -77,7 +77,9 @@ same):
 4. It stores the token in the OS keychain and the profile (name, company, read-only) in the config
    file.
 5. It offers to register the profile in each installed MCP client (see below) and prints the
-   command for any other client: `npx -y @erwins-enkel/sevdesk-mcp --profile <name>`.
+   command for any other client: `npx -y @erwins-enkel/sevdesk-mcp --profile <name>`, or, run from
+   a local checkout, the command that starts its build
+   ([beta testing](#beta-testing-from-a-local-checkout)).
 
 Until step 4 nothing is stored. There is no plaintext fallback: without an OS keychain
 (headless Linux, WSL, Docker), `setup` stops and explains why, as a token in a plain file can be
@@ -112,10 +114,12 @@ to remove their entries again:
 | OpenCode                | in `$XDG_CONFIG_HOME/opencode/` (default `~/.config/opencode/`, also on macOS and Windows): the first of `opencode.jsonc`, `opencode.json` and `config.json` that exists, else `opencode.jsonc` | the folder exists          |
 
 The entry is named `sevdesk`, or `sevdesk-<profile>` when there are several profiles, and runs
-`npx -y @erwins-enkel/sevdesk-mcp --profile <name>` (Claude Code on Windows: `cmd /c npx …`). It
-never holds a token. In Codex's `config.toml` it is the table `mcp_servers.sevdesk` with
-`command` and `args`; in OpenCode it is `"sevdesk": { "type": "local", "command": [...] }` in its
-`mcp` section. A relative `CLAUDE_CONFIG_DIR`, `CODEX_HOME` or (for OpenCode) `XDG_CONFIG_HOME`
+`npx -y @erwins-enkel/sevdesk-mcp --profile <name>` (Claude Code on Windows: `cmd /c npx …`).
+Run from a local checkout instead of an installed package, `setup` writes an entry that starts the
+checkout's build ([beta testing](#beta-testing-from-a-local-checkout)); it says which kind it
+writes. The entry never holds a token. In Codex's `config.toml` it is the table
+`mcp_servers.sevdesk` with `command` and `args`; in OpenCode it is
+`"sevdesk": { "type": "local", "command": [...] }` in its `mcp` section. A relative `CLAUDE_CONFIG_DIR`, `CODEX_HOME` or (for OpenCode) `XDG_CONFIG_HOME`
 depends on the directory the client starts in, so `setup` leaves that client alone. `setup` asks
 once per client and shows the file:
 
@@ -128,8 +132,8 @@ once per client and shows the file:
   file's permissions and a symlink. In Codex's TOML and OpenCode's JSONC it edits only the entry
   and keeps the comments; the Claude configs are JSON without comments and are written
   anew, two-space indented. If the file changed while you answered, it is left as it is.
-- `setup --remove <name>` offers to remove every entry that runs this package with
-  `--profile <name>` (default yes), with the same backup.
+- `setup --remove <name>` offers to remove every entry that runs this package (or, run from a
+  local checkout, its build) with `--profile <name>` (default yes), with the same backup.
 - A client config that cannot be read or written is reported and left as it is; the exit code is
   then 1. This includes an OpenCode config whose `mcp` section holds `servers`, the layout of
   OpenCode 2, which `setup` does not edit yet; add the printed command there yourself.
@@ -235,6 +239,29 @@ profile's download directory and returns only the path. That directory is
 - Any other response that is not JSON, such as a CSV export, is saved as a new file named after the
   request path, e.g. `Export-datevCSV.csv`. An existing file is kept; the new one gets `-2`, `-3`,
   … appended.
+
+## Beta testing from a local checkout
+
+Until the package is on npm, its `npx` entry cannot start. To try the whole flow in real clients
+before that, run `setup` from a local checkout: `setup` counts as installed when it runs from a
+folder under `node_modules` (as with `npx` or a global install), and as a local checkout otherwise.
+
+1. Clone the repository into a folder that stays where it is, not a temporary worktree, and build
+   it: `bun install && bun run build`. The client entries point into this folder.
+2. Run `node dist/cli.js setup` there. It says that it runs from the local checkout, and every
+   client entry it writes starts the checkout's build: the absolute path of the Node.js you ran it
+   with (GUI clients often lack your `PATH`), the checkout's `dist/cli.js` and
+   `--profile <name>`, for example
+   `"command": "/usr/local/bin/node", "args": ["/home/you/sevdesk-mcp/dist/cli.js", "--profile", "acme"]`.
+   Everything else is as described under [MCP clients](#mcp-clients): the same entry names, a
+   backup first, a question per client, nothing replaced without an explicit yes.
+3. After every `git pull`, run `bun install && bun run build` again and restart the clients; the
+   entries stay as they are. If you move the checkout or remove that Node.js (for example with a
+   version manager), run `setup` again and replace the entries. `setup --remove <name>` run from
+   the checkout also offers to remove its entries.
+4. Once the package is published, switch with `npx @erwins-enkel/sevdesk-mcp setup` and the same
+   profile name: replace the profile (it asks for the token again), then answer yes when it asks to
+   replace each client's entry with the `npx` one.
 
 ## Development
 

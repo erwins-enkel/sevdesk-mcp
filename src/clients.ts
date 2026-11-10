@@ -9,7 +9,7 @@ import {
   type Servers,
 } from './client-formats.ts';
 import { isRecord, readTextFile, type TextFile, writeTextFile } from './json-file.ts';
-import { name as packageName } from './manifest.ts';
+import { name as packageName, root } from './manifest.ts';
 import { claudeCodeFile, claudeDesktopDirs, codexHome, openCodeDir } from './paths.ts';
 
 /** An MCP client `setup` registers the server in (PRD §7 step 3, decision 18). */
@@ -51,9 +51,11 @@ const CLIENTS: McpClient[] = [
       return file !== undefined && existsSync(file) ? file : undefined;
     },
     format: CLAUDE_JSON,
-    // On native Windows Claude Code cannot start npx (a .cmd script) without a shell.
+    // On native Windows Claude Code cannot start npx (a .cmd script) without a shell; the local
+    // build's node.exe needs none.
     entry(argv) {
-      const [command, ...args] = process.platform === 'win32' ? ['cmd', '/c', ...argv] : argv;
+      const shell = process.platform === 'win32' && argv[0] === 'npx';
+      const [command, ...args] = shell ? ['cmd', '/c', ...argv] : argv;
       return { type: 'stdio', command, args };
     },
   },
@@ -93,9 +95,26 @@ export function installedClients(): InstalledClient[] {
   });
 }
 
-/** The command line a client entry runs for `profile` (decision 18); it never holds a token. */
+// The built CLI entry of the package root (package.json `bin`).
+const BUILT_CLI = join(root, 'dist', 'cli.js');
+
+/**
+ * The kind of client entry `setup` writes: `npx` when it runs from an installed package (its root
+ * lies under a `node_modules` folder, as with npx or a global install; decision 18), else `local`:
+ * it runs from a local checkout, whose build the entry starts (the local beta, issue #22).
+ */
+export function launchKind(): 'npx' | 'local' {
+  return root.split(/[\\/]/).includes('node_modules') ? 'npx' : 'local';
+}
+
+/**
+ * The command line a client entry runs for `profile`; it never holds a token. An installed package
+ * runs `npx -y <package>` (decision 18); a local checkout runs its build with the absolute path of
+ * the running Node, since GUI clients often lack the user's PATH.
+ */
 export function launchArgv(profile: string): string[] {
-  return ['npx', '-y', packageName, '--profile', profile];
+  const start = launchKind() === 'npx' ? ['npx', '-y', packageName] : [process.execPath, BUILT_CLI];
+  return [...start, '--profile', profile];
 }
 
 /** The entry name for `profile`: `sevdesk`, or `sevdesk-<profile>` when there are several profiles. */
@@ -152,14 +171,14 @@ export function entryState(
 
 /**
  * The names of the entries of `servers` that use `profile`: they start this package (any version)
- * with `--profile <profile>`.
+ * or the build of this package root with `--profile <profile>`.
  */
 export function entriesUsing(servers: Servers, profile: string): string[] {
   return Object.entries(servers)
     .filter(([, entry]) => {
       const argv = commandLine(entry) ?? [];
       const runsPackage = argv.some(
-        (arg) => arg === packageName || arg.startsWith(`${packageName}@`),
+        (arg) => arg === packageName || arg.startsWith(`${packageName}@`) || arg === BUILT_CLI,
       );
       return runsPackage && argv.some((arg, at) => arg === '--profile' && argv[at + 1] === profile);
     })
