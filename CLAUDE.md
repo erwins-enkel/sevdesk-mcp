@@ -8,18 +8,160 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - Product source of truth: `docs/prd/PRD-sevdesk.md` (German).
 - Foundation decisions and their rationale: `docs/decisions/0001-foundation.md`.
 - Product decisions and their rationale: `docs/decisions/0002-product-decisions.md`.
-- Status: scaffold. The server boots over stdio with no tools yet; every feature (sevDesk
-  client, sandbox, confirmation flow, audit log, keychain, profiles, setup) arrives as a
-  backlog slice.
+- Status: the M0 Code Mode spine is in place (version 0.0.0, not yet on npm). `search` runs in the
+  QuickJS sandbox with the patched spec and the guides; `execute` reads sevDesk, runs reversible
+  writes (listed in the result's `writes` ledger), holds every irreversible call until
+  `execute({ confirm })`, and saves PDFs (`savePdf`) and non-JSON responses in the profile's
+  download directory, within the limits and base URL of the optional config file. Profiles come
+  from `SEVDESK_API_TOKEN` or the config file, their tokens from the OS keychain. Read-only mode
+  (`SEVDESK_READONLY` or a profile's `readonly`) rejects every write and irreversible call; every
+  write call gets a line in the monthly audit log unless the config file sets `audit: false`.
+  `sevdesk-mcp setup` adds a profile (token into the OS keychain) and registers it in the
+  installed Claude Desktop, Claude Code, ChatGPT Desktop / Codex and OpenCode (run from a local
+  checkout, with an entry that starts its build, for the beta before npm), `setup --list`
+  lists the profiles and `setup --remove <name>` removes one with its token and client entries.
+  Priority A runs end to end against the spec-following mock in `bun run test`, and by hand
+  against a real account with `bun run test:e2e`. Not built yet (PRD §9): the update checks, the
+  `.mcpb`, the release workflow, receipt upload, elicitation and the curated v2 tools.
 
 ## Orientation
 
-- `src/cli.ts`: the `sevdesk-mcp` bin. No command starts the MCP server on stdio; `setup`
-  fails closed until it is implemented; `--help` prints the usage.
-- `src/server.ts`: `createServer()`, the single place where MCP tools get registered.
+- `src/cli.ts`: the `sevdesk-mcp` bin. No command starts the MCP server on stdio,
+  `--profile <name>` starts it pinned to that profile; `setup` (or `setup --add`) adds a profile
+  through `runSetup()` and `setup --remove <name>` removes one through `runRemove()`, both only on a
+  terminal (stdin and stdout TTYs, else exit 1; `interactive()`); `setup --list` lists the profiles
+  through `runList()` without one; `--help` prints the usage, `--version` the version from
+  `src/manifest.ts` (the same source `createServer()` reports). Exit codes: 0 success, 1 runtime
+  failure, 2 usage error (unknown command or option); the usage text documents them.
+- `src/setup.ts`: `runSetup(locale, io)`, the setup dialogue (PRD §7, decisions 4, 18, 19):
+  profile name, keychain probe before the token is asked, hidden token, bookkeeping system and
+  company checked against sevDesk (`bookkeepingSystem()`, `companyName()` via the undocumented
+  `GET /SevClient`), read-only (default no, or the replaced profile's value), then the token into
+  the keychain and the profile into the config file (`saveProfile()`). Every stop before that stores
+  nothing. Then it says which kind of entry the clients get (`launchKind()`: `npx` or the local
+  build), `registerClients()` asks per installed client (`installedClients()`) and
+  `unregisterClients()` does the same after `--remove`; a cancel there reports `setup.clientsLeft`,
+  and a client config that fails makes the run resolve false. `runList(locale, out)` prints every
+  profile with company and read-only state from the config file alone (never the keychain). `runRemove(locale, io, name)` asks (default no), then
+  deletes the token (`deleteToken()`) before the config entry (`deleteProfile()`), so no token is
+  left without a profile. `src/prompt.ts`: `createPrompter()`, Node's readline with hidden input;
+  Ctrl+C or the end of the input resolves `undefined`.
+- `src/server.ts`: `createServer({ pinnedProfile })`, the single place where MCP tools and the
+  MCP `instructions` get registered; it reads the config file once per server.
+- `src/paths.ts`: `localDirs()`, the OS-standard config and data/state directories (XDG on
+  Linux, `~/Library/Application Support` on macOS, `%APPDATA%`/`%LOCALAPPDATA%` on Windows),
+  `defaultDownloadDir()`, `~/Downloads/sevdesk/<profile>` unless the profile sets `downloadDir`,
+  and the client config locations `claudeDesktopDirs()` (MSIX folder first on Windows),
+  `claudeCodeFile()` (`CLAUDE_CONFIG_DIR`), `codexHome()` (`CODEX_HOME`, else `~/.codex`) and
+  `openCodeDir()` (`XDG_CONFIG_HOME/opencode` on every OS); a relative override makes the client
+  unknowable (undefined). `src/clients.ts`: the MCP clients `setup` registers in (decision 18):
+  `CLIENTS` (one row per client: name, installed config file, config format, entry shape; Claude
+  Desktop, Claude Code, ChatGPT Desktop / Codex, OpenCode), `entryName()`, `launchKind()` (`npx`
+  when `root` of `src/manifest.ts`, the package root, lies under `node_modules`, else `local`),
+  `launchArgv()` (never a token; `local` runs `process.execPath` with the checkout's
+  `dist/cli.js`), `entryState()`, `entriesUsing()` (this package or this root's build) and
+  `rewriteServers()` (fresh re-read, a `<file>.sevdesk-mcp-<time>.bak` of the bytes read, then
+  the write in the client's format).
+  `src/client-formats.ts`: `ConfigFormat` (the servers in a file's text, the text with new servers)
+  and its rows: `CLAUDE_JSON` (`mcpServers`, written anew), `CODEX_TOML` (`mcp_servers`, edited with
+  `@decimalturn/toml-patch` so comments stay, re-parsed before it is written) and `OPENCODE_JSONC`
+  (`mcp`, edited in place with `jsonc-parser` as `opencode mcp add` does; OpenCode 2's
+  `mcp.servers` layout is refused). `src/json-file.ts`: `readTextFile()` and `writeTextFile()`
+  (temp file then rename, keeps the mode, follows a symlink), with `readJsonFile()` and
+  `writeJsonFile()` on top, shared by the config file and the client configs.
+  `src/config.ts`: `loadConfig()` reads `config.json` there (`baseUrl`, `limits`, `profiles`
+  without tokens, `audit`; documented in the README). No file means `DEFAULT_CONFIG`; an
+  unreadable or invalid file is an `invalid_config` error that both tools return instead of
+  running. A new config key extends `toConfig()` and the README table. `saveProfile()` adds or
+  updates one profile, `deleteProfile()` removes one; both keep every other key.
+- `src/sandbox.ts`: `runSnippet()`, the QuickJS sandbox (a fresh WASM module per run, by
+  default 30 s and 64 MB, captured `console.log`, error kinds
+  `timeout`/`memory_limit`/`snippet_error`). Host functions (`HostFunction`) return promises to
+  the code; a `HostError` is catchable there and, uncaught, ends the run with its structured
+  error; a fatal one ends the run at once. `src/envelope.ts`: `toToolResult()`, the JSON result
+  envelope (`result`, `error`, `console`, `writes`, `confirmation`, `notes`; results over the
+  output limit, by default 20,000 characters, are cut), and `confirmedResult()`, the result of a
+  confirmation run (`confirmed`, one outcome per held call). `src/search.ts`: the `search` tool.
+  `src/guides.ts`: `GUIDES`, the curated recipes `search` offers as `guides` (system 2.0 only;
+  endpoints written `METHOD /path`, checked against the patched spec by `test/guides.test.ts`).
+- `src/execute.ts`: the `execute` tool (`code` or `confirm`, bookkeeping-system check per profile
+  and session, destructive annotation or `readOnlyHint` when `SEVDESK_READONLY` is on or the
+  pinned profile is read-only; a run with held calls gets their previews and a token, a failed run
+  or preview read drops them). `src/sevdesk.ts`: `createClient()`, the host side of
+  `sevdesk.request`, `sevdesk.paginate` and `sevdesk.savePdf` (HTTPS base URL, relative paths only,
+  JSON bodies, token added host-side, shared call budget, pages of 1,000, structured errors;
+  `request` saves a non-JSON response and holds an irreversible call in `held` as `{ held: true }`;
+  with `readOnly` set, `build()` rejects every write and irreversible call as `read_only` first;
+  `savePdf` the PDF of a `PDF_TYPES` document with `preventSendBy=true`; `writes` is the run's
+  ledger of sent writes with status and object id; `readDocument()` is the preview's counted read);
+  `send()` resolves to the 2xx response and retries per decision 10 (`retry: false` sends once);
+  `replay()` sends confirmed calls once each, in order, stopping at the first failure. Every write
+  call passes the client's `Gate` (read-only reason + audit log): `build()`/`prepare()` write
+  `rejected`, `hold()` writes `held`, `sendWrite()` checks the log before sending and writes
+  `executed` once settled, `replay()` writes `confirmed`; `settled()` waits for in-flight writes and
+  returns the run's first audit failure, which `run()` turns into the run's error.
+  `src/audit.ts`: `auditLog()`, the audit log of a profile (decision 16;
+  `<state>/audit/<YYYY-MM>.jsonl` per UTC month, one synchronous `O_APPEND` write per line so
+  several processes never tear lines; time, profile, method, path, query, status, object id,
+  SHA-256 body hash, outcome; never a body or the token; an unwritable log is a fatal
+  `audit_error`), and `NO_AUDIT` for `audit: false`.
+  `src/confirm.ts`: `previewHeld()`, the structured English preview of held calls (decision 9;
+  document kind, number, ISO date, amount with currency, recipient, subject), and
+  `createConfirmations()`, the in-memory token store (single use, 10 minutes, bound to the profile
+  and the exact stored calls). `src/downloads.ts`: `fileStem()` (a file name that cannot leave its
+  directory) and `saveFile()` (temp file, then rename; replace or next free name;
+  `download_error`). `src/profile.ts`: tenant resolution (decision 1):
+  `reachableProfiles()` (env profile or config profiles, narrowed by `--profile`) and
+  `selectProfile()` (`account`, else the only one, else `account_required`). `src/keychain.ts`:
+  `readToken()`, a profile's token from the OS keychain via `@napi-rs/keyring` (service
+  `sevdesk-mcp`, account = profile name, Linux Secret Service only), loaded lazily on first use;
+  `probeKeychain()`, `storeToken()` and `deleteToken()` for `setup`.
+- `src/classify.ts`: the classification (PRD §6, decisions 6 and 7). `OPERATIONS` gives every
+  operation of the patched spec (`METHOD /path template`) the effect `read`, `reversible` or
+  `irreversible`; `confirmationReason()` says why a call needs confirmation (DELETE, the table,
+  unknown write paths, `getPdf` without `preventSendBy=true`, a status change in the body, an
+  enshrine flag). `test/classify.test.ts` fails on any spec operation the table lacks, so a spec
+  update that adds a path needs a classification here.
+- `spec/sevdesk-openapi.json`: the embedded sevDesk OpenAPI spec (`$ref`s resolved, © sevDesk,
+  not MIT). Never edit it by hand: `bun run update-spec` regenerates it
+  (`scripts/update-spec.ts`, `scripts/resolve-refs.ts`). It applies `spec/patches.json` first, the
+  corrections of known spec errors (`scripts/patch-spec.ts`): every change names the upstream value
+  it expects (`from`), so a patch that no longer applies stops `update-spec`. A new or changed
+  patch takes effect only after `bun run update-spec`; `test/patch-spec.test.ts` fails until then.
 - `src/i18n/`: human-facing CLI messages. `en.json` is the reference catalog, `de.json`
   mirrors it, `index.ts` exposes `resolveLocale()` and `t()`.
-- `test/`: vitest. `scripts/`: the i18n drift gate and the pinned actionlint runner.
+- `test/`: vitest; `test/budget.test.ts` is the 1,500-token gate for instructions and tool
+  descriptions. `test/mock-sevdesk.ts` starts a mock sevDesk on port 0 with per-test routes
+  (JSON, text or raw bytes), records each request with its body, and stubs the global `fetch` to
+  send calls for the real HTTPS base URL there (any other URL throws, `test/redirect-fetch.ts`), so
+  the code under test keeps its HTTPS rule and tests never reach sevDesk. The mock follows the
+  embedded spec (PRD §8): a route that is no spec operation fails its start, and a request that is
+  none answers 404 without reaching a route; the one exception is the undocumented
+  `GET /SevClient`. A spawned server reaches the mock with `node --import <serverImport>`.
+  `test/priority-a.test.ts` drives PRD §4 Priority A over stdio with the guides' templates as
+  `search` returns them, and checks after each test that no send or delete reached the mock
+  outside an accepted `confirm`. `test/setup.ts` (vitest `setupFiles`) gives every test a fresh `mkdtemp` home
+  and points `HOME`, `USERPROFILE`, `XDG_*` and `APPDATA`/`LOCALAPPDATA` there, so in-process and
+  spawned servers never touch the real local directories or `~/Downloads`; it also unsets
+  `SEVDESK_API_TOKEN` and mocks `@napi-rs/keyring` with the in-memory `test/fake-keychain.ts`
+  (seed `tokens`, assert `accesses`). Spawned servers use the real keychain, so they must never read a token.
+  `test/config-file.ts` writes a config file into the temporary home. `test/setup-dialogue.ts`
+  drives `setup` through a scripted prompter against the Acme mock and writes fake client configs
+  (`writeClient()`, `backupsOf()`); `test/setup.ts` also unsets `CLAUDE_CONFIG_DIR` and
+  `CODEX_HOME`, so client registration only ever finds fake configs in the temporary home.
+  Tests run from a local checkout, so `setup` writes local-build entries there
+  (`test/setup-clients-local.test.ts`); the test files that check the `npx` entry mock
+  `src/manifest.ts` with `test/installed-package.ts`, whose `root` lies under `node_modules`.
+  `test/guide-template.ts`: `template()` and `fill()`, a guide's JSON template as snippet code.
+  `test/e2e/`: the manual E2E run against a real account (decision 29; `bun run test:e2e` with
+  `vitest.e2e.config.ts`; `*.e2e.ts` never matches `bun run test`, so neither `verify` nor CI
+  runs it). `live.e2e.ts` spawns the server over stdio with `SEVDESK_E2E_TOKEN` and its own
+  temporary home, drives Priority A on the persistent fixtures "MCP Test GmbH" and tag
+  `mcp-test`, records what `getPdf` without `preventSendBy=true` does to the status, and prints
+  a report without token or mail address. `cleanup.ts`: `cleanUp()` deletes only this run's
+  tagged drafts, all or none (`cleanupGuard()`), through `confirm`; `test/e2e-cleanup.test.ts`
+  checks it offline.
+  `scripts/`: the i18n drift gate, the pinned actionlint runner and `update-spec`.
 - While serving, stdout belongs to the MCP protocol: log to stderr only.
 - Model-facing text (tool descriptions, guides, errors returned to the model) is English and
   stays lean: all tool descriptions together under 1,500 tokens (PRD §10).
@@ -108,7 +250,8 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
    method + path + body hash). `execute({ confirm })` replays exactly the stored calls without
    re-running code, stops at the first failure, reports per call. Classification fails closed:
    unknown write paths, `status` in the body of PUT/POST on Invoice/Order/CreditNote/Voucher, and
-   `getPdf` without `preventSendBy=true` all need confirmation. `savePdf` always sets
+   `getPdf` without `preventSendBy=true` all need confirmation; only a new draft (a factory save
+   without id, with the draft status) may carry a status. `savePdf` always sets
    `preventSendBy=true`; marking as sent (`sendBy`) is its own confirmed step.
 4. **Preview (9):** English, structured: amount as number + currency code, ISO 8601 dates,
    recipient, subject, document number, profile and company name.
@@ -135,8 +278,11 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
 10. **Setup (18, 19, 20):** profile names `[a-z0-9-]{1,32}`; read-only asked (default no); 1.0
     accounts refused; `--remove` offers to remove client entries. Client configs: back up first,
     ask per client, never overwrite silently; entry `sevdesk`/`sevdesk-<profile>` running
-    `npx -y @erwins-enkel/sevdesk-mcp --profile <name>`. No TTY → abort with the env-var hint.
-    Plain text, never colour-only, honour `NO_COLOR`. macOS, Windows and Linux are supported.
+    `npx -y @erwins-enkel/sevdesk-mcp --profile <name>`; run from a local checkout (package root
+    not under `node_modules`) it runs `<absolute node> <checkout>/dist/cli.js --profile <name>`
+    instead, and `setup` says which kind it wrote (local beta, issue #22). No TTY → abort with the
+    env-var hint. Plain text, never colour-only, honour `NO_COLOR`. macOS, Windows and Linux are
+    supported.
 11. **Copy (27, 28):** German CLI text uses "du", short, factual, gender-inclusive with a colon.
     MCP `instructions` (search first, then execute; irreversible needs `confirm`) count toward
     the 1,500-token budget. Elicitation (v1.x, decision 8) text is localised.
@@ -146,6 +292,25 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
 13. **Releases (23, 24, 25):** a tag triggers npm trusted publishing with provenance and attaches
     the `.mcpb`; the MCP Registry entry comes with 1.0. The sevDesk spec ships with attribution
     ("© sevDesk, not MIT"); verify sevDesk's terms before the first publish.
+
+## How work flows here
+
+> Tooling guardrails (lint/types/tests/CI): see Shepherd's Readiness tab.
+
+- **Unit of work:** GitHub issues, grouped into epics. One issue is one PR.
+- **Vertical slice:** a capability reachable through an MCP tool (`search`, `execute`) or the
+  `sevdesk-mcp` CLI. It lands together with the building blocks it needs and a test that
+  drives it end to end: over `InMemoryTransport` or the stdio entry, against a mock sevDesk
+  server on port `0`, with per-test `mkdtemp` directories (foundation decision 7). Example
+  seam: `savePdf` is one PR with the sandbox host function, the sevDesk client call, the
+  download directory and a tool-level `execute` test.
+- **No stubs:** a building block (sevDesk client, classifier, token store, audit writer)
+  lands with the first slice that uses it. `audit:dead` (fallow) fails on unused files and
+  exports, so a building block without a consumer does not pass the gate.
+- **Done:** `bun run verify` is green; see `## Verify`.
+- **German copy:** the operator does not review German CLI text in PRs and reports problems
+  afterwards. The implementing agent still keeps `en.json` and `de.json` in step and follows
+  the copy rules (product decision 11; 0002 decision 27).
 
 ## Verify
 
@@ -160,9 +325,13 @@ env vars vs `.env.schema`), `lint:actions` (actionlint on `.github/workflows/`).
 
 - Fix formatting: `bun run format`. One test file: `bunx vitest run test/cli.test.ts`.
 - Smoke the binary: `bun run build && node dist/cli.js` (speaks MCP on stdio).
+- `bun run test:e2e` is not part of `verify`: it runs by hand against a real account with
+  `SEVDESK_E2E_TOKEN` (plus `SEVDESK_E2E_MAIL_TO` for the mail test) and skips without the token.
 - Hooks: pre-commit runs lint-staged (eslint --fix + prettier on staged files), commit-msg
   runs commitlint (Conventional Commits), pre-push runs `bun run verify`.
-- When you change a CI step, change the `verify` script too, and vice versa.
+- When you change a CI step, change the `verify` script too, and vice versa. CI runs the
+  `quality` job on Linux, macOS and Windows (Node 22 and 24); macOS and Windows run only install,
+  `test` and `build`, the platform-independent tooling steps stay Linux-only.
 - New env var: declare it in `.env.schema` first, because `varlock audit` fails on undeclared
   and stale variables. Read it as a literal `process.env.NAME` so the audit can see it.
 - New CLI message: add the key to every catalog in `src/i18n/`.

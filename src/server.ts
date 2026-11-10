@@ -1,14 +1,22 @@
-import { createRequire } from 'node:module';
 import { McpServer } from '@modelcontextprotocol/server';
+import { loadConfig } from './config.ts';
+import { registerExecuteTool } from './execute.ts';
+import { name, version } from './manifest.ts';
+import { registerSearchTool } from './search.ts';
 
-// Resolves to the package root from both src/ and dist/, so name and version
-// always match what is published.
-const { name, version } = createRequire(import.meta.url)('../package.json') as {
-  name: string;
-  version: string;
-};
+// Sent to the client on connect. It describes only the tools that exist; later tools extend it.
+const instructions =
+  'Use `search` first to find the sevDesk endpoints and parameters you need (your JavaScript runs against the OpenAPI spec), then `execute` to call the API with them. Only what the code returns comes back. Irreversible calls (sending, deleting, enshrining, booking, cancelling) are held: show the user the preview, and only after their yes call `execute` with `confirm`.';
 
-/** Builds the MCP server. Tools are registered here as they are implemented. */
-export function createServer(): McpServer {
-  return new McpServer({ name, version });
+/**
+ * Builds the MCP server with its instructions and tools. Tools are registered here. The config file
+ * is read once per server; an invalid one makes every tool return its error instead of running.
+ * `pinnedProfile` (`--profile <name>`) limits `execute` to that one profile.
+ */
+export function createServer({ pinnedProfile }: { pinnedProfile?: string } = {}): McpServer {
+  const config = loadConfig();
+  const server = new McpServer({ name, version }, { instructions });
+  registerSearchTool(server, config);
+  registerExecuteTool(server, config, pinnedProfile);
+  return server;
 }

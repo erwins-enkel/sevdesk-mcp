@@ -69,7 +69,10 @@ rules.
 6. **What about write paths the classification table does not know?**
    **Answer:** Fail closed: an unknown write path is treated as irreversible. A status change is
    recognised by a `status` field in the body of a PUT or POST on Invoice, Order, CreditNote or
-   Voucher. **Source:** §6 ("Statusänderungen auf Rechnungen").
+   Voucher. Creating a draft is no status change: a factory save
+   (`POST /{Type}/Factory/save{Type}`) of a new document (without id) with the draft status (100,
+   vouchers 50) runs directly, since these saves require a status. **Source:** §6
+   ("Statusänderungen auf Rechnungen").
 7. **How is a PDF fetched without flipping the sent status?**
    **Answer:** `savePdf` always passes `preventSendBy=true`; per third-party documentation `getPdf`
    may otherwise mark the document as sent (to verify against the live API in P4). A `getPdf` via
@@ -143,6 +146,15 @@ rules.
     overwritten silently. The entry is named `sevdesk`, or `sevdesk-<profile>` when several exist,
     and runs `npx -y @erwins-enkel/sevdesk-mcp --profile <name>`. There is no default profile and
     no `setup --default` (decision 1). **Source:** §7.
+    **Addendum (2026-11-10, issue #22):** Until the package is on npm the `npx` entry cannot start,
+    so the operator beta-tests from a local checkout. When `setup` runs from a local checkout (its
+    package root does not lie under a `node_modules` folder), the entry runs the absolute path of
+    the running Node executable (GUI clients often lack the user's `PATH`) with the checkout's
+    built `dist/cli.js` and `--profile <name>`; an installed package keeps the `npx` entry above.
+    `setup` says which kind of entry it writes. Everything else above holds: the entry names, the
+    backup first, a question per client, no silent overwrite, and `setup --remove` run from the
+    checkout also offers to remove the entries that start its build. Switching to the published
+    package later is an ordinary "replace entry?" question when `setup` runs again through `npx`.
 19. **Setup without a terminal, and accessibility of the CLI.**
     **Answer:** Without a TTY, `setup` aborts with a hint to `SEVDESK_API_TOKEN`; there are no
     non-interactive flags. Output is plain text, status is never conveyed by colour alone,
@@ -184,6 +196,10 @@ rules.
     **Answer:** Informal "du", short and factual, gender-inclusive with a colon (as in the PRD);
     English equally short. The implementing agent maintains both catalogs; the operator reviews
     the German in review. **Source:** 0001 (i18n).
+    **Addendum (2026-11-09, issue #3):** The operator no longer reviews German CLI text in pull
+    requests; problems are reported afterwards as issues. This replaces "the operator reviews
+    the German in review" above. The implementing agent still maintains both catalogs and
+    follows the tone rules above.
 28. **Does the server send MCP `instructions` on connect?**
     **Answer:** Yes, a short usage note: `search` first, then `execute`; irreversible calls need
     `confirm`. It counts toward the 1,500-token budget. **Source:** §5.1, §10.
