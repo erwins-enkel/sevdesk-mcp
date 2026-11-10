@@ -110,11 +110,13 @@ export function launchKind(): 'npx' | 'local' {
 /**
  * The command line a client entry runs for `profile`; it never holds a token. An installed package
  * runs `npx -y <package>` (decision 18); a local checkout runs its build with the absolute path of
- * the running Node, since GUI clients often lack the user's PATH.
+ * the running Node, since GUI clients often lack the user's PATH, and with `--reload`, so a new
+ * build serves the next call without a client restart.
  */
 export function launchArgv(profile: string): string[] {
-  const start = launchKind() === 'npx' ? ['npx', '-y', packageName] : [process.execPath, BUILT_CLI];
-  return [...start, '--profile', profile];
+  return launchKind() === 'npx'
+    ? ['npx', '-y', packageName, '--profile', profile]
+    : [process.execPath, BUILT_CLI, '--profile', profile, '--reload'];
 }
 
 /** The entry name for `profile`: `sevdesk`, or `sevdesk-<profile>` when there are several profiles. */

@@ -1,5 +1,5 @@
 {
-  "cli.usage": "Usage: sevdesk-mcp [--profile <name>]\n       sevdesk-mcp setup [--add | --list | --remove <name>]\n       sevdesk-mcp config\n       sevdesk-mcp <command>\n\nWithout a command, starts the MCP server on stdio.\n\nOptions:\n  --profile <name>  Use only this profile; execute rejects any other account\n\nCommands:\n  setup      Manage profiles (sevDesk accounts); tokens go into the OS keychain\n  config     Change profiles, MCP client entries and settings in a menu\n  --help     Show this help\n  --version  Show the version\n\nOptions for setup:\n  --add            Add a profile or replace its token (the default)\n  --list           List the profiles with company name and read-only state\n  --remove <name>  Remove a profile and delete its token from the OS keychain\n\nExit codes:\n  {success}  Success\n  {failure}  Error while running\n  {usage}  Usage error (unknown command or option)",
+  "cli.usage": "Usage: sevdesk-mcp [--profile <name>] [--reload]\n       sevdesk-mcp setup [--add | --list | --remove <name>]\n       sevdesk-mcp config\n       sevdesk-mcp <command>\n\nWithout a command, starts the MCP server on stdio.\n\nOptions:\n  --profile <name>  Use only this profile; execute rejects any other account\n  --reload          Run a new build of this checkout from the next call on, without a client restart\n\nCommands:\n  setup      Manage profiles (sevDesk accounts); tokens go into the OS keychain\n  config     Change profiles, MCP client entries and settings in a menu\n  --help     Show this help\n  --version  Show the version\n\nOptions for setup:\n  --add            Add a profile or replace its token (the default)\n  --list           List the profiles with company name and read-only state\n  --remove <name>  Remove a profile and delete its token from the OS keychain\n\nExit codes:\n  {success}  Success\n  {failure}  Error while running\n  {usage}  Usage error (unknown command or option)",
   "cli.unknownCommand": "Unknown command: {command}",
   "cli.unknownOption": "Unknown option: {option}",
   "cli.unexpectedArgument": "Unexpected argument: {argument}",
@@ -45,7 +45,7 @@
   "setup.nothingRemoved": "Nothing was removed.",
   "setup.removed": "Profile {profile} ({company}) is removed; the OS keychain holds no token for it any more.",
   "setup.removeClientEntry": "If an MCP client runs sevdesk-mcp with --profile {profile}, remove that entry from its config.",
-  "setup.entryKindLocal": "Running from the local checkout {root}: the client entries start its build with this Node.js, not the published package. After every update, run bun run build there again.",
+  "setup.entryKindLocal": "Running from the local checkout {root}: the client entries start its build with this Node.js, not the published package. After every update, run bun run build there again; the next call then runs the new build, without restarting the client.",
   "setup.entryKindNpx": "The client entries start the published package with npx.",
   "setup.askAddEntry": "Add the server to {client} as {entry} ({file})? {choices} ",
   "setup.askReplaceEntry": "{client} already has an MCP server named {entry} ({file}). Replace it? {choices} ",
@@ -108,5 +108,6 @@
   "config.writeFailed": "The config file {file} could not be written ({reason}); it was left as it is.",
   "config.tokenUnreadable": "The token could not be read from the OS keychain: {reason}",
   "config.checkStopped": "The connection could not be checked.",
-  "config.connectionOk": "The connection of profile {profile} works."
+  "config.connectionOk": "The connection of profile {profile} works.",
+  "reload.restarted": "sevdesk-mcp: new build found, server restarted."
 }

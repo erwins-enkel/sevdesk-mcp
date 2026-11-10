@@ -18,7 +18,7 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   write call gets a line in the monthly audit log unless the config file sets `audit: false`.
   `sevdesk-mcp setup` adds a profile (token into the OS keychain) and registers it in the
   installed Claude Desktop, Claude Code, ChatGPT Desktop / Codex and OpenCode (run from a local
-  checkout, with an entry that starts its build, for the beta before npm), `setup --list`
+  checkout, with an entry that starts its build with `--reload`, for the beta before npm), `setup --list`
   lists the profiles and `setup --remove <name>` removes one with its token and client entries;
   `sevdesk-mcp config` changes profiles, client entries and the audit switch in a terminal menu.
   Priority A runs end to end against the spec-following mock in `bun run test`, and by hand
@@ -28,7 +28,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 ## Orientation
 
 - `src/cli.ts`: the `sevdesk-mcp` bin. No command starts the MCP server on stdio,
-  `--profile <name>` starts it pinned to that profile; `setup` (or `setup --add`) adds a profile
+  `--profile <name>` starts it pinned to that profile, `--reload` (either order, `serveOptions()`)
+  serves it through `serveWithReload()`; `setup` (or `setup --add`) adds a profile
   through `runSetup()`, `setup --remove <name>` removes one through `runRemove()` and `config` opens
   the menu through `runConfig()`, all only on a terminal (stdin and stdout TTYs, else exit 1;
   `interactive()`); `setup --list` lists the profiles through `runList()` without one; `--help` prints the usage, `--version` the version from
@@ -79,7 +80,7 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   Desktop, Claude Code, ChatGPT Desktop / Codex, OpenCode), `entryName()`, `launchKind()` (`npx`
   when `root` of `src/manifest.ts`, the package root, lies under `node_modules`, else `local`),
   `launchArgv()` (never a token; `local` runs `process.execPath` with the checkout's
-  `dist/cli.js`), `entryState()`, `entriesUsing()` (this package or this root's build; `profileEntries()` adds each entry's kind) and
+  `dist/cli.js` and `--reload`), `entryState()`, `entriesUsing()` (this package or this root's build; `profileEntries()` adds each entry's kind) and
   `rewriteServers()` (fresh re-read, a `<file>.sevdesk-mcp-<time>.bak` of the bytes read, then
   the write in the client's format).
   `src/client-formats.ts`: `ConfigFormat` (the servers in a file's text, the text with new servers)
@@ -95,6 +96,15 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   running. A new config key extends `toConfig()` and the README table. `saveProfile()` adds or
   updates one profile, `deleteProfile()` removes one, `setProfileKey()` sets or removes a profile's
   `readonly` or `downloadDir` and `setAudit()` sets `audit`; all keep every other key.
+- `src/reload.ts`: `serveWithReload()`, behind `--reload`: serves MCP through a child running the
+  same CLI without `--reload` and forwards the newline-delimited JSON-RPC lines unchanged. Before
+  each client line it starts a new child when the child ended, or when the build stamp (newest
+  mtime under the CLI's directory and `spec/`) changed and no request is in flight (answered or
+  `notifications/cancelled` ends one); the new child gets the client's 2025-era `initialize` replayed
+  (id `sevdesk-mcp-reload`, response swallowed) and `notifications/initialized`. A child that ends
+  answers its in-flight requests with a `-32603` error. Code Mode's fixed tools are what make the
+  swap invisible to the client; changed tool schemas, descriptions or `instructions` still need a
+  client restart.
 - `src/sandbox.ts`: `runSnippet()`, the QuickJS sandbox (a fresh WASM module per run, by
   default 30 s and 64 MB, captured `console.log`, error kinds
   `timeout`/`memory_limit`/`snippet_error`). Host functions (`HostFunction`) return promises to
@@ -230,7 +240,8 @@ Recorded at bootstrap (2026-11-09); details in `docs/decisions/0001-foundation.m
 5. **Database:** none (PRD §5.5: no database, no server state besides profiles), so CI has no
    `db` job.
 6. **Preview environments:** none. Try a branch locally with
-   `bun run build && claude mcp add sevdesk-dev -- node <worktree>/dist/cli.js`.
+   `bun run build && claude mcp add sevdesk-dev -- node <worktree>/dist/cli.js --reload`
+   (with `bun run build:watch` running, the next call runs each new build).
 7. **Worktree-safe tests:** no fixed ports, no shared paths. MCP tests use `InMemoryTransport`
    or spawn the entry over stdio. A mock sevDesk HTTP server listens on port `0` and reads
    the assigned port back. Config, PDF and audit-log directories come from a per-test
@@ -300,8 +311,9 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
     accounts refused; `--remove` offers to remove client entries. Client configs: back up first,
     ask per client, never overwrite silently; entry `sevdesk`/`sevdesk-<profile>` running
     `npx -y @erwins-enkel/sevdesk-mcp --profile <name>`; run from a local checkout (package root
-    not under `node_modules`) it runs `<absolute node> <checkout>/dist/cli.js --profile <name>`
-    instead, and `setup` says which kind it wrote (local beta, issue #22). No TTY → abort with the
+    not under `node_modules`) it runs `<absolute node> <checkout>/dist/cli.js` with
+    `--profile <name> --reload` instead (a new build serves the next call, no client restart), and
+    `setup` says which kind it wrote (local beta, issue #22). No TTY → abort with the
     env-var hint. Plain text, never colour-only, honour `NO_COLOR`. macOS, Windows and Linux are
     supported.
 11. **Copy (27, 28):** German CLI text uses "du", short, factual, gender-inclusive with a colon.
@@ -346,6 +358,8 @@ env vars vs `.env.schema`), `lint:actions` (actionlint on `.github/workflows/`).
 
 - Fix formatting: `bun run format`. One test file: `bunx vitest run test/cli.test.ts`.
 - Smoke the binary: `bun run build && node dist/cli.js` (speaks MCP on stdio).
+- Try changes in a real client: a local `setup` entry carries `--reload`; keep
+  `bun run build:watch` running and the client's next call runs the new build.
 - `bun run test:e2e` is not part of `verify`: it runs by hand against a real account with
   `SEVDESK_E2E_TOKEN` (plus `SEVDESK_E2E_MAIL_TO` for the mail test) and skips without the token.
 - Hooks: pre-commit runs lint-staged (eslint --fix + prettier on staged files), commit-msg
