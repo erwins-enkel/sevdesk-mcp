@@ -178,6 +178,21 @@ rules.
     (as §6 already says for a server restart). Changed tool schemas, descriptions or `instructions`
     still need a client restart. `npx` entries do not pass `--reload`. An earlier local entry
     without it is a "replace entry?" question when `setup` runs again.
+    **Addendum (2026-11-10, `version` in the local checkout):** Asked for its version, the server
+    answers itself, and from a local checkout it also updates itself. A server started from a
+    local checkout registers a third tool, `version`; an installed package never does, so the
+    product keeps its two tools (§1) and the tool does not count toward the §10 budget. `version`
+    reports the package version and the checkout's branch, HEAD, uncommitted tracked changes and,
+    after a `git fetch` of the branch's upstream, the commits waiting there. It offers an update
+    only when the branch is behind, has no commits of its own and no tracked file is changed. The
+    update names the offered commit (no token store, so it survives a reload between the calls)
+    and fast-forwards to exactly that commit, which must lie ahead of HEAD and on the upstream as
+    last fetched; then `bun install --frozen-lockfile` when `package.json` or `bun.lock` changed,
+    and `bun run build`. Every check, bun's presence included, runs before the fast-forward, so a
+    refusal changes nothing; a failed install or build after it is reported with the commit the
+    checkout is at, and nothing is rolled back. The `git fetch` is a connection besides sevDesk and
+    npm (decision 21): only from a local checkout, only when `version` is called, and it carries no
+    user data. The version answer of an installed package comes with the update check (§5.6).
 19. **Setup without a terminal, and accessibility of the CLI.**
     **Answer:** Without a TTY, `setup` aborts with a hint to `SEVDESK_API_TOKEN`; there are no
     non-interactive flags. Output is plain text, status is never conveyed by colour alone,

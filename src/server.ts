@@ -3,6 +3,7 @@ import { loadConfig } from './config.ts';
 import { registerExecuteTool } from './execute.ts';
 import { name, version } from './manifest.ts';
 import { registerSearchTool } from './search.ts';
+import { registerVersionTool } from './version.ts';
 
 // Sent to the client on connect. It describes only the tools that exist; later tools extend it.
 const instructions =
@@ -11,12 +12,17 @@ const instructions =
 /**
  * Builds the MCP server with its instructions and tools. Tools are registered here. The config file
  * is read once per server; an invalid one makes every tool return its error instead of running.
- * `pinnedProfile` (`--profile <name>`) limits `execute` to that one profile.
+ * `pinnedProfile` (`--profile <name>`) limits `execute` to that one profile. `checkout`, the local
+ * checkout this server runs from (never an installed package), adds the `version` tool for it.
  */
-export function createServer({ pinnedProfile }: { pinnedProfile?: string } = {}): McpServer {
+export function createServer({
+  pinnedProfile,
+  checkout,
+}: { pinnedProfile?: string; checkout?: string } = {}): McpServer {
   const config = loadConfig();
   const server = new McpServer({ name, version }, { instructions });
   registerSearchTool(server, config);
   registerExecuteTool(server, config, pinnedProfile);
+  if (checkout !== undefined) registerVersionTool(server, checkout);
   return server;
 }

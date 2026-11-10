@@ -2,6 +2,7 @@
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import { launchKind } from './clients.ts';
 import { runConfig } from './config-menu.ts';
 import { isProfileName } from './config.ts';
 import { type MessageKey, resolveLocale, t } from './i18n/index.ts';
@@ -46,14 +47,16 @@ interface ServeOptions {
 }
 
 /**
- * Serves MCP on stdio; `serveStdio` builds one server per connection. With `reload`, this process
- * serves through a child running this same CLI without `--reload`, and starts a new child once the
- * build next to this file (or the spec) changed; it settles when the client is gone.
+ * Serves MCP on stdio; `serveStdio` builds one server per connection, with the `version` tool when
+ * it runs from a local checkout. With `reload`, this process serves through a child running this
+ * same CLI without `--reload`, and starts a new child once the build next to this file (or the spec)
+ * changed; it settles when the client is gone.
  */
 async function serve({ profile, reload }: ServeOptions): Promise<void> {
   const pin = profile === undefined ? [] : ['--profile', profile];
   if (!reload) {
-    serveStdio(() => createServer({ pinnedProfile: profile }));
+    const checkout = launchKind() === 'local' ? root : undefined;
+    serveStdio(() => createServer({ pinnedProfile: profile, checkout }));
     return;
   }
   const cli = fileURLToPath(import.meta.url);
