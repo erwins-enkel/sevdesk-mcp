@@ -90,6 +90,7 @@ test.each([
     body: { order: { id: 1, objectName: 'Order', status: 200 } },
   },
   { name: 'a contact status', method: 'PUT', path: '/Contact/1', body: { status: 1000 } },
+  { name: 'a forced re-render of an order', path: '/Order/1/render', body: { forceReload: true } },
 ])('$name runs directly', ({ method = 'POST', path, body }) => {
   expect(confirmationReason(method, path, none, body)).toBeUndefined();
 });
