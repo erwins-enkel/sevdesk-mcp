@@ -7,6 +7,7 @@ import { version } from './manifest.ts';
 import { createPrompter } from './prompt.ts';
 import { createServer } from './server.ts';
 import { runList, runRemove, runSetup, type SetupIO, type SetupOutput } from './setup.ts';
+import { createOutput } from './terminal.ts';
 
 // The exit-code contract (POSIX convention). The usage text documents it from these values.
 const exitCodes = { success: 0, failure: 1, usage: 2 } as const;
@@ -45,15 +46,8 @@ function exitWith(done: boolean): void {
   process.exitCode = done ? exitCodes.success : exitCodes.failure;
 }
 
-/** Where `setup` and `config` write: lines on stdout, errors on stderr. */
-const output: SetupOutput = {
-  print: (text) => {
-    console.log(text);
-  },
-  fail: (text) => {
-    console.error(text);
-  },
-};
+/** Where `setup` and `config` write: lines on stdout, errors on stderr, styled for the terminal. */
+const output: SetupOutput = createOutput(process.stdout, process.stderr);
 
 /**
  * Runs an interactive command (`setup`, `config`): `run` asks its questions on the terminal and its outcome sets

@@ -8,7 +8,16 @@ import { runList } from '../src/setup.ts';
 import { writeConfig } from './config-file.ts';
 import { connect, envelopeOf } from './connect.ts';
 import { fakeKeychain } from './fake-keychain.ts';
-import { CHECK, COMPANY, filesHolding, mock, remove, setup, TOKEN } from './setup-dialogue.ts';
+import {
+  CHECK,
+  COMPANY,
+  filesHolding,
+  mock,
+  recordOutput,
+  remove,
+  setup,
+  TOKEN,
+} from './setup-dialogue.ts';
 
 // `setup` adds a profile (PRD §7, decisions 4, 18, 19), `setup --list` lists the profiles and
 // `setup --remove` removes one, driven through a scripted prompter against the fake keychain, a mock
@@ -19,10 +28,9 @@ vi.mock('../src/manifest.ts', () => import('./installed-package.ts'));
 
 /** Runs `setup --list` in `locale`. */
 function list(locale: Locale = 'en') {
-  const out: string[] = [];
-  const err: string[] = [];
-  const done = runList(locale, { print: (text) => out.push(text), fail: (text) => err.push(text) });
-  return { done, out: out.join('\n'), err: err.join('\n') };
+  const { output, lines } = recordOutput();
+  const done = runList(locale, output);
+  return { done, ...lines() };
 }
 
 function configJson(): unknown {
@@ -40,13 +48,13 @@ function expectNothingStored(err: string): void {
 test('a valid token is stored in the keychain, the profile in the config file, and the server resolves it', async () => {
   const sevdesk = await mock();
 
-  const { done, asked, out, err } = await setup(['acme', TOKEN, '']);
+  const { done, asked, out, successes, err } = await setup(['acme', TOKEN, '']);
 
   expect(done).toBe(true);
   expect(err).toBe('');
   expect(asked.map(({ hidden }) => hidden)).toEqual([false, true, false]);
   expect(out).toContain('Company: Acme GmbH\nBookkeeping system: 2.0');
-  expect(out).toContain('Profile acme (Acme GmbH) is set up.');
+  expect(successes).toBe('Profile acme (Acme GmbH) is set up.');
   expect(out).toContain('npx -y @erwins-enkel/sevdesk-mcp --profile acme');
   expect(fakeKeychain.tokens).toEqual(new Map([['acme', TOKEN]]));
   expect(fakeKeychain.accesses.every(({ service }) => service === 'sevdesk-mcp')).toBe(true);
@@ -70,12 +78,12 @@ test('a valid token is stored in the keychain, the profile in the config file, a
 test('read-only is asked in German and stored when the answer is yes', async () => {
   await mock();
 
-  const { done, asked, out } = await setup(['acme', TOKEN, 'J'], 'de');
+  const { done, asked, out, successes } = await setup(['acme', TOKEN, 'J'], 'de');
 
   expect(done).toBe(true);
   expect(asked[2]?.question).toContain('[j/N]');
   expect(out).toContain('Firma: Acme GmbH\nBuchhaltungssystem: 2.0');
-  expect(out).toContain('Das Profil acme (Acme GmbH) ist eingerichtet, nur lesend.');
+  expect(successes).toBe('Das Profil acme (Acme GmbH) ist eingerichtet, nur lesend.');
   expect(configJson()).toEqual({ profiles: { acme: { company: 'Acme GmbH', readonly: true } } });
 });
 
@@ -262,7 +270,7 @@ test('an invalid config file stops setup before anything is asked', async () => 
   expect(fakeKeychain.accesses).toEqual([]);
 });
 
-test('setup --list shows every profile with its company and access, and never touches the keychain', () => {
+test('setup --list shows every profile with its company and access in columns, and never touches the keychain', () => {
   writeConfig({
     profiles: { acme: { company: 'Acme GmbH' }, ro: { company: 'RO AG', readonly: true } },
   });
@@ -273,7 +281,7 @@ test('setup --list shows every profile with its company and access, and never to
   expect(done).toBe(true);
   expect(err).toBe('');
   expect(out).toBe(
-    `Profiles in ${configFile()}:\n  acme: Acme GmbH (read and write)\n  ro: RO AG (read-only)`,
+    `Profiles in ${configFile()}:\n  acme  Acme GmbH  read and write\n  ro    RO AG      read-only`,
   );
   expect(fakeKeychain.accesses).toEqual([]);
 });
@@ -286,8 +294,8 @@ test('setup --list names the access in German', () => {
   const { done, out } = list('de');
 
   expect(done).toBe(true);
-  expect(out).toContain('  acme: Acme GmbH (lesend und schreibend)');
-  expect(out).toContain('  ro: RO AG (nur lesend)');
+  expect(out).toContain('  acme  Acme GmbH  lesend und schreibend');
+  expect(out).toContain('  ro    RO AG      nur lesend');
 });
 
 test('setup --list without a config file says there are no profiles', () => {
@@ -321,9 +329,12 @@ test('setup --remove deletes the token and the config entry after a yes and keep
   fakeKeychain.tokens.set('acme', TOKEN);
   fakeKeychain.tokens.set('other', 'other-token');
 
-  const { done, asked, out, err } = await remove('acme', ['y']);
+  const { done, asked, out, successes, err } = await remove('acme', ['y']);
 
   expect(done).toBe(true);
+  expect(successes).toBe(
+    'Profile acme (Acme GmbH) is removed; the OS keychain holds no token for it any more.',
+  );
   expect(err).toBe('');
   expect(asked).toEqual([
     {

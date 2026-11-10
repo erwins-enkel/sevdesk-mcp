@@ -43,19 +43,29 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   build), `registerClients()` asks per installed client (`installedClients()`) and
   `unregisterClients()` does the same after `--remove`; a cancel there reports `setup.clientsLeft`,
   and a client config that fails makes the run resolve false. `runList(locale, out)` prints every
-  profile with company and read-only state from the config file alone (never the keychain). `runRemove(locale, io, name)` asks (default no), then
+  profile with company and read-only state in columns from the config file alone (never the keychain). `runRemove(locale, io, name)` asks (default no), then
   deletes the token (`deleteToken()`) before the config entry (`deleteProfile()`), so no token is
-  left without a profile. `src/prompt.ts`: `createPrompter()`, Node's readline with hidden input;
+  left without a profile. `SetupOutput` has four channels: `print` (info), `heading`, `success`
+  (an outcome that went well) and `fail` (stderr); the commands pass unmarked text and the terminal
+  edge marks it. `src/prompt.ts`: `createPrompter()`, Node's readline with hidden input;
   Ctrl+C or the end of the input resolves `undefined`, for `ask()` and `choose()` alike.
+- `src/terminal.ts`: how `setup` and `config` look on a terminal (decision 19). `MARKS` (`?` question,
+  `❯` marked item, `✔` success and picked menu, `›`, `✖` failure; text after a mark starts in the
+  third column, unmarked lines are indented by two), `stylesFor()` (SGR only when the stream's
+  `hasColors()` is true, which already honours `NO_COLOR`, `FORCE_COLOR=0` and `TERM=dumb`, so no env
+  var is read), `createOutput()` (the `SetupOutput` of `src/cli.ts`), `columns()` and `widthOf()`.
 - `src/config-menu.ts`: `runConfig(locale, io)`, the `config` menu (issue #46): an overview
   (config file, audit log, each profile with company, read-only state, download directory and its
   entries per installed client with their kind, `profileEntries()`; never the keychain) and menus
   through `Prompter.choose()` that toggle `readonly` and set or reset `downloadDir`
   (`setProfileKey()`), toggle `audit` (`setAudit()`), and hand off to setup's `runRegister()`,
   `runUnregister()`, `runCheck()` (keychain token against `GET /SevClient` and the bookkeeping
-  system), `runRemove()` and `runSetup()`. A cancelled menu leaves every menu at once.
-  `createPrompter().choose()` draws a plain-text menu (`>` marks the item; arrow keys, 1 to 9,
-  Enter, Esc or q) on readline's keypress events, muting readline's echo meanwhile.
+  system), `runRemove()` and `runSetup()`. A cancelled menu leaves every menu at once. The overview
+  is laid out with `columns()` and shows paths under the home directory as `~` (`displayPath()`).
+  `createPrompter().choose()` draws a menu (`?` title, `❯` marks the item, the key hint below; arrow
+  keys, 1 to 9, Enter, Esc or q) on readline's keypress events, muting readline's echo meanwhile.
+  It redraws and erases itself by its row count (wrapped rows included): a pick leaves its empty
+  line and `✔ title › item`, going back or cancelling leaves nothing.
 - `src/server.ts`: `createServer({ pinnedProfile })`, the single place where MCP tools and the
   MCP `instructions` get registered; it reads the config file once per server.
 - `src/paths.ts`: `localDirs()`, the OS-standard config and data/state directories (XDG on
