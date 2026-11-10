@@ -39,7 +39,7 @@ const routes: MockRoutes = {
     json: { objects: [{ id: '42', objectName: 'Order', orderType: 'AN', orderNumber: 'AN-1042' }] },
   }),
   [`POST ${SEND}`]: () => ({ status: 201, json: { objects: { id: '9', objectName: 'Email' } } }),
-  [`GET ${PDF}`]: () => ({ json: { objects: { base64encoded: true, content: 'JVBERi0xLjQ=' } } }),
+  [`GET ${PDF}`]: () => ({ json: { objects: { base64Encoded: true, content: 'JVBERi0xLjQ=' } } }),
 };
 
 beforeEach(() => {

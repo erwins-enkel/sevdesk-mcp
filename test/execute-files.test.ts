@@ -46,15 +46,17 @@ function document(field: string, number: string | null) {
   return () => ({ json: { objects: [{ id: '7', [field]: number }] } });
 }
 
-/** A getPdf response with `PDF` in base64, wrapped in `objects` or at the top level. */
+/**
+ * A getPdf response with `PDF` in base64: wrapped in `objects` with the `base64Encoded` flag as
+ * sevDesk sends it, or at the top level with `base64encoded` as the official spec documents it.
+ */
 function pdf(wrapped = true) {
-  const file = {
-    filename: 'x.pdf',
-    mimeType: 'application/pdf',
-    base64encoded: true,
-    content: BASE64,
-  };
-  return () => ({ json: wrapped ? { objects: file } : file });
+  const file = { filename: 'x.pdf', mimeType: 'application/pdf', content: BASE64 };
+  return () => ({
+    json: wrapped
+      ? { objects: { ...file, base64Encoded: true } }
+      : { ...file, base64encoded: true },
+  });
 }
 
 /** The requests the code made, without the bookkeeping-system check. */
@@ -254,7 +256,7 @@ test('an unexpected PDF response, an unknown document and a non-JSON page fail w
   const sevdesk = await mock({
     'GET /Order/1': document('orderNumber', 'AN-1'),
     'GET /Order/1/getPdf': () => ({
-      json: { objects: { filename: 'AN-1.pdf', base64encoded: false, content: 'abc' } },
+      json: { objects: { filename: 'AN-1.pdf', base64Encoded: false, content: 'abc' } },
     }),
     'GET /Order/2': document('orderNumber', 'AN-2'),
     'GET /Order/2/getPdf': () => ({ contentType: 'application/pdf', bytes: PDF }),
