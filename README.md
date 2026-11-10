@@ -170,7 +170,8 @@ The server never guesses which account a call is for:
 1. With `SEVDESK_API_TOKEN` set, it has exactly that one profile (named by `SEVDESK_PROFILE`,
    default `env`) and does not read the keychain; otherwise it has the profiles of the config file.
 2. `sevdesk-mcp --profile <name>` pins the server to one of them; `execute` accepts no other
-   `account`.
+   `account`. (`--reload`, for a local checkout's entries, is described under
+   [beta testing](#beta-testing-from-a-local-checkout).)
 3. Otherwise, with exactly one profile, `execute` uses it.
 4. With several, `execute` needs `account`; without it, it answers `account_required` with the
    profile names and companies.
@@ -275,13 +276,21 @@ folder under `node_modules` (as with `npx` or a global install), and as a local 
    it: `bun install && bun run build`. The client entries point into this folder.
 2. Run `node dist/cli.js setup` there. It says that it runs from the local checkout, and every
    client entry it writes starts the checkout's build: the absolute path of the Node.js you ran it
-   with (GUI clients often lack your `PATH`), the checkout's `dist/cli.js` and
-   `--profile <name>`, for example
-   `"command": "/usr/local/bin/node", "args": ["/home/you/sevdesk-mcp/dist/cli.js", "--profile", "acme"]`.
+   with (GUI clients often lack your `PATH`), the checkout's `dist/cli.js`, `--profile <name>`
+   and `--reload`, for example
+   `"command": "/usr/local/bin/node", "args": ["/home/you/sevdesk-mcp/dist/cli.js", "--profile", "acme", "--reload"]`.
+   An entry written before `--reload` existed is offered for replacement when you run `setup` again.
    Everything else is as described under [MCP clients](#mcp-clients): the same entry names, a
    backup first, a question per client, nothing replaced without an explicit yes.
-3. After every `git pull`, run `bun install && bun run build` again and restart the clients; the
-   entries stay as they are. If you move the checkout or remove that Node.js (for example with a
+3. After every `git pull`, run `bun install && bun run build` again; the entries stay as they are.
+   With `--reload` the client needs no restart: before each call the server checks whether the
+   build (`dist/`) or the spec (`spec/`) changed, and once no call is in flight it starts the real
+   server anew with the new build, behind the same connection. A server that ends (a crash, a broken
+   build) answers its open calls with an error and starts again on the next call. A client restart
+   is still needed for changes the client fetched once at connect (tool names, input schemas,
+   descriptions, the instructions), for changes to the reload itself (`src/reload.ts`, `src/cli.ts`)
+   and for config-file changes. A restart drops the confirmation tokens of held calls; ask for the
+   preview again. If you move the checkout or remove that Node.js (for example with a
    version manager), run `setup` again and replace the entries. `setup --remove <name>` run from
    the checkout also offers to remove its entries.
 4. Once the package is published, switch with `npx @erwins-enkel/sevdesk-mcp setup` and the same
@@ -296,6 +305,7 @@ Requirements: [Bun](https://bun.sh) ≥ 1.4.4 and Node.js ≥ 22.18.
 bun install       # dependencies + git hooks
 bun run verify    # everything CI checks
 bun run build && node dist/cli.js   # start the server on stdio
+bun run build:watch   # rebuild dist/ on every change; a --reload entry runs it from the next call
 bun run update-spec   # refresh the embedded sevDesk API specification
 bun run test:e2e      # by hand only: Priority A against a real sevDesk account
 ```

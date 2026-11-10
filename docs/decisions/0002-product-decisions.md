@@ -155,6 +155,15 @@ rules.
     backup first, a question per client, no silent overwrite, and `setup --remove` run from the
     checkout also offers to remove the entries that start its build. Switching to the published
     package later is an ordinary "replace entry?" question when `setup` runs again through `npx`.
+    **Addendum (2026-11-10, reload without a client restart):** The local entry also passes
+    `--reload`. Clients such as Claude Desktop start the server once and cannot restart one server
+    alone, so every new build of the checkout needed a full client restart. With `--reload` the
+    started process serves through a child running the real server and starts a new child once the
+    build changed and no call is in flight, replaying the client's opening; Code Mode's two fixed
+    tools keep the swap invisible to the client. A restart drops held calls' confirmation tokens
+    (as §6 already says for a server restart). Changed tool schemas, descriptions or `instructions`
+    still need a client restart. `npx` entries do not pass `--reload`. An earlier local entry
+    without it is a "replace entry?" question when `setup` runs again.
 19. **Setup without a terminal, and accessibility of the CLI.**
     **Answer:** Without a TTY, `setup` aborts with a hint to `SEVDESK_API_TOKEN`; there are no
     non-interactive flags. Output is plain text, status is never conveyed by colour alone,

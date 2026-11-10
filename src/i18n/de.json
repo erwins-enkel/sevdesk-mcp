@@ -1,5 +1,5 @@
 {
-  "cli.usage": "Aufruf: sevdesk-mcp [--profile <name>]\n        sevdesk-mcp setup [--add | --list | --remove <name>]\n        sevdesk-mcp config\n        sevdesk-mcp <Befehl>\n\nOhne Befehl startet der MCP-Server auf stdio.\n\nOptionen:\n  --profile <name>  Nur dieses Profil verwenden; execute lehnt jedes andere Konto ab\n\nBefehle:\n  setup      Profile (sevDesk-Konten) verwalten; Tokens kommen in den Schlüsselbund\n  config     Profile, MCP-Client-Einträge und Einstellungen in einem Menü ändern\n  --help     Diese Hilfe anzeigen\n  --version  Version anzeigen\n\nOptionen für setup:\n  --add            Profil hinzufügen oder seinen Token ersetzen (Standard)\n  --list           Profile mit Firmenname und Lesemodus auflisten\n  --remove <name>  Profil entfernen und seinen Token aus dem Schlüsselbund löschen\n\nExit-Codes:\n  {success}  Erfolg\n  {failure}  Fehler bei der Ausführung\n  {usage}  Falscher Aufruf (unbekannter Befehl oder unbekannte Option)",
+  "cli.usage": "Aufruf: sevdesk-mcp [--profile <name>] [--reload]\n        sevdesk-mcp setup [--add | --list | --remove <name>]\n        sevdesk-mcp config\n        sevdesk-mcp <Befehl>\n\nOhne Befehl startet der MCP-Server auf stdio.\n\nOptionen:\n  --profile <name>  Nur dieses Profil verwenden; execute lehnt jedes andere Konto ab\n  --reload          Einen neuen Build dieses Checkouts ab dem nächsten Aufruf nutzen, ohne Client-Neustart\n\nBefehle:\n  setup      Profile (sevDesk-Konten) verwalten; Tokens kommen in den Schlüsselbund\n  config     Profile, MCP-Client-Einträge und Einstellungen in einem Menü ändern\n  --help     Diese Hilfe anzeigen\n  --version  Version anzeigen\n\nOptionen für setup:\n  --add            Profil hinzufügen oder seinen Token ersetzen (Standard)\n  --list           Profile mit Firmenname und Lesemodus auflisten\n  --remove <name>  Profil entfernen und seinen Token aus dem Schlüsselbund löschen\n\nExit-Codes:\n  {success}  Erfolg\n  {failure}  Fehler bei der Ausführung\n  {usage}  Falscher Aufruf (unbekannter Befehl oder unbekannte Option)",
   "cli.unknownCommand": "Unbekannter Befehl: {command}",
   "cli.unknownOption": "Unbekannte Option: {option}",
   "cli.unexpectedArgument": "Unerwartetes Argument: {argument}",
@@ -45,7 +45,7 @@
   "setup.nothingRemoved": "Es wurde nichts entfernt.",
   "setup.removed": "Das Profil {profile} ({company}) ist entfernt; im Schlüsselbund liegt kein Token mehr dafür.",
   "setup.removeClientEntry": "Startet ein MCP-Client sevdesk-mcp mit --profile {profile}, entferne diesen Eintrag aus seiner Konfiguration.",
-  "setup.entryKindLocal": "Läuft aus dem lokalen Checkout {root}: Die Client-Einträge starten dessen Build mit diesem Node.js, nicht das veröffentlichte Paket. Führ dort nach jedem Update erneut bun run build aus.",
+  "setup.entryKindLocal": "Läuft aus dem lokalen Checkout {root}: Die Client-Einträge starten dessen Build mit diesem Node.js, nicht das veröffentlichte Paket. Führ dort nach jedem Update erneut bun run build aus; der nächste Aufruf nutzt dann den neuen Build, ohne Client-Neustart.",
   "setup.entryKindNpx": "Die Client-Einträge starten das veröffentlichte Paket mit npx.",
   "setup.askAddEntry": "Den Server in {client} als {entry} eintragen ({file})? {choices} ",
   "setup.askReplaceEntry": "{client} hat schon einen MCP-Server namens {entry} ({file}). Ersetzen? {choices} ",
@@ -108,5 +108,6 @@
   "config.writeFailed": "Die Konfigurationsdatei {file} konnte nicht geschrieben werden ({reason}); sie bleibt unverändert.",
   "config.tokenUnreadable": "Der Token konnte nicht aus dem Schlüsselbund gelesen werden: {reason}",
   "config.checkStopped": "Die Verbindung konnte nicht geprüft werden.",
-  "config.connectionOk": "Die Verbindung des Profils {profile} funktioniert."
+  "config.connectionOk": "Die Verbindung des Profils {profile} funktioniert.",
+  "reload.restarted": "sevdesk-mcp: neuer Build gefunden, Server neu gestartet."
 }

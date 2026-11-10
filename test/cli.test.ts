@@ -52,13 +52,13 @@ test("a spawned server reads the config from the test's temporary directory", as
  * A stdio client transport that also records every raw line the server writes to stdout. The SDK's
  * own transport silently skips non-JSON lines, so it could not show stray output.
  */
-function recordingStdioTransport(): { transport: Transport; lines: string[] } {
+function recordingStdioTransport(args: string[]): { transport: Transport; lines: string[] } {
   const lines: string[] = [];
   let child: ChildProcessByStdio<Writable, Readable, null> | undefined;
   let pending = '';
   const transport: Transport = {
     start() {
-      child = spawn(process.execPath, [cli], { stdio: ['pipe', 'pipe', 'inherit'] });
+      child = spawn(process.execPath, [cli, ...args], { stdio: ['pipe', 'pipe', 'inherit'] });
       child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
         const parts = (pending + chunk).split('\n');
         pending = parts.pop() ?? '';
@@ -91,28 +91,31 @@ function isJson(line: string): boolean {
   }
 }
 
-test('search over stdio counts the embedded spec paths and keeps console output off stdout', async () => {
-  const spec = JSON.parse(
-    readFileSync(new URL('../spec/sevdesk-openapi.json', import.meta.url), 'utf8'),
-  ) as { paths: Record<string, unknown> };
-  const { transport, lines } = recordingStdioTransport();
-  const client = new Client({ name: 'test-client', version: '0.0.0' });
-  await client.connect(transport);
+test.each([[[]], [['--reload']]])(
+  'search over stdio %j counts the embedded spec paths and keeps console output off stdout',
+  async (args: string[]) => {
+    const spec = JSON.parse(
+      readFileSync(new URL('../spec/sevdesk-openapi.json', import.meta.url), 'utf8'),
+    ) as { paths: Record<string, unknown> };
+    const { transport, lines } = recordingStdioTransport(args);
+    const client = new Client({ name: 'test-client', version: '0.0.0' });
+    await client.connect(transport);
 
-  const result = await client.callTool({
-    name: 'search',
-    arguments: { code: 'console.log("stdout-guard"); return Object.keys(spec.paths).length' },
-  });
-  await client.close();
+    const result = await client.callTool({
+      name: 'search',
+      arguments: { code: 'console.log("stdout-guard"); return Object.keys(spec.paths).length' },
+    });
+    await client.close();
 
-  const [block] = result.content as [{ type: 'text'; text: string }];
-  expect(JSON.parse(block.text)).toEqual({
-    result: Object.keys(spec.paths).length,
-    console: ['stdout-guard'],
-  });
-  expect(lines.length).toBeGreaterThan(0);
-  expect(lines.filter((line) => !isJson(line))).toEqual([]);
-});
+    const [block] = result.content as [{ type: 'text'; text: string }];
+    expect(JSON.parse(block.text)).toEqual({
+      result: Object.keys(spec.paths).length,
+      console: ['stdout-guard'],
+    });
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.filter((line) => !isJson(line))).toEqual([]);
+  },
+);
 
 test('--profile pins a spawned server: execute offers only that account', async () => {
   writeConfig({ profiles: { a: { company: 'Company A' }, b: { company: 'Company B' } } });
@@ -129,6 +132,29 @@ test('--profile pins a spawned server: execute offers only that account', async 
   expect(execute?.inputSchema.properties).toHaveProperty('account.enum', ['a']);
 });
 
+test('--profile with --reload serves the pinned server through its child, in either order', async () => {
+  writeConfig({ profiles: { a: { company: 'Company A' }, b: { company: 'Company B' } } });
+  for (const args of [
+    ['--profile', 'a', '--reload'],
+    ['--reload', '--profile', 'a'],
+  ]) {
+    const client = new Client({ name: 'test-client', version: '0.0.0' });
+    await client.connect(
+      new StdioClientTransport({ command: process.execPath, args: [cli, ...args] }),
+    );
+
+    // The tools only, and a search: a spawned server uses the real keychain and must read no token.
+    const { tools } = await client.listTools();
+    const result = await client.callTool({ name: 'search', arguments: { code: 'return 6 * 7' } });
+    await client.close();
+
+    const execute = tools.find((tool) => tool.name === 'execute');
+    expect(execute?.inputSchema.properties).toHaveProperty('account.enum', ['a']);
+    const [block] = result.content as [{ type: 'text'; text: string }];
+    expect(JSON.parse(block.text)).toEqual({ result: 42 });
+  }
+});
+
 test.each([
   [['--profile'], '--profile needs a profile name'],
   [
@@ -136,6 +162,11 @@ test.each([
     'Invalid profile name: Bad_Name (1 to 32 characters: a-z, 0-9 and -)',
   ],
   [['--profile', 'a', 'extra'], 'Unexpected argument: extra'],
+  [['--profile', 'a', '--profile', 'b'], 'Unexpected argument: --profile'],
+  [['--reload', '--reload'], 'Unexpected argument: --reload'],
+  [['--reload', 'extra'], 'Unexpected argument: extra'],
+  [['--reload', '--nope'], 'Unknown option: --nope'],
+  [['--reload', '--profile'], '--profile needs a profile name'],
 ])('%j is a usage error and starts no server', (args, message) => {
   const result = run(args, 'en_US.UTF-8');
 
@@ -268,7 +299,7 @@ test('an argument after --version is a usage error', () => {
   expect(result.stderr).toContain('Unexpected argument: extra');
 });
 
-test('--help documents --profile, the setup options, --version and the exit codes and exits zero', () => {
+test('--help documents --profile, --reload, the setup options, --version and the exit codes and exits zero', () => {
   const result = run(['--help'], 'en_US.UTF-8');
 
   expect(result.status).toBe(0);
@@ -281,8 +312,10 @@ test('--help documents --profile, the setup options, --version and the exit code
       '  --remove <name>  Remove a profile and delete its token from the OS keychain\n',
   );
   expect(result.stdout).toContain('--version  Show the version');
+  expect(result.stdout).toContain('Usage: sevdesk-mcp [--profile <name>] [--reload]\n');
   expect(result.stdout).toContain(
-    '--profile <name>  Use only this profile; execute rejects any other account',
+    '--profile <name>  Use only this profile; execute rejects any other account\n' +
+      '  --reload          Run a new build of this checkout from the next call on, without a client restart\n',
   );
   expect(result.stdout).toContain('  0  Success');
   expect(result.stdout).toContain(`  ${String(FAILURE)}  Error while running`);
@@ -290,7 +323,7 @@ test('--help documents --profile, the setup options, --version and the exit code
   expect(result.stdout).not.toContain('{');
 });
 
-test('--help in German documents --profile, the setup options, --version and the exit codes', () => {
+test('--help in German documents --profile, --reload, the setup options, --version and the exit codes', () => {
   const result = run(['--help'], 'de_DE.UTF-8');
 
   expect(result.status).toBe(0);
@@ -303,7 +336,8 @@ test('--help in German documents --profile, the setup options, --version and the
   );
   expect(result.stdout).toContain('--version  Version anzeigen');
   expect(result.stdout).toContain(
-    '--profile <name>  Nur dieses Profil verwenden; execute lehnt jedes andere Konto ab',
+    '--profile <name>  Nur dieses Profil verwenden; execute lehnt jedes andere Konto ab\n' +
+      '  --reload          Einen neuen Build dieses Checkouts ab dem nächsten Aufruf nutzen, ohne Client-Neustart\n',
   );
   expect(result.stdout).toContain('Exit-Codes:');
   expect(result.stdout).toContain('  0  Erfolg');

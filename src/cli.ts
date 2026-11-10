@@ -1,10 +1,13 @@
 #!/usr/bin/env node
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { runConfig } from './config-menu.ts';
 import { isProfileName } from './config.ts';
 import { type MessageKey, resolveLocale, t } from './i18n/index.ts';
-import { version } from './manifest.ts';
+import { root, version } from './manifest.ts';
 import { createPrompter } from './prompt.ts';
+import { serveWithReload } from './reload.ts';
 import { createServer } from './server.ts';
 import { runList, runRemove, runSetup, type SetupIO, type SetupOutput } from './setup.ts';
 import { createOutput } from './terminal.ts';
@@ -36,9 +39,63 @@ function strayArgument(argument: string): void {
   );
 }
 
-/** Serves MCP on stdio; `serveStdio` builds one server per connection. */
-function serve(pinnedProfile?: string): void {
-  serveStdio(() => createServer({ pinnedProfile }));
+/** How the server is served: pinned to a profile (`--profile <name>`), and with `--reload`. */
+interface ServeOptions {
+  profile?: string;
+  reload: boolean;
+}
+
+/**
+ * Serves MCP on stdio; `serveStdio` builds one server per connection. With `reload`, this process
+ * serves through a child running this same CLI without `--reload`, and starts a new child once the
+ * build next to this file (or the spec) changed; it settles when the client is gone.
+ */
+async function serve({ profile, reload }: ServeOptions): Promise<void> {
+  const pin = profile === undefined ? [] : ['--profile', profile];
+  if (!reload) {
+    serveStdio(() => createServer({ pinnedProfile: profile }));
+    return;
+  }
+  const cli = fileURLToPath(import.meta.url);
+  await serveWithReload({
+    command: [process.execPath, ...process.execArgv, cli, ...pin],
+    watch: [dirname(cli), join(root, 'spec')],
+    onRestart: () => {
+      console.error(t(locale, 'reload.restarted'));
+    },
+  });
+}
+
+/**
+ * The options of a serving start, `[--profile <name>] [--reload]`, each at most once and in either
+ * order. A missing or invalid name, a repeated option and any other argument are reported as a usage
+ * error, and the result is undefined.
+ */
+function serveOptions(args: string[]): ServeOptions | undefined {
+  const options: ServeOptions = { reload: false };
+  for (let at = 0; at < args.length; at += 1) {
+    const arg = args[at] ?? '';
+    if (arg === '--reload' && !options.reload) {
+      options.reload = true;
+    } else if (arg === '--profile' && options.profile === undefined) {
+      at += 1;
+      options.profile = profileName(arg, args[at]);
+      if (options.profile === undefined) return undefined;
+    } else {
+      rejectServeArgument(arg);
+      return undefined;
+    }
+  }
+  return options;
+}
+
+/** Reports `arg` as a usage error of a serving start; a repeated option is known, not unknown. */
+function rejectServeArgument(arg: string): void {
+  if (arg === '--reload' || arg === '--profile') {
+    usageError(t(locale, 'cli.unexpectedArgument', { argument: arg }));
+  } else {
+    strayArgument(arg);
+  }
 }
 
 /** Sets the exit code from a command's outcome: success when it is done, else failure. */
@@ -72,20 +129,31 @@ async function interactive(
 }
 
 /**
- * The profile name after `option` (`--profile <name>`, `setup --remove <name>`). A missing or invalid
- * name and an argument after it are reported as a usage error, and the result is undefined.
+ * `profile`, the name after `option` (`--profile <name>`, `setup --remove <name>`). A missing or
+ * invalid name is reported as a usage error, and the result is undefined.
  */
-function profileOperand(option: string, [profile, extra]: string[]): string | undefined {
+function profileName(option: string, profile: string | undefined): string | undefined {
   if (profile === undefined) {
     usageError(t(locale, 'cli.missingProfileName', { option }));
   } else if (!isProfileName(profile)) {
     usageError(t(locale, 'cli.invalidProfileName', { profile }));
-  } else if (extra !== undefined) {
-    usageError(t(locale, 'cli.unexpectedArgument', { argument: extra }));
   } else {
     return profile;
   }
   return undefined;
+}
+
+/**
+ * The profile name after `option` with nothing after it (`setup --remove <name>`). A missing or
+ * invalid name and an argument after it are reported as a usage error, and the result is undefined.
+ */
+function profileOperand(option: string, [profile, extra]: string[]): string | undefined {
+  const name = profileName(option, profile);
+  if (name !== undefined && extra !== undefined) {
+    usageError(t(locale, 'cli.unexpectedArgument', { argument: extra }));
+    return undefined;
+  }
+  return name;
 }
 
 /** `setup --remove <name>`: removes the profile after a yes on the terminal. */
@@ -120,11 +188,10 @@ async function setup([option = '--add', ...operands]: string[]): Promise<void> {
 
 switch (command) {
   case undefined:
-    serve();
-    break;
-  case '--profile': {
-    const profile = profileOperand(command, rest);
-    if (profile !== undefined) serve(profile);
+  case '--profile':
+  case '--reload': {
+    const options = serveOptions(process.argv.slice(2));
+    if (options !== undefined) await serve(options);
     break;
   }
   case '--help':

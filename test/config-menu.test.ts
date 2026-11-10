@@ -33,7 +33,7 @@ const checkout = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const localEntry = (profile: string) => ({
   type: 'stdio',
   command: process.execPath,
-  args: [join(checkout, 'dist', 'cli.js'), '--profile', profile],
+  args: [join(checkout, 'dist', 'cli.js'), '--profile', profile, '--reload'],
 });
 
 /** `path` under the home directory as the overview shows it, with `~` for the home directory. */

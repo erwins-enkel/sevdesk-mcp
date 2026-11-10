@@ -26,8 +26,8 @@ const checkout = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const node = process.execPath;
 const cli = join(checkout, 'dist', 'cli.js');
 
-/** The command line of a local-build entry for `profile`. */
-const argv = (profile: string) => [node, cli, '--profile', profile];
+/** The command line of a local-build entry for `profile`: it reloads a new build (`--reload`). */
+const argv = (profile: string) => [node, cli, '--profile', profile, '--reload'];
 
 /** The entry setup writes into Claude Desktop's and Codex's configs for `profile`. */
 function plainEntry(profile: string) {
@@ -68,7 +68,7 @@ test('run from a local checkout, setup registers its build with the absolute Nod
     mcp: { sevdesk: { type: 'local', command: argv('acme') } },
   });
   expect(out).toContain(
-    `Running from the local checkout ${checkout}: the client entries start its build with this Node.js, not the published package. After every update, run bun run build there again.`,
+    `Running from the local checkout ${checkout}: the client entries start its build with this Node.js, not the published package. After every update, run bun run build there again; the next call then runs the new build, without restarting the client.`,
   );
   expect(out).toContain(`For other MCP clients, use this command: ${argv('acme').join(' ')}`);
   expect(out).not.toContain('npx');
@@ -85,6 +85,22 @@ test('without an installed client, setup says in German that it runs from the lo
     `Läuft aus dem lokalen Checkout ${checkout}: Die Client-Einträge starten dessen Build mit diesem Node.js, nicht das veröffentlichte Paket.`,
   );
   expect(out).toContain(`Trag diesen Befehl in deinen MCP-Client ein: ${argv('acme').join(' ')}`);
+});
+
+test('a local-build entry without --reload is replaced by one with it after an explicit yes', async () => {
+  await mock();
+  const [command, ...args] = argv('acme');
+  const old = { command, args: args.slice(0, -1) };
+  const file = writeClient(desktopFile(), { mcpServers: { sevdesk: old } });
+
+  const { done, asked } = await setup(['acme', TOKEN, '', 'y']);
+
+  expect(done).toBe(true);
+  expect(asked[3]?.question).toBe(
+    `Claude Desktop already has an MCP server named sevdesk (${file}). Replace it? [y/N] `,
+  );
+  expect(json(file)).toEqual({ mcpServers: { sevdesk: plainEntry('acme') } });
+  expect(backupsOf(file).map((backup) => json(backup))).toEqual([{ mcpServers: { sevdesk: old } }]);
 });
 
 test('setup --remove run from the checkout removes the local-build entries of the profile', async () => {
