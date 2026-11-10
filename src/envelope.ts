@@ -85,6 +85,13 @@ export function toToolResult(
   return outcome.ok ? { content } : { content, isError: true };
 }
 
+/** The tool result of a call that runs no code (`version`): its `result`, and `notes` if any. */
+export function plainResult(result: unknown, notes: string[] = []): CallToolResult {
+  const envelope: Envelope = { result };
+  if (notes.length > 0) envelope.notes = notes;
+  return { content: [{ type: 'text', text: JSON.stringify(envelope) }] };
+}
+
 /** The tool result of an error that ended the call before any code ran. */
 export function errorResult(error: SnippetError): CallToolResult {
   // Without a return value or console output there is nothing to cut.

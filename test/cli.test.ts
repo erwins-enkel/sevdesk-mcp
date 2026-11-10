@@ -32,6 +32,17 @@ test('serves MCP over stdio when started without a command', async () => {
   await client.close();
 });
 
+test('a server started from the local checkout also offers version', async () => {
+  const client = new Client({ name: 'test-client', version: '0.0.0' });
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: [cli] }));
+
+  // Listed only: a call would fetch this repository's upstream.
+  const { tools } = await client.listTools();
+  await client.close();
+
+  expect(tools.map((tool) => tool.name)).toEqual(['search', 'execute', 'version']);
+});
+
 test("a spawned server reads the config from the test's temporary directory", async () => {
   writeConfig({ limits: { outputChars: 10 } });
   const client = new Client({ name: 'test-client', version: '0.0.0' });

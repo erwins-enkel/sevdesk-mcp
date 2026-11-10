@@ -299,7 +299,18 @@ folder under `node_modules` (as with `npx` or a global install), and as a local 
    preview again. If you move the checkout or remove that Node.js (for example with a
    version manager), run `setup` again and replace the entries. `setup --remove <name>` run from
    the checkout also offers to remove its entries.
-4. Once the package is published, switch with `npx @erwins-enkel/sevdesk-mcp setup` and the same
+4. Or ask the client for the sevdesk MCP's version. A server started from a local checkout has a
+   third tool, `version` (the installed package keeps its two): it reports the package version,
+   the checkout's branch and commit and, after a `git fetch` of the branch's upstream, the commits
+   waiting there. When some are, the model asks you, and after your yes the server fast-forwards
+   the checkout to exactly the commit it offered, runs `bun install --frozen-lockfile` when
+   `package.json` or `bun.lock` changed, and runs `bun run build`; with `--reload` the next call
+   runs the new build. It changes nothing when tracked files have uncommitted changes, the branch
+   has commits of its own or no upstream, or bun is found neither on the client's `PATH` nor in
+   `~/.bun/bin`. If the install or the build fails after the fast-forward, it says so and nothing
+   is rolled back: run `bun install && bun run build` in the checkout. A client fetches the tool
+   list once, so after the build that first brings `version`, restart the client once.
+5. Once the package is published, switch with `npx @erwins-enkel/sevdesk-mcp setup` and the same
    profile name: replace the profile (it asks for the token again), then answer yes when it asks to
    replace each client's entry with the `npx` one.
 

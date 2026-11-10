@@ -21,6 +21,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   checkout, with an entry that starts its build with `--reload`, for the beta before npm), `setup --list`
   lists the profiles and `setup --remove <name>` removes one with its token and client entries;
   `sevdesk-mcp config` changes profiles, client entries and the audit switch in a terminal menu.
+  Run from a local checkout, the server also has the tool `version`: it reports the version and
+  the commits waiting upstream, and after the user's yes fast-forwards the checkout and builds it.
   Priority A runs end to end against the spec-following mock in `bun run test`, and by hand
   against a real account with `bun run test:e2e`. Not built yet (PRD §9): the update checks, the
   `.mcpb`, the release workflow, receipt upload, elicitation and the curated v2 tools.
@@ -67,8 +69,23 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   keys, 1 to 9, Enter, Esc or q) on readline's keypress events, muting readline's echo meanwhile.
   It redraws and erases itself by its row count (wrapped rows included): a pick leaves its empty
   line and `✔ title › item`, going back or cancelling leaves nothing.
-- `src/server.ts`: `createServer({ pinnedProfile })`, the single place where MCP tools and the
-  MCP `instructions` get registered; it reads the config file once per server.
+- `src/server.ts`: `createServer({ pinnedProfile, checkout })`, the single place where MCP tools
+  and the MCP `instructions` get registered; it reads the config file once per server. `serve()`
+  in `src/cli.ts` passes `checkout` (the package root) only for a `local` launch, which adds
+  `version`; without it the server has exactly `search` and `execute`.
+- `src/version.ts`: `registerVersionTool()`, the local checkout's `version` tool (decision 18,
+  addendum on `version`; outside the §10 budget, `test/budget.test.ts` measures the server without
+  it). Without `update`: name and version, branch, HEAD, `changed` (tracked files), and after
+  `git fetch` `ahead`/`behind`, `incoming` (newest 20) and `update.to` (the upstream tip, only when
+  behind, not ahead, unchanged); what cannot be checked goes into `notes`, never `behind: 0`. With
+  `update` (a SHA): `planUpdate()` checks everything (ahead of HEAD, on the upstream as last
+  fetched, no new fetch) and `findBun()` (PATH, else `~/.bun/bin`) before `applyUpdate()`
+  fast-forwards, runs `bun install --frozen-lockfile` when `package.json`/`bun.lock` changed and
+  `bun run build`; `update_refused` changed nothing, `update_failed` names the step and the
+  commit, no rollback. Commands run through `run()`: no shell, output captured (never this
+  process's stdout), inherited `GIT_*` dropped, `GIT_TERMINAL_PROMPT=0`, the running Node's
+  directory first on the PATH. `test/version.test.ts` drives it against real git repositories in a
+  temporary directory (bare origin, the checkout, a second clone that pushes).
 - `src/paths.ts`: `localDirs()`, the OS-standard config and data/state directories (XDG on
   Linux, `~/Library/Application Support` on macOS, `%APPDATA%`/`%LOCALAPPDATA%` on Windows),
   `defaultDownloadDir()`, `~/Downloads/sevdesk/<profile>` unless the profile sets `downloadDir`,
@@ -302,7 +319,9 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
 7. **Network (15, 21, 22):** `sevdesk.request` takes only paths relative to the HTTPS base URL;
    non-JSON responses are written to the download directory and return
    `{ path, contentType, bytes }`. Nothing but sevDesk and the anonymous npm update check
-   (opt-out `SEVDESK_MCP_NO_UPDATE_CHECK=1`, failures silent on stderr). No telemetry.
+   (opt-out `SEVDESK_MCP_NO_UPDATE_CHECK=1`, failures silent on stderr). No telemetry. The one
+   exception: a local checkout's `version` tool runs `git fetch` of the branch's upstream when it
+   is called (decision 18 addendum).
 8. **Local files (13, 14, 16, 17):** OS-standard dirs (XDG on Linux): config (profiles without
    tokens, global limits, paths, audit switch), data/state (audit log, update cache). PDFs:
    `~/Downloads/sevdesk/<profile>/<number>.pdf` (fallback `<Type>-<id>.pdf`), same name is
