@@ -93,3 +93,79 @@ test('the end of the input cancels the question', async () => {
 
   expect(await answer).toBeUndefined();
 });
+
+// Menus: arrow keys move the mark, Enter or a number picks, Esc or q goes back, Ctrl+C cancels.
+const ITEMS = ['Toggle read-only', 'Check the connection', 'Back'];
+
+test('a menu is plain text with the first item marked, and Enter picks the marked item', async () => {
+  const { input, prompter, shown } = terminal();
+
+  const choice = prompter.choose('Profile acme:', ITEMS);
+  input.write('\r');
+
+  expect(await choice).toBe(0);
+  expect(shown()).toBe(
+    'Profile acme:\n> 1) Toggle read-only\n  2) Check the connection\n  3) Back\n',
+  );
+});
+
+test('arrow keys move the mark, wrapping around, and redraw the menu without colour', async () => {
+  const { input, prompter, shown } = terminal();
+
+  const choice = prompter.choose('Profile acme:', ITEMS);
+  // Down, down, down (back to the first), up (to the last), Enter.
+  input.write('\u001b[B\u001b[B\u001b[B\u001b[A\r');
+
+  expect(await choice).toBe(2);
+  expect(shown()).toContain('\u001b[3F\u001b[J  1) Toggle read-only\n> 2) Check the connection\n');
+  expect(shown().endsWith('  1) Toggle read-only\n  2) Check the connection\n> 3) Back\n')).toBe(
+    true,
+  );
+  // No colour or other text attribute (SGR), so NO_COLOR has nothing to turn off.
+  const sequences = shown().split('\u001b[').slice(1);
+  expect(sequences.filter((sequence) => /^[0-9;]*m/.test(sequence))).toEqual([]);
+});
+
+test('a number picks its item at once, and the next question starts empty', async () => {
+  const { input, prompter } = terminal();
+
+  const choice = prompter.choose('Profile acme:', ITEMS);
+  input.write('2');
+  expect(await choice).toBe(1);
+
+  const answer = prompter.ask('Download directory: ');
+  input.write('/srv\r');
+  expect(await answer).toBe('/srv');
+});
+
+test('a number beyond the menu is ignored', async () => {
+  const { input, prompter } = terminal();
+
+  const choice = prompter.choose('Profile acme:', ITEMS);
+  input.write('7\u001b[B\r');
+
+  expect(await choice).toBe(1);
+});
+
+test.each([
+  ['q', 'q'],
+  ['Esc', '\u001b'],
+])('%s goes back', async (_key, keys) => {
+  const { input, prompter } = terminal();
+
+  const choice = prompter.choose('Profile acme:', ITEMS);
+  input.write(keys);
+
+  expect(await choice).toBe('back');
+});
+
+test('Ctrl+C cancels the menu and every later question', async () => {
+  const { input, prompter } = terminal();
+
+  const choice = prompter.choose('Profile acme:', ITEMS);
+  input.write('\u0003');
+
+  expect(await choice).toBeUndefined();
+  expect(await prompter.choose('Main menu', ITEMS)).toBeUndefined();
+  expect(await prompter.ask('Download directory: ')).toBeUndefined();
+});

@@ -288,3 +288,34 @@ export function deleteProfile(name: string, file = configFile()): void {
   }
   writeJsonFile(file, json);
 }
+
+/**
+ * Sets `key` of the profile `name` in the config file to `value`, or removes the key when `value`
+ * is undefined (`config`); every other key of the file and of the profile stays as it is. A failed
+ * write never leaves a half-written file. Throws when the file cannot be read or written, is not a
+ * JSON object or has no profile `name`.
+ */
+export function setProfileKey(
+  name: string,
+  key: 'readonly' | 'downloadDir',
+  value: boolean | string | undefined,
+  file = configFile(),
+): void {
+  const json = readJsonFile(file) ?? {};
+  const profile = isRecord(json.profiles) ? json.profiles[name] : undefined;
+  if (!isRecord(profile)) throw new Error(`the config file has no profile ${name}`);
+  if (value === undefined) Reflect.deleteProperty(profile, key);
+  else profile[key] = value;
+  writeJsonFile(file, json);
+}
+
+/**
+ * Sets `audit` in the config file (`config`), creating the file when there is none; every other key
+ * stays as it is. A failed write never leaves a half-written file. Throws when the file cannot be
+ * read or written or is not a JSON object.
+ */
+export function setAudit(audit: boolean, file = configFile()): void {
+  const json = readJsonFile(file) ?? {};
+  json.audit = audit;
+  writeJsonFile(file, json);
+}

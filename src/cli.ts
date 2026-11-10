@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import { runConfig } from './config-menu.ts';
 import { isProfileName } from './config.ts';
 import { type MessageKey, resolveLocale, t } from './i18n/index.ts';
 import { version } from './manifest.ts';
@@ -25,6 +26,15 @@ function usageError(message: string): void {
   process.exitCode = exitCodes.usage;
 }
 
+/** Reports `argument`, which the command does not take, as an unknown option or argument. */
+function strayArgument(argument: string): void {
+  usageError(
+    argument.startsWith('-')
+      ? t(locale, 'cli.unknownOption', { option: argument })
+      : t(locale, 'cli.unexpectedArgument', { argument }),
+  );
+}
+
 /** Serves MCP on stdio; `serveStdio` builds one server per connection. */
 function serve(pinnedProfile?: string): void {
   serveStdio(() => createServer({ pinnedProfile }));
@@ -35,7 +45,7 @@ function exitWith(done: boolean): void {
   process.exitCode = done ? exitCodes.success : exitCodes.failure;
 }
 
-/** Where `setup` writes: lines on stdout, errors on stderr. */
+/** Where `setup` and `config` write: lines on stdout, errors on stderr. */
 const output: SetupOutput = {
   print: (text) => {
     console.log(text);
@@ -46,7 +56,7 @@ const output: SetupOutput = {
 };
 
 /**
- * Runs an interactive `setup` command: `run` asks its questions on the terminal and its outcome sets
+ * Runs an interactive command (`setup`, `config`): `run` asks its questions on the terminal and its outcome sets
  * the exit code. Without a terminal on stdin and stdout it stops at once with the `noTty` message
  * (decision 19), before anything else is touched.
  */
@@ -104,11 +114,7 @@ async function setup([option = '--add', ...operands]: string[]): Promise<void> {
   if (option === '--remove') {
     await remove(operands);
   } else if (!SETUP_FLAGS.has(option)) {
-    usageError(
-      option.startsWith('-')
-        ? t(locale, 'cli.unknownOption', { option })
-        : t(locale, 'cli.unexpectedArgument', { argument: option }),
-    );
+    strayArgument(option);
   } else if (operands[0] !== undefined) {
     usageError(t(locale, 'cli.unexpectedArgument', { argument: operands[0] }));
   } else if (option === '--list') {
@@ -138,6 +144,14 @@ switch (command) {
     break;
   case 'setup':
     await setup(rest);
+    break;
+  case 'config':
+    // `config` takes no option: the menu does everything.
+    if (rest[0] !== undefined) {
+      strayArgument(rest[0]);
+    } else {
+      await interactive('config.noTty', (io) => runConfig(locale, io));
+    }
     break;
   default:
     usageError(
