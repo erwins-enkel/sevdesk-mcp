@@ -1,20 +1,25 @@
 import { chmodSync, existsSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { isRecord, type JsonFile, readJsonFile, writeJsonFile } from './json-file.ts';
+import {
+  CLAUDE_JSON,
+  CODEX_TOML,
+  type ConfigFormat,
+  OPENCODE_JSONC,
+  type Servers,
+} from './client-formats.ts';
+import { isRecord, readTextFile, type TextFile, writeTextFile } from './json-file.ts';
 import { name as packageName } from './manifest.ts';
-import { claudeCodeFile, claudeDesktopDirs } from './paths.ts';
+import { claudeCodeFile, claudeDesktopDirs, codexHome, openCodeDir } from './paths.ts';
 
-/**
- * An MCP client `setup` registers the server in (PRD §7 step 3, decision 18). Its config file is
- * JSON with the servers by name under `mcpServers`; a client with another key or file format
- * (OpenCode, Codex) adds that here along with its row in `CLIENTS`.
- */
+/** An MCP client `setup` registers the server in (PRD §7 step 3, decision 18). */
 interface McpClient {
   /** The client's name in setup's messages. */
   name: string;
   /** Its config file when the client is installed on this machine, else undefined. */
   configFile(): string | undefined;
+  /** How that file holds the servers by name. */
+  format: ConfigFormat;
   /** The entry that starts the command line `argv` in this client's config. */
   entry(argv: string[]): Record<string, unknown>;
 }
@@ -25,10 +30,7 @@ export interface InstalledClient {
   file: string;
 }
 
-/** A client config's servers by name. */
-type Servers = Record<string, unknown>;
-
-const SERVERS = 'mcpServers';
+const OPENCODE_FILES = ['opencode.jsonc', 'opencode.json', 'config.json'];
 
 const CLIENTS: McpClient[] = [
   {
@@ -38,6 +40,7 @@ const CLIENTS: McpClient[] = [
       const dir = claudeDesktopDirs().find((candidate) => existsSync(candidate));
       return dir === undefined ? undefined : join(dir, 'claude_desktop_config.json');
     },
+    format: CLAUDE_JSON,
     entry: ([command, ...args]) => ({ command, args }),
   },
   {
@@ -47,11 +50,38 @@ const CLIENTS: McpClient[] = [
       const file = claudeCodeFile();
       return file !== undefined && existsSync(file) ? file : undefined;
     },
+    format: CLAUDE_JSON,
     // On native Windows Claude Code cannot start npx (a .cmd script) without a shell.
     entry(argv) {
       const [command, ...args] = process.platform === 'win32' ? ['cmd', '/c', ...argv] : argv;
       return { type: 'stdio', command, args };
     },
+  },
+  {
+    // One client row: ChatGPT Desktop and the Codex CLI share the Codex home's config.toml.
+    name: 'ChatGPT Desktop / Codex',
+    // Installed once the Codex home exists; the file appears only once something is set.
+    configFile() {
+      const dir = codexHome();
+      return dir !== undefined && existsSync(dir) ? join(dir, 'config.toml') : undefined;
+    },
+    format: CODEX_TOML,
+    // Codex finds npx.cmd on Windows by itself.
+    entry: ([command, ...args]) => ({ command, args }),
+  },
+  {
+    name: 'OpenCode',
+    // Installed once its global config directory exists, which OpenCode creates on every start.
+    // Its global config is the first of these files that exists, the one that takes precedence,
+    // else opencode.jsonc, the file OpenCode creates itself.
+    configFile() {
+      const dir = openCodeDir();
+      if (dir === undefined || !existsSync(dir)) return undefined;
+      const files = OPENCODE_FILES.map((name) => join(dir, name));
+      return files.find((file) => existsSync(file)) ?? files[0];
+    },
+    format: OPENCODE_JSONC,
+    entry: (argv) => ({ type: 'local', command: argv }),
   },
 ];
 
@@ -74,25 +104,34 @@ export function entryName(profile: string, profileCount: number): string {
 }
 
 /**
- * The servers of the client config `path` with the file as read (undefined when there is none yet).
- * Throws when the file cannot be read, is not a JSON object, or its `mcpServers` is not one.
+ * The servers of an installed client's config with the file as read (undefined when there is none
+ * yet). Throws when the file cannot be read or its format does not hold servers.
  */
-export function readServers(path: string): { file?: JsonFile; servers: Servers } {
-  const file = readJsonFile(path);
-  const value = file?.json[SERVERS];
-  const servers = value === undefined ? {} : value;
-  if (!isRecord(servers)) throw new Error(`${SERVERS} in ${path} is not a JSON object`);
-  return { file, servers };
+export function readServers({ client, file: path }: InstalledClient): {
+  file?: TextFile;
+  servers: Servers;
+} {
+  const file = readTextFile(path);
+  return { file, servers: client.format.servers(file?.text, path) };
 }
 
-/** The command line an entry starts (`command` and `args`), or undefined when it has none. */
+/** `value` when it is a list of strings, else undefined. */
+function strings(value: unknown): string[] | undefined {
+  return Array.isArray(value) && value.every((item): item is string => typeof item === 'string')
+    ? value
+    : undefined;
+}
+
+/**
+ * The command line an entry starts, or undefined when it has none: `command` and `args`, or
+ * OpenCode's `command` that holds the whole command line.
+ */
 function commandLine(entry: unknown): string[] | undefined {
-  if (!isRecord(entry) || typeof entry.command !== 'string') return undefined;
-  const args = entry.args ?? [];
-  if (!Array.isArray(args) || !args.every((arg): arg is string => typeof arg === 'string')) {
-    return undefined;
-  }
-  return [entry.command, ...args];
+  if (!isRecord(entry)) return undefined;
+  if (Array.isArray(entry.command)) return strings(entry.command);
+  if (typeof entry.command !== 'string') return undefined;
+  const args = strings(entry.args ?? []);
+  return args === undefined ? undefined : [entry.command, ...args];
 }
 
 /**
@@ -141,21 +180,23 @@ function backUp(path: string, bytes: Buffer): string {
 }
 
 /**
- * Changes the servers of the client config `path` (decision 18): reads the file afresh and passes
- * its servers to `edit`, which returns the new ones, or undefined when the file is no longer as the
- * user was asked about. Then it backs the bytes it read up next to the file and writes the file with
- * every other key as it was. Returns whether it wrote and the backup's path (undefined when there was
- * no file yet). Throws when the file cannot be read, backed up or written; the file is then as it
- * was.
+ * Changes the servers of an installed client's config (decision 18): reads the file afresh and
+ * passes its servers to `edit`, which returns the new ones, or undefined when the file is no longer
+ * as the user was asked about. Then it backs the bytes it read up next to the file and writes the
+ * file in its format with everything else kept. Returns whether it wrote and the backup's path
+ * (undefined when there was no file yet). Throws when the file cannot be read, edited in its
+ * format, backed up or written; the file is then as it was.
  */
 export function rewriteServers(
-  path: string,
+  installed: InstalledClient,
   edit: (servers: Servers) => Servers | undefined,
 ): { written: false } | { written: true; backup: string | undefined } {
-  const { file, servers } = readServers(path);
+  const { client, file: path } = installed;
+  const { file, servers } = readServers(installed);
   const changed = edit(servers);
   if (changed === undefined) return { written: false };
+  const text = client.format.write(file?.text, changed, path);
   const backup = file === undefined ? undefined : backUp(path, file.bytes);
-  writeJsonFile(path, { ...file?.json, [SERVERS]: changed });
+  writeTextFile(path, text);
   return { written: true, backup };
 }

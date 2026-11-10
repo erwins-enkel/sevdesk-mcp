@@ -1,7 +1,14 @@
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test, vi } from 'vitest';
-import { claudeCodeFile, claudeDesktopDirs, defaultDownloadDir, localDirs } from '../src/paths.ts';
+import {
+  claudeCodeFile,
+  claudeDesktopDirs,
+  codexHome,
+  defaultDownloadDir,
+  localDirs,
+  openCodeDir,
+} from '../src/paths.ts';
 
 const unset = [
   'XDG_CONFIG_HOME',
@@ -9,6 +16,7 @@ const unset = [
   'APPDATA',
   'LOCALAPPDATA',
   'CLAUDE_CONFIG_DIR',
+  'CODEX_HOME',
 ] as const;
 
 /** Clears every variable the directories derive from, then sets `env`. */
@@ -132,6 +140,49 @@ test('Claude Code keeps its config in CLAUDE_CONFIG_DIR when set, and cannot be 
 
   stubEnv({ CLAUDE_CONFIG_DIR: '.claude-work' });
   expect(claudeCodeFile('linux', '/home/kai')).toBeUndefined();
+});
+
+test('Codex keeps its config in ~/.codex without CODEX_HOME', () => {
+  stubEnv();
+  expect(codexHome('linux', '/home/kai')).toBe('/home/kai/.codex');
+  expect(codexHome('darwin', '/Users/kai')).toBe('/Users/kai/.codex');
+  expect(codexHome('win32', 'C:\\Users\\kai')).toBe('C:\\Users\\kai\\.codex');
+
+  stubEnv({ CODEX_HOME: '' });
+  expect(codexHome('linux', '/home/kai')).toBe('/home/kai/.codex');
+});
+
+test('Codex keeps its config in CODEX_HOME when set, and cannot be found when it is relative', () => {
+  stubEnv({ CODEX_HOME: '/srv/codex' });
+  expect(codexHome('linux', '/home/kai')).toBe('/srv/codex');
+
+  stubEnv({ CODEX_HOME: 'D:\\codex' });
+  expect(codexHome('win32', 'C:\\Users\\kai')).toBe('D:\\codex');
+
+  stubEnv({ CODEX_HOME: 'codex' });
+  expect(codexHome('linux', '/home/kai')).toBeUndefined();
+});
+
+test('OpenCode keeps its config in ~/.config/opencode on every platform without XDG_CONFIG_HOME', () => {
+  stubEnv({ APPDATA: 'D:\\Profiles\\kai\\Roaming' });
+  expect(openCodeDir('linux', '/home/kai')).toBe('/home/kai/.config/opencode');
+  expect(openCodeDir('darwin', '/Users/kai')).toBe('/Users/kai/.config/opencode');
+  expect(openCodeDir('win32', 'C:\\Users\\kai')).toBe('C:\\Users\\kai\\.config\\opencode');
+
+  stubEnv({ XDG_CONFIG_HOME: '' });
+  expect(openCodeDir('linux', '/home/kai')).toBe('/home/kai/.config/opencode');
+});
+
+test('OpenCode keeps its config in an absolute XDG_CONFIG_HOME, even on macOS, and cannot be found with a relative one', () => {
+  stubEnv({ XDG_CONFIG_HOME: '/srv/config' });
+  expect(openCodeDir('linux', '/home/kai')).toBe('/srv/config/opencode');
+  expect(openCodeDir('darwin', '/Users/kai')).toBe('/srv/config/opencode');
+
+  stubEnv({ XDG_CONFIG_HOME: 'D:\\config' });
+  expect(openCodeDir('win32', 'C:\\Users\\kai')).toBe('D:\\config\\opencode');
+
+  stubEnv({ XDG_CONFIG_HOME: 'relative/config' });
+  expect(openCodeDir('linux', '/home/kai')).toBeUndefined();
 });
 
 test('a profile downloads into ~/Downloads/sevdesk/<profile>, inside the temporary home in tests', () => {

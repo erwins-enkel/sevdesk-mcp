@@ -1,6 +1,6 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, vi } from 'vitest';
 import type { Locale } from '../src/i18n/index.ts';
 import type { Prompter } from '../src/prompt.ts';
@@ -75,4 +75,23 @@ export function filesHolding(text: string): string[] {
     .filter((entry) => entry.isFile())
     .map((entry) => join(entry.parentPath, entry.name))
     .filter((file) => readFileSync(file, 'utf8').includes(text));
+}
+
+/** Writes a client config `file` (a string as it is, anything else as JSON), directory included. */
+export function writeClient(file: string, content: unknown): string {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, typeof content === 'string' ? content : JSON.stringify(content, null, 2));
+  return file;
+}
+
+/** The JSON in `file`. */
+export function json(file: string): unknown {
+  return JSON.parse(readFileSync(file, 'utf8'));
+}
+
+/** The backups setup left next to `file`. */
+export function backupsOf(file: string): string[] {
+  return readdirSync(dirname(file))
+    .filter((name) => name.startsWith(`${basename(file)}.sevdesk-mcp-`) && name.endsWith('.bak'))
+    .map((name) => join(dirname(file), name));
 }

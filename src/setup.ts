@@ -171,12 +171,12 @@ async function store(
 type Edit = Parameters<typeof rewriteServers>[1];
 
 /**
- * The servers of a client's config `file`, or undefined when it cannot be read, which is reported on
- * `io.fail`; the file is left as it is.
+ * The servers of an installed client's config, or undefined when it cannot be read, which is
+ * reported on `io.fail`; the file is left as it is.
  */
-function serversOf(ui: Dialogue, io: SetupIO, file: string, params: Params) {
+function serversOf(ui: Dialogue, io: SetupIO, installed: InstalledClient, params: Params) {
   try {
-    return readServers(file).servers;
+    return readServers(installed).servers;
   } catch (error) {
     io.fail(ui.text('setup.clientUnreadable', { ...params, reason: reasonOf(error) }));
     return undefined;
@@ -184,21 +184,21 @@ function serversOf(ui: Dialogue, io: SetupIO, file: string, params: Params) {
 }
 
 /**
- * Applies `edit` to the servers of a client's config `file` after the user said yes, and reports
- * the outcome: `done` and the backup, or why the file was left as it is (on `io.fail`). Returns
- * whether the file was written.
+ * Applies `edit` to the servers of an installed client's config after the user said yes, and
+ * reports the outcome: `done` and the backup, or why the file was left as it is (on `io.fail`).
+ * Returns whether the file was written.
  */
 function applyEdit(
   ui: Dialogue,
   io: SetupIO,
-  file: string,
+  installed: InstalledClient,
   params: Params,
   done: MessageKey,
   edit: Edit,
 ): boolean {
   let outcome: ReturnType<typeof rewriteServers>;
   try {
-    outcome = rewriteServers(file, edit);
+    outcome = rewriteServers(installed, edit);
   } catch (error) {
     io.fail(ui.text('setup.clientUpdateFailed', { ...params, reason: reasonOf(error) }));
     return false;
@@ -226,10 +226,11 @@ async function registerClients(
   name: string,
 ): Promise<boolean> {
   let ok = true;
-  for (const { client, file } of clients) {
+  for (const installed of clients) {
+    const { client, file } = installed;
     const entry = client.entry(launchArgv(profile));
     const params = { client: client.name, entry: name, file };
-    const servers = serversOf(ui, io, file, params);
+    const servers = serversOf(ui, io, installed, params);
     if (servers === undefined) {
       ok = false;
       continue;
@@ -249,7 +250,7 @@ async function registerClients(
     }
     const edit: Edit = (current) =>
       entryState(current, name, entry) === state ? { ...current, [name]: entry } : undefined;
-    ok = applyEdit(ui, io, file, params, 'setup.entryAdded', edit) && ok;
+    ok = applyEdit(ui, io, installed, params, 'setup.entryAdded', edit) && ok;
   }
   return ok;
 }
@@ -266,8 +267,9 @@ async function unregisterClients(
   profile: string,
 ): Promise<boolean> {
   let ok = true;
-  for (const { client, file } of clients) {
-    const servers = serversOf(ui, io, file, { client: client.name, file });
+  for (const installed of clients) {
+    const { client, file } = installed;
+    const servers = serversOf(ui, io, installed, { client: client.name, file });
     if (servers === undefined) {
       ok = false;
       continue;
@@ -283,7 +285,7 @@ async function unregisterClients(
       isDeepStrictEqual(entriesUsing(current, profile), names)
         ? Object.fromEntries(Object.entries(current).filter(([entry]) => !names.includes(entry)))
         : undefined;
-    ok = applyEdit(ui, io, file, params, 'setup.entriesRemoved', edit) && ok;
+    ok = applyEdit(ui, io, installed, params, 'setup.entriesRemoved', edit) && ok;
   }
   return ok;
 }
