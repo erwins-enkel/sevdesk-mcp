@@ -29,6 +29,9 @@ import {
 // client configs in the temporary home of test/setup.ts, a scripted prompter, the fake keychain
 // and a mock sevDesk.
 
+// setup runs as from an installed package here, so its client entries run npx (decision 18).
+vi.mock('../src/manifest.ts', () => import('./installed-package.ts'));
+
 const PACKAGE = '@erwins-enkel/sevdesk-mcp';
 const windows = process.platform === 'win32';
 
@@ -187,6 +190,26 @@ test('an existing different sevdesk entry is replaced after an explicit yes', as
   expect(backupsOf(file)).toHaveLength(1);
 });
 
+test('a local-build entry switches to the published package after an explicit yes to replace it', async () => {
+  await mock();
+  const local = {
+    command: '/usr/bin/node',
+    args: ['/home/you/sevdesk-mcp/dist/cli.js', '--profile', 'acme'],
+  };
+  const file = writeClient(desktopFile(), { mcpServers: { sevdesk: local } });
+  const before = readFileSync(file);
+
+  const { done, asked, out } = await setup(['acme', TOKEN, '', 'y']);
+
+  expect(done).toBe(true);
+  expect(out).toContain('The client entries start the published package with npx.');
+  expect(asked[3]?.question).toBe(
+    `Claude Desktop already has an MCP server named sevdesk (${file}). Replace it? [y/N] `,
+  );
+  expect(json(file)).toEqual({ mcpServers: { sevdesk: desktopEntry('acme') } });
+  expect(backupsOf(file).map((backup) => readFileSync(backup))).toEqual([before]);
+});
+
 test('an entry that already starts the profile is left alone without a question', async () => {
   await mock();
   const file = writeClient(desktopFile(), { mcpServers: { sevdesk: desktopEntry('acme') } });
@@ -290,8 +313,9 @@ test('the client question is asked in German', async () => {
   expect(asked[3]?.question).toBe(
     `Den Server in Claude Desktop als sevdesk eintragen (${file})? [J/n] `,
   );
+  expect(out).toContain('Die Client-Einträge starten das veröffentlichte Paket mit npx.');
   expect(out).toContain('Claude Desktop: sevdesk ist eingetragen.');
-  expect(out).toContain('Für andere MCP-Clients nimmst du diesen Befehl:');
+  expect(out).toContain(`Für andere MCP-Clients nimmst du diesen Befehl: npx -y ${PACKAGE}`);
 });
 
 test('Claude Code is found in an absolute CLAUDE_CONFIG_DIR, and not at all with a relative one', async () => {

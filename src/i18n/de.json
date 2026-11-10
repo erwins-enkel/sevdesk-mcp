@@ -31,7 +31,7 @@
   "setup.nothingStored": "Es wurde nichts gespeichert.",
   "setup.done": "Das Profil {profile} ({company}) ist eingerichtet.",
   "setup.doneReadonly": "Das Profil {profile} ({company}) ist eingerichtet, nur lesend.",
-  "setup.clientEntry": "Trag diesen Befehl in deinen MCP-Client ein: npx -y {package} --profile {profile}",
+  "setup.clientEntry": "Trag diesen Befehl in deinen MCP-Client ein: {command}",
   "setup.removeNoTty": "setup --remove fragt nach, bevor es ein Profil entfernt, und braucht dafür ein interaktives Terminal. Es wurde nichts entfernt.",
   "setup.listHeader": "Profile in {file}:",
   "setup.listEmpty": "Es gibt noch keine Profile. sevdesk-mcp setup richtet eins ein.",
@@ -46,6 +46,8 @@
   "setup.nothingRemoved": "Es wurde nichts entfernt.",
   "setup.removed": "Das Profil {profile} ({company}) ist entfernt; im Schlüsselbund liegt kein Token mehr dafür.",
   "setup.removeClientEntry": "Startet ein MCP-Client sevdesk-mcp mit --profile {profile}, entferne diesen Eintrag aus seiner Konfiguration.",
+  "setup.entryKindLocal": "Läuft aus dem lokalen Checkout {root}: Die Client-Einträge starten dessen Build mit diesem Node.js, nicht das veröffentlichte Paket. Führ dort nach jedem Update erneut bun run build aus.",
+  "setup.entryKindNpx": "Die Client-Einträge starten das veröffentlichte Paket mit npx.",
   "setup.askAddEntry": "Den Server in {client} als {entry} eintragen ({file})? {choices} ",
   "setup.askReplaceEntry": "{client} hat schon einen MCP-Server namens {entry} ({file}). Ersetzen? {choices} ",
   "setup.entryExists": "{client} startet dieses Profil schon als {entry}.",
@@ -58,6 +60,6 @@
   "setup.clientUpdateFailed": "{client}: {file} konnte nicht geändert werden ({reason}) und bleibt unverändert.",
   "setup.clientChanged": "{client}: {file} hat sich geändert, während du geantwortet hast, und bleibt deshalb unverändert.",
   "setup.clientsLeft": "Client-Konfigurationen, die bis hierhin nicht geändert wurden, bleiben unverändert.",
-  "setup.otherClientsEntry": "Für andere MCP-Clients nimmst du diesen Befehl: npx -y {package} --profile {profile}",
+  "setup.otherClientsEntry": "Für andere MCP-Clients nimmst du diesen Befehl: {command}",
   "setup.removeOtherClientEntry": "Startet ein anderer MCP-Client sevdesk-mcp mit --profile {profile}, entferne diesen Eintrag aus seiner Konfiguration."
 }

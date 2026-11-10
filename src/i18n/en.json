@@ -31,7 +31,7 @@
   "setup.nothingStored": "Nothing was stored.",
   "setup.done": "Profile {profile} ({company}) is set up.",
   "setup.doneReadonly": "Profile {profile} ({company}) is set up, read-only.",
-  "setup.clientEntry": "Add this command to your MCP client: npx -y {package} --profile {profile}",
+  "setup.clientEntry": "Add this command to your MCP client: {command}",
   "setup.removeNoTty": "setup --remove asks before it removes a profile and needs an interactive terminal for that. Nothing was removed.",
   "setup.listHeader": "Profiles in {file}:",
   "setup.listEmpty": "There are no profiles yet. sevdesk-mcp setup adds one.",
@@ -46,6 +46,8 @@
   "setup.nothingRemoved": "Nothing was removed.",
   "setup.removed": "Profile {profile} ({company}) is removed; the OS keychain holds no token for it any more.",
   "setup.removeClientEntry": "If an MCP client runs sevdesk-mcp with --profile {profile}, remove that entry from its config.",
+  "setup.entryKindLocal": "Running from the local checkout {root}: the client entries start its build with this Node.js, not the published package. After every update, run bun run build there again.",
+  "setup.entryKindNpx": "The client entries start the published package with npx.",
   "setup.askAddEntry": "Add the server to {client} as {entry} ({file})? {choices} ",
   "setup.askReplaceEntry": "{client} already has an MCP server named {entry} ({file}). Replace it? {choices} ",
   "setup.entryExists": "{client} already starts this profile as {entry}.",
@@ -58,6 +60,6 @@
   "setup.clientUpdateFailed": "{client}: {file} could not be updated ({reason}); it was left as it is.",
   "setup.clientChanged": "{client}: {file} changed while you answered, so it was left as it is.",
   "setup.clientsLeft": "Client configs not changed so far are left as they are.",
-  "setup.otherClientsEntry": "For other MCP clients, use this command: npx -y {package} --profile {profile}",
+  "setup.otherClientsEntry": "For other MCP clients, use this command: {command}",
   "setup.removeOtherClientEntry": "If another MCP client runs sevdesk-mcp with --profile {profile}, remove that entry from its config."
 }

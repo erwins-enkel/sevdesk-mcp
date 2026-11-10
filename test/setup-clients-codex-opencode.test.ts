@@ -22,6 +22,9 @@ import {
 // comments, and `setup --remove` offers to remove the entries again: fake client configs in the
 // temporary home of test/setup.ts, a scripted prompter, the fake keychain and a mock sevDesk.
 
+// setup runs as from an installed package here, so its client entries run npx (decision 18).
+vi.mock('../src/manifest.ts', () => import('./installed-package.ts'));
+
 const PACKAGE = '@erwins-enkel/sevdesk-mcp';
 
 /** The command line of an entry for `profile`. */
