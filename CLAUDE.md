@@ -18,9 +18,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   write call (executed, held, confirmed, rejected) gets a line in the monthly audit log in the
   state directory unless the config file sets `audit: false`.
   `sevdesk-mcp setup` adds a profile interactively (token into the OS keychain) and registers it in
-  the installed Claude Desktop and Claude Code, `setup --list` lists the profiles and
-  `setup --remove <name>` removes one with its token and offers to remove its client entries. Every
-  other feature (ChatGPT/Codex and OpenCode registration) arrives as a backlog slice.
+  the installed Claude Desktop, Claude Code, ChatGPT Desktop / Codex and OpenCode, `setup --list`
+  lists the profiles and `setup --remove <name>` removes one with its token and offers to remove its
+  client entries. Every other feature arrives as a backlog slice.
 
 ## Orientation
 
@@ -48,14 +48,21 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - `src/paths.ts`: `localDirs()`, the OS-standard config and data/state directories (XDG on
   Linux, `~/Library/Application Support` on macOS, `%APPDATA%`/`%LOCALAPPDATA%` on Windows),
   `defaultDownloadDir()`, `~/Downloads/sevdesk/<profile>` unless the profile sets `downloadDir`,
-  and the client config locations `claudeDesktopDirs()` (MSIX folder first on Windows) and
-  `claudeCodeFile()` (`CLAUDE_CONFIG_DIR`). `src/clients.ts`: the MCP clients `setup` registers in
-  (decision 18): `CLIENTS` (one row per client: name, installed config file, entry format;
-  ChatGPT/Codex and OpenCode become further rows), `entryName()`, `launchArgv()` (never a token),
-  `entryState()`, `entriesUsing()` and `rewriteServers()` (fresh re-read, a
-  `<file>.sevdesk-mcp-<time>.bak` of the bytes read, then the write). `src/json-file.ts`: `readJsonFile()` and `writeJsonFile()`
-  (temp file then rename, keeps the mode, follows a symlink), shared by the config file and the
-  client configs.
+  and the client config locations `claudeDesktopDirs()` (MSIX folder first on Windows),
+  `claudeCodeFile()` (`CLAUDE_CONFIG_DIR`), `codexHome()` (`CODEX_HOME`, else `~/.codex`) and
+  `openCodeDir()` (`XDG_CONFIG_HOME/opencode` on every OS); a relative override makes the client
+  unknowable (undefined). `src/clients.ts`: the MCP clients `setup` registers in (decision 18):
+  `CLIENTS` (one row per client: name, installed config file, config format, entry shape; Claude
+  Desktop, Claude Code, ChatGPT Desktop / Codex, OpenCode), `entryName()`, `launchArgv()` (never a
+  token), `entryState()`, `entriesUsing()` and `rewriteServers()` (fresh re-read, a
+  `<file>.sevdesk-mcp-<time>.bak` of the bytes read, then the write in the client's format).
+  `src/client-formats.ts`: `ConfigFormat` (the servers in a file's text, the text with new servers)
+  and its rows: `CLAUDE_JSON` (`mcpServers`, written anew), `CODEX_TOML` (`mcp_servers`, edited with
+  `@decimalturn/toml-patch` so comments stay, re-parsed before it is written) and `OPENCODE_JSONC`
+  (`mcp`, edited in place with `jsonc-parser` as `opencode mcp add` does; OpenCode 2's
+  `mcp.servers` layout is refused). `src/json-file.ts`: `readTextFile()` and `writeTextFile()`
+  (temp file then rename, keeps the mode, follows a symlink), with `readJsonFile()` and
+  `writeJsonFile()` on top, shared by the config file and the client configs.
   `src/config.ts`: `loadConfig()` reads `config.json` there (`baseUrl`, `limits`, `profiles`
   without tokens, `audit`; documented in the README). No file means `DEFAULT_CONFIG`; an
   unreadable or invalid file is an `invalid_config` error that both tools return instead of
@@ -133,8 +140,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `SEVDESK_API_TOKEN` and mocks `@napi-rs/keyring` with the in-memory `test/fake-keychain.ts`
   (seed `tokens`, assert `accesses`). Spawned servers use the real keychain, so they must never read a token.
   `test/config-file.ts` writes a config file into the temporary home. `test/setup-dialogue.ts`
-  drives `setup` through a scripted prompter against the Acme mock; `test/setup.ts` also unsets
-  `CLAUDE_CONFIG_DIR`, so client registration only ever finds fake configs in the temporary home.
+  drives `setup` through a scripted prompter against the Acme mock and writes fake client configs
+  (`writeClient()`, `backupsOf()`); `test/setup.ts` also unsets `CLAUDE_CONFIG_DIR` and
+  `CODEX_HOME`, so client registration only ever finds fake configs in the temporary home.
   `scripts/`: the i18n drift gate, the pinned actionlint runner and `update-spec`.
 - While serving, stdout belongs to the MCP protocol: log to stderr only.
 - Model-facing text (tool descriptions, guides, errors returned to the model) is English and

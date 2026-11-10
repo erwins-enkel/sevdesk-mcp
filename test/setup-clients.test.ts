@@ -3,19 +3,26 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   statSync,
   symlinkSync,
-  writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { expect, test, vi } from 'vitest';
 import { configFile } from '../src/config.ts';
 import { claudeCodeFile, claudeDesktopDirs } from '../src/paths.ts';
 import { writeConfig } from './config-file.ts';
-import { filesHolding, mock, remove, setup, TOKEN } from './setup-dialogue.ts';
+import {
+  backupsOf,
+  filesHolding,
+  json,
+  mock,
+  remove,
+  setup,
+  TOKEN,
+  writeClient,
+} from './setup-dialogue.ts';
 
 // `setup` registers the server in the installed Claude Desktop and Claude Code (PRD §7 step 3,
 // decision 18) and `setup --remove` offers to remove the entries of the removed profile: fake
@@ -52,24 +59,6 @@ function codeFile(): string {
   const file = claudeCodeFile();
   if (file === undefined) throw new Error('no Claude Code config file');
   return file;
-}
-
-/** Writes a client config `file` (a string as it is, anything else as JSON), directory included. */
-function writeClient(file: string, content: unknown): string {
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, typeof content === 'string' ? content : JSON.stringify(content, null, 2));
-  return file;
-}
-
-function json(file: string): unknown {
-  return JSON.parse(readFileSync(file, 'utf8'));
-}
-
-/** The backups setup left next to `file`. */
-function backupsOf(file: string): string[] {
-  return readdirSync(dirname(file))
-    .filter((name) => name.startsWith(`${basename(file)}.sevdesk-mcp-`) && name.endsWith('.bak'))
-    .map((name) => join(dirname(file), name));
 }
 
 /** The profiles of the config file. */

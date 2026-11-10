@@ -12,9 +12,8 @@ JavaScript snippets that run in a local sandbox against the sevDesk API ("Code M
 > sent). Irreversible calls (delete, send, enshrine, book, cancel, reset, status changes) are held
 > until you confirm them; read-only mode blocks every change; a local audit log records every write
 > call. `sevdesk-mcp setup` adds an account with its token in the OS keychain and registers it in
-> Claude Desktop and Claude Code, `setup --list` lists the accounts and `setup --remove` removes one.
-> Registration in ChatGPT Desktop, Codex and OpenCode is not there yet. Do not use it with a real
-> sevDesk account yet.
+> Claude Desktop, Claude Code, ChatGPT Desktop / Codex and OpenCode, `setup --list` lists the
+> accounts and `setup --remove` removes one. Do not use it with a real sevDesk account yet.
 
 > Not developed or endorsed by sevDesk. (Nicht von sevDesk entwickelt oder unterstützt.)
 
@@ -103,16 +102,22 @@ Once the profile is removed, it offers to remove the client entries that start i
 `setup` registers the server in these clients when they are installed, and `setup --remove` offers
 to remove their entries again:
 
-| Client         | Config file                                                                                                                       | Installed when             |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| Claude Desktop | macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`                                                          | the `Claude` folder exists |
-|                | Windows: `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\` (current installers), else `%APPDATA%\Claude\` |                            |
-|                | Linux: `$XDG_CONFIG_HOME/Claude/` (default `~/.config/Claude/`)                                                                   |                            |
-| Claude Code    | `~/.claude.json`, or `.claude.json` in `CLAUDE_CONFIG_DIR` when that is set                                                       | the file exists            |
+| Client                  | Config file                                                                                                                                                                                     | Installed when             |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| Claude Desktop          | macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`                                                                                                                        | the `Claude` folder exists |
+|                         | Windows: `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\` (current installers), else `%APPDATA%\Claude\`                                                               |                            |
+|                         | Linux: `$XDG_CONFIG_HOME/Claude/` (default `~/.config/Claude/`)                                                                                                                                 |                            |
+| Claude Code             | `~/.claude.json`, or `.claude.json` in `CLAUDE_CONFIG_DIR` when that is set                                                                                                                     | the file exists            |
+| ChatGPT Desktop / Codex | `config.toml` in `CODEX_HOME` when that is set, else `~/.codex/config.toml` (Windows: `%USERPROFILE%\.codex\config.toml`); ChatGPT Desktop and the Codex CLI share it                           | the folder exists          |
+| OpenCode                | in `$XDG_CONFIG_HOME/opencode/` (default `~/.config/opencode/`, also on macOS and Windows): the first of `opencode.jsonc`, `opencode.json` and `config.json` that exists, else `opencode.jsonc` | the folder exists          |
 
 The entry is named `sevdesk`, or `sevdesk-<profile>` when there are several profiles, and runs
 `npx -y @erwins-enkel/sevdesk-mcp --profile <name>` (Claude Code on Windows: `cmd /c npx …`). It
-never holds a token. `setup` asks once per client and shows the file:
+never holds a token. In Codex's `config.toml` it is the table `mcp_servers.sevdesk` with
+`command` and `args`; in OpenCode it is `"sevdesk": { "type": "local", "command": [...] }` in its
+`mcp` section. A relative `CLAUDE_CONFIG_DIR`, `CODEX_HOME` or (for OpenCode) `XDG_CONFIG_HOME`
+depends on the directory the client starts in, so `setup` leaves that client alone. `setup` asks
+once per client and shows the file:
 
 - A new entry is added after a yes (the default).
 - An existing entry of that name that runs something else is replaced only after an explicit yes;
@@ -120,11 +125,14 @@ never holds a token. `setup` asks once per client and shows the file:
   left alone without a question.
 - Before it writes, `setup` saves the previous file next to it as
   `<file>.sevdesk-mcp-<time>.bak` and prints its path. It keeps every other key and entry, the
-  file's permissions and a symlink. If the file changed while you answered, it is left as it is.
+  file's permissions and a symlink. In Codex's TOML and OpenCode's JSONC it edits only the entry
+  and keeps the comments; the Claude configs are JSON without comments and are written
+  anew, two-space indented. If the file changed while you answered, it is left as it is.
 - `setup --remove <name>` offers to remove every entry that runs this package with
   `--profile <name>` (default yes), with the same backup.
 - A client config that cannot be read or written is reported and left as it is; the exit code is
-  then 1.
+  then 1. This includes an OpenCode config whose `mcp` section holds `servers`, the layout of
+  OpenCode 2, which `setup` does not edit yet; add the printed command there yourself.
 
 Restart the client afterwards. For any other client, add the printed command yourself.
 

@@ -265,7 +265,7 @@ export function saveProfile(
   { name, company, readonly }: Pick<ProfileSettings, 'name' | 'company' | 'readonly'>,
   file = configFile(),
 ): void {
-  const json = readJsonFile(file)?.json ?? {};
+  const json = readJsonFile(file) ?? {};
   const profiles = isRecord(json.profiles) ? json.profiles : {};
   const existing = profiles[name];
   profiles[name] = { ...(isRecord(existing) ? existing : {}), company, readonly };
@@ -280,7 +280,7 @@ export function saveProfile(
  * object; `loadConfig` has checked it before.
  */
 export function deleteProfile(name: string, file = configFile()): void {
-  const json = readJsonFile(file)?.json ?? {};
+  const json = readJsonFile(file) ?? {};
   if (isRecord(json.profiles)) {
     json.profiles = Object.fromEntries(
       Object.entries(json.profiles).filter(([profile]) => profile !== name),

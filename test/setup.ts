@@ -15,9 +15,9 @@ vi.mock('@napi-rs/keyring', () => import('./fake-keychain.ts'));
 // their home-based fallbacks, so a spawned server that inherits only HOME (POSIX) or USERPROFILE,
 // APPDATA and LOCALAPPDATA (Windows), as the MCP SDK's stdio client passes them, resolves the
 // same paths.
-// A sevDesk token and read-only switch from the developer's shell are unset, and so is a Claude Code
-// config directory, so client registration finds only the temporary home; the fake keychain starts
-// empty.
+// A sevDesk token and read-only switch from the developer's shell are unset, and so are a Claude Code
+// config directory and a Codex home, so client registration finds only the temporary home; the fake
+// keychain starts empty.
 let home: string | undefined;
 
 beforeEach(() => {
@@ -32,6 +32,7 @@ beforeEach(() => {
   vi.stubEnv('SEVDESK_PROFILE', undefined);
   vi.stubEnv('SEVDESK_READONLY', undefined);
   vi.stubEnv('CLAUDE_CONFIG_DIR', undefined);
+  vi.stubEnv('CODEX_HOME', undefined);
   fakeKeychain.tokens.clear();
   fakeKeychain.accesses.length = 0;
   fakeKeychain.unavailable = false;

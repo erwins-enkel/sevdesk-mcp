@@ -83,19 +83,63 @@ export function claudeDesktopDirs(
 }
 
 /**
+ * A client's directory from the environment variable value `dir`: `fallback` when it is unset or
+ * empty, the value when it is absolute, and undefined when it is relative: the client would resolve
+ * it against whatever directory it starts in, so the directory cannot be known.
+ */
+function clientDir(
+  dir: string | undefined,
+  path: typeof posix,
+  fallback: string,
+): string | undefined {
+  if (dir === undefined || dir === '') return fallback;
+  return path.isAbsolute(dir) ? dir : undefined;
+}
+
+/** The path functions of `platform`. */
+function pathOf(platform: NodeJS.Platform): typeof posix {
+  return platform === 'win32' ? win32 : posix;
+}
+
+/**
  * Claude Code's global config file, which holds its user-scope MCP servers: `.claude.json` in
  * `CLAUDE_CONFIG_DIR` when that is set, else in the home directory. Undefined when
- * `CLAUDE_CONFIG_DIR` is relative: Claude Code would resolve it against whatever directory it
- * starts in, so the file cannot be known.
+ * `CLAUDE_CONFIG_DIR` is relative.
  */
 export function claudeCodeFile(
   platform: NodeJS.Platform = process.platform,
   home = homedir(),
 ): string | undefined {
-  const path = platform === 'win32' ? win32 : posix;
-  const dir = process.env.CLAUDE_CONFIG_DIR;
-  if (dir === undefined || dir === '') return path.join(home, '.claude.json');
-  return path.isAbsolute(dir) ? path.join(dir, '.claude.json') : undefined;
+  const path = pathOf(platform);
+  const dir = clientDir(process.env.CLAUDE_CONFIG_DIR, path, home);
+  return dir === undefined ? undefined : path.join(dir, '.claude.json');
+}
+
+/**
+ * The Codex home, whose `config.toml` ChatGPT Desktop and the Codex CLI share: `CODEX_HOME` when
+ * that is set, else `~/.codex` (on Windows in the user profile). Undefined when `CODEX_HOME` is
+ * relative.
+ */
+export function codexHome(
+  platform: NodeJS.Platform = process.platform,
+  home = homedir(),
+): string | undefined {
+  const path = pathOf(platform);
+  return clientDir(process.env.CODEX_HOME, path, path.join(home, '.codex'));
+}
+
+/**
+ * OpenCode's global config directory: `opencode` in `XDG_CONFIG_HOME`, else in `~/.config`, on
+ * every platform (OpenCode follows XDG on macOS and Windows too). Undefined when `XDG_CONFIG_HOME`
+ * is relative, which OpenCode, unlike the XDG spec, does not ignore.
+ */
+export function openCodeDir(
+  platform: NodeJS.Platform = process.platform,
+  home = homedir(),
+): string | undefined {
+  const path = pathOf(platform);
+  const config = clientDir(process.env.XDG_CONFIG_HOME, path, path.join(home, '.config'));
+  return config === undefined ? undefined : path.join(config, 'opencode');
 }
 
 /**
