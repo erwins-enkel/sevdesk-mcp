@@ -54,6 +54,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "check:i18n": "node scripts/check-i18n.ts",
     "update-spec": "node scripts/update-spec.ts",
     "prepare": "husky",
