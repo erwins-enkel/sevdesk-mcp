@@ -157,6 +157,8 @@ test.each([
   [['setup'], 'en_US.UTF-8', 'setup needs an interactive terminal'],
   [['setup', '--add'], 'en_US.UTF-8', 'setup needs an interactive terminal'],
   [['setup'], 'de_DE.UTF-8', 'setup braucht ein interaktives Terminal'],
+  [['config'], 'en_US.UTF-8', 'config needs an interactive terminal'],
+  [['config'], 'de_DE.UTF-8', 'config braucht ein interaktives Terminal'],
 ])('%j without a terminal fails with the SEVDESK_API_TOKEN hint (%s)', (args, locale, message) => {
   // spawnSync pipes stdin and stdout, so the child has no terminal and stops before the keychain.
   const result = run(args, locale);
@@ -178,6 +180,8 @@ test.each([
     'Invalid profile name: Bad_Name (1 to 32 characters: a-z, 0-9 and -)',
   ],
   [['setup', '--remove', 'acme', 'extra'], 'Unexpected argument: extra'],
+  [['config', '--nope'], 'Unknown option: --nope'],
+  [['config', 'acme'], 'Unexpected argument: acme'],
 ])('%j is a usage error', (args, message) => {
   const result = run(args, 'en_US.UTF-8');
 

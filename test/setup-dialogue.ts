@@ -32,25 +32,47 @@ export async function mock(routes: MockRoutes = {}) {
   return sevdesk;
 }
 
-/** An answer: the line, undefined to cancel, or a function run when the question comes. */
-type Answer = string | undefined | (() => string | undefined);
+/** The answer to a menu that goes back, as Esc or q do. */
+export const BACK = Symbol('back');
 
 /**
- * Runs `run` (by default `setup`, which adds a profile) in `locale` with `answers` given in turn; a
- * question beyond them fails the test.
+ * An answer: the line, undefined to cancel, or a function run when the question comes. A menu takes
+ * a text its item holds (the first such item is picked), `BACK`, or undefined to cancel.
+ */
+type Answer = string | undefined | typeof BACK | (() => string | undefined);
+
+/**
+ * Runs `run` (by default `setup`, which adds a profile) in `locale` with `answers` given in turn,
+ * questions and menus alike; a question beyond them, or a menu answer that matches no item, fails
+ * the test.
  */
 export async function setup(
   answers: Answer[],
   locale: Locale = 'en',
   run: (locale: Locale, io: SetupIO) => Promise<boolean> = runSetup,
 ) {
-  const asked: { question: string; hidden: boolean }[] = [];
+  const asked: { question: string; hidden: boolean; items?: string[] }[] = [];
+  const next = (question: string): Answer => {
+    if (asked.length > answers.length) throw new Error(`Unexpected question: ${question}`);
+    return answers[asked.length - 1];
+  };
   const prompter: Prompter = {
     ask(question, { hidden = false } = {}) {
       asked.push({ question, hidden });
-      if (asked.length > answers.length) throw new Error(`Unexpected question: ${question}`);
-      const answer = answers[asked.length - 1];
+      const answer = next(question);
+      if (answer === BACK) throw new Error(`A question got a menu answer: ${question}`);
       return Promise.resolve(typeof answer === 'function' ? answer() : answer);
+    },
+    choose(title, items) {
+      asked.push({ question: title, hidden: false, items });
+      const answer = next(title);
+      if (answer === undefined || answer === BACK) {
+        return Promise.resolve(answer === BACK ? 'back' : undefined);
+      }
+      const label = typeof answer === 'function' ? answer() : answer;
+      const index = items.findIndex((item) => label !== undefined && item.includes(label));
+      if (index === -1) throw new Error(`No item holds ${String(label)}: ${items.join(' | ')}`);
+      return Promise.resolve(index);
     },
     close: () => undefined,
   };

@@ -19,7 +19,7 @@ import {
   saveProfile,
 } from './config.ts';
 import { type Locale, type MessageKey, t } from './i18n/index.ts';
-import { deleteToken, probeKeychain, SERVICE, storeToken } from './keychain.ts';
+import { deleteToken, probeKeychain, readToken, SERVICE, storeToken } from './keychain.ts';
 import { root } from './manifest.ts';
 import type { Prompter } from './prompt.ts';
 import { HostError } from './sandbox.ts';
@@ -326,11 +326,36 @@ async function addProfile(ui: Dialogue, io: SetupIO): Promise<boolean> {
   const company = await checkAccount(ui, config, token);
   const readonly = await ui.confirm('setup.askReadonly', {}, existing?.readonly ?? false);
   if (!(await store(ui, io, { name, company, readonly }, token))) return false;
-  const entry = entryName(name, config.profiles.length + (existing === undefined ? 1 : 0));
+  return offerClients(ui, io, name, config.profiles.length + (existing === undefined ? 1 : 0));
+}
+
+/**
+ * Says which kind of entry the clients get (`npx`, or the build of the local checkout it runs
+ * from), offers to register the profile `name`, one of `profileCount` profiles, in each installed
+ * MCP client and shows the command for other clients.
+ */
+function offerClients(
+  ui: Dialogue,
+  io: SetupIO,
+  name: string,
+  profileCount: number,
+): Promise<boolean> {
+  const entry = entryName(name, profileCount);
   ui.say(launchKind() === 'local' ? 'setup.entryKindLocal' : 'setup.entryKindNpx', { root });
   const hints: [MessageKey, MessageKey] = ['setup.clientEntry', 'setup.otherClientsEntry'];
   return clientStep(ui, io, hints, { command: launchArgv(name).join(' ') }, (clients) =>
     registerClients(ui, io, clients, name, entry),
+  );
+}
+
+/** Offers to remove the entries that start the profile `name` from each installed MCP client. */
+function offerRemoval(ui: Dialogue, io: SetupIO, name: string): Promise<boolean> {
+  const hints: [MessageKey, MessageKey] = [
+    'setup.removeClientEntry',
+    'setup.removeOtherClientEntry',
+  ];
+  return clientStep(ui, io, hints, { profile: name }, (clients) =>
+    unregisterClients(ui, io, clients, name),
   );
 }
 
@@ -397,8 +422,7 @@ export function runList(locale: Locale, out: SetupOutput): boolean {
  * offers to remove the entries that start the profile from each installed MCP client.
  */
 async function removeProfile(ui: Dialogue, io: SetupIO, name: string): Promise<boolean> {
-  const profile = configOf(ui).profiles.find((entry) => entry.name === name);
-  if (profile === undefined) throw ui.stop('setup.unknownProfile', { profile: name });
+  const profile = profileOf(ui, configOf(ui), name);
   const params = { profile: name, company: profile.company };
   if (!(await ui.confirm('setup.askRemove', params, false))) {
     throw ui.stop('setup.notRemoved', { profile: name });
@@ -413,13 +437,7 @@ async function removeProfile(ui: Dialogue, io: SetupIO, name: string): Promise<b
     return false;
   }
   ui.say('setup.removed', params);
-  const hints: [MessageKey, MessageKey] = [
-    'setup.removeClientEntry',
-    'setup.removeOtherClientEntry',
-  ];
-  return clientStep(ui, io, hints, { profile: name }, (clients) =>
-    unregisterClients(ui, io, clients, name),
-  );
+  return offerRemoval(ui, io, name);
 }
 
 /**
@@ -429,4 +447,53 @@ async function removeProfile(ui: Dialogue, io: SetupIO, name: string): Promise<b
 export async function runRemove(locale: Locale, io: SetupIO, name: string): Promise<boolean> {
   const ui = dialogue(locale, io);
   return reportStops(ui, io, 'setup.nothingRemoved', () => removeProfile(ui, io, name));
+}
+
+/** The profile `name` of the config file; an unknown one stops. */
+function profileOf(ui: Dialogue, config: Config, name: string) {
+  const profile = config.profiles.find((entry) => entry.name === name);
+  if (profile === undefined) throw ui.stop('setup.unknownProfile', { profile: name });
+  return profile;
+}
+
+/**
+ * Offers to register the existing profile `name` in each installed MCP client, as `setup` does
+ * after adding it (`config`). Resolves to false when the profile is unknown, the config file is
+ * invalid or a client config failed; otherwise true, also after a no.
+ */
+export async function runRegister(locale: Locale, io: SetupIO, name: string): Promise<boolean> {
+  const ui = dialogue(locale, io);
+  return reportStops(ui, io, 'setup.clientsLeft', () => {
+    const config = configOf(ui);
+    profileOf(ui, config, name);
+    return offerClients(ui, io, name, config.profiles.length);
+  });
+}
+
+/**
+ * Offers to remove the entries that start the profile `name` from each installed MCP client, as
+ * `setup --remove` does after removing it, but keeps the profile (`config`). Resolves to false when
+ * a client config failed; otherwise true, also after a no.
+ */
+export function runUnregister(locale: Locale, io: SetupIO, name: string): Promise<boolean> {
+  return offerRemoval(dialogue(locale, io), io, name);
+}
+
+/**
+ * Checks the connection of the profile `name` (`config`): its token from the OS keychain against
+ * sevDesk, as `setup` checks a new one, showing company and bookkeeping system. The token is never
+ * shown. Resolves to false when the token cannot be read, sevDesk rejects it or the check fails,
+ * reported on `io.fail`.
+ */
+export async function runCheck(locale: Locale, io: SetupIO, name: string): Promise<boolean> {
+  const ui = dialogue(locale, io);
+  return reportStops(ui, io, 'config.checkStopped', async () => {
+    const config = configOf(ui);
+    profileOf(ui, config, name);
+    const read = await readToken(name);
+    if (!read.ok) throw ui.stop('config.tokenUnreadable', { reason: read.error.message });
+    await checkAccount(ui, config, read.token);
+    ui.say('config.connectionOk', { profile: name });
+    return true;
+  });
 }

@@ -13,7 +13,8 @@ JavaScript snippets that run in a local sandbox against the sevDesk API ("Code M
 > until you confirm them; read-only mode blocks every change; a local audit log records every write
 > call. `sevdesk-mcp setup` adds an account with its token in the OS keychain and registers it in
 > Claude Desktop, Claude Code, ChatGPT Desktop / Codex and OpenCode, `setup --list` lists the
-> accounts and `setup --remove` removes one. Do not use it with a real sevDesk account yet.
+> accounts and `setup --remove` removes one; `sevdesk-mcp config` changes them in a menu. Do not
+> use it with a real sevDesk account yet.
 
 > Not developed or endorsed by sevDesk. (Nicht von sevDesk entwickelt oder unterstützt.)
 
@@ -98,6 +99,30 @@ stays. It needs a terminal for the question. Its exit code is 0 when the profile
 otherwise: after a no, for an unknown profile, or when the keychain or the config file fails. If
 only the config file fails, the token is already gone; fix the file and run `setup --remove` again.
 Once the profile is removed, it offers to remove the client entries that start it (see below).
+
+### Changing profiles and settings: `config`
+
+`sevdesk-mcp config` opens a menu in the terminal. It first shows the config file, whether the
+audit log is on and where it is, and every profile with its company, read-only state, download
+directory and, for each installed MCP client, the entries that start it and their kind (`npx` or
+`local build`). The overview reads only the config file and the client configs, never the
+keychain. Move with the arrow keys or type an item's number (1 to 9), choose with Enter, go back
+with Esc or q. The output is plain text without colours, so it reads the same with `NO_COLOR`.
+
+- **Per profile:** make it read-only or allow writes again, set its download directory (an
+  absolute path) or reset it to the default, add it to or remove it from the installed MCP
+  clients (the same questions and backups as `setup`, see below), check its connection (its token
+  from the keychain against sevDesk, showing company and bookkeeping system, never the token) and
+  remove it (as `setup --remove`).
+- **Add a profile:** runs the `setup` dialogue.
+- **Audit log:** turn it off or on.
+
+Each change is written at once, keeping every other key of the file; restart the MCP clients so
+they pick it up. Ctrl+C leaves at any point without a half-written change. Like `setup`, `config`
+needs a terminal and stops with exit code 1 without one; it takes no options (an option or
+argument is a usage error, exit code 2). Its exit code is 0 when you leave and every change went
+through, and 1 when one failed (such as a client config that could not be written or a failed
+connection check).
 
 ### MCP clients
 

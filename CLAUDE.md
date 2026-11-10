@@ -19,7 +19,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `sevdesk-mcp setup` adds a profile (token into the OS keychain) and registers it in the
   installed Claude Desktop, Claude Code, ChatGPT Desktop / Codex and OpenCode (run from a local
   checkout, with an entry that starts its build, for the beta before npm), `setup --list`
-  lists the profiles and `setup --remove <name>` removes one with its token and client entries.
+  lists the profiles and `setup --remove <name>` removes one with its token and client entries;
+  `sevdesk-mcp config` changes profiles, client entries and the audit switch in a terminal menu.
   Priority A runs end to end against the spec-following mock in `bun run test`, and by hand
   against a real account with `bun run test:e2e`. Not built yet (PRD §9): the update checks, the
   `.mcpb`, the release workflow, receipt upload, elicitation and the curated v2 tools.
@@ -28,9 +29,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 
 - `src/cli.ts`: the `sevdesk-mcp` bin. No command starts the MCP server on stdio,
   `--profile <name>` starts it pinned to that profile; `setup` (or `setup --add`) adds a profile
-  through `runSetup()` and `setup --remove <name>` removes one through `runRemove()`, both only on a
-  terminal (stdin and stdout TTYs, else exit 1; `interactive()`); `setup --list` lists the profiles
-  through `runList()` without one; `--help` prints the usage, `--version` the version from
+  through `runSetup()`, `setup --remove <name>` removes one through `runRemove()` and `config` opens
+  the menu through `runConfig()`, all only on a terminal (stdin and stdout TTYs, else exit 1;
+  `interactive()`); `setup --list` lists the profiles through `runList()` without one; `--help` prints the usage, `--version` the version from
   `src/manifest.ts` (the same source `createServer()` reports). Exit codes: 0 success, 1 runtime
   failure, 2 usage error (unknown command or option); the usage text documents them.
 - `src/setup.ts`: `runSetup(locale, io)`, the setup dialogue (PRD §7, decisions 4, 18, 19):
@@ -45,7 +46,16 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   profile with company and read-only state from the config file alone (never the keychain). `runRemove(locale, io, name)` asks (default no), then
   deletes the token (`deleteToken()`) before the config entry (`deleteProfile()`), so no token is
   left without a profile. `src/prompt.ts`: `createPrompter()`, Node's readline with hidden input;
-  Ctrl+C or the end of the input resolves `undefined`.
+  Ctrl+C or the end of the input resolves `undefined`, for `ask()` and `choose()` alike.
+- `src/config-menu.ts`: `runConfig(locale, io)`, the `config` menu (issue #46): an overview
+  (config file, audit log, each profile with company, read-only state, download directory and its
+  entries per installed client with their kind, `profileEntries()`; never the keychain) and menus
+  through `Prompter.choose()` that toggle `readonly` and set or reset `downloadDir`
+  (`setProfileKey()`), toggle `audit` (`setAudit()`), and hand off to setup's `runRegister()`,
+  `runUnregister()`, `runCheck()` (keychain token against `GET /SevClient` and the bookkeeping
+  system), `runRemove()` and `runSetup()`. A cancelled menu leaves every menu at once.
+  `createPrompter().choose()` draws a plain-text menu (`>` marks the item; arrow keys, 1 to 9,
+  Enter, Esc or q) on readline's keypress events, muting readline's echo meanwhile.
 - `src/server.ts`: `createServer({ pinnedProfile })`, the single place where MCP tools and the
   MCP `instructions` get registered; it reads the config file once per server.
 - `src/paths.ts`: `localDirs()`, the OS-standard config and data/state directories (XDG on
@@ -59,7 +69,7 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   Desktop, Claude Code, ChatGPT Desktop / Codex, OpenCode), `entryName()`, `launchKind()` (`npx`
   when `root` of `src/manifest.ts`, the package root, lies under `node_modules`, else `local`),
   `launchArgv()` (never a token; `local` runs `process.execPath` with the checkout's
-  `dist/cli.js`), `entryState()`, `entriesUsing()` (this package or this root's build) and
+  `dist/cli.js`), `entryState()`, `entriesUsing()` (this package or this root's build; `profileEntries()` adds each entry's kind) and
   `rewriteServers()` (fresh re-read, a `<file>.sevdesk-mcp-<time>.bak` of the bytes read, then
   the write in the client's format).
   `src/client-formats.ts`: `ConfigFormat` (the servers in a file's text, the text with new servers)
@@ -73,7 +83,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   without tokens, `audit`; documented in the README). No file means `DEFAULT_CONFIG`; an
   unreadable or invalid file is an `invalid_config` error that both tools return instead of
   running. A new config key extends `toConfig()` and the README table. `saveProfile()` adds or
-  updates one profile, `deleteProfile()` removes one; both keep every other key.
+  updates one profile, `deleteProfile()` removes one, `setProfileKey()` sets or removes a profile's
+  `readonly` or `downloadDir` and `setAudit()` sets `audit`; all keep every other key.
 - `src/sandbox.ts`: `runSnippet()`, the QuickJS sandbox (a fresh WASM module per run, by
   default 30 s and 64 MB, captured `console.log`, error kinds
   `timeout`/`memory_limit`/`snippet_error`). Host functions (`HostFunction`) return promises to
@@ -146,7 +157,7 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `SEVDESK_API_TOKEN` and mocks `@napi-rs/keyring` with the in-memory `test/fake-keychain.ts`
   (seed `tokens`, assert `accesses`). Spawned servers use the real keychain, so they must never read a token.
   `test/config-file.ts` writes a config file into the temporary home. `test/setup-dialogue.ts`
-  drives `setup` through a scripted prompter against the Acme mock and writes fake client configs
+  drives `setup` and `config` through a scripted prompter (menus answered by item text or `BACK`) against the Acme mock and writes fake client configs
   (`writeClient()`, `backupsOf()`); `test/setup.ts` also unsets `CLAUDE_CONFIG_DIR` and
   `CODEX_HOME`, so client registration only ever finds fake configs in the temporary home.
   Tests run from a local checkout, so `setup` writes local-build entries there

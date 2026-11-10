@@ -40,9 +40,14 @@ export const NO_AUDIT: AuditLog = { check: () => undefined, write: () => undefin
 const HINT =
   'Tell the user the audit log could not be written. They can make its directory writable, or turn the log off with "audit": false in the config file and restart the MCP server.';
 
-/** The file of the UTC month of `time` in the state directory, e.g. `audit/2026-11.jsonl`. */
+/** The directory of the audit log in the state directory. */
+export function auditDir(): string {
+  return join(localDirs().state, 'audit');
+}
+
+/** The file of the UTC month of `time` in the audit directory, e.g. `audit/2026-11.jsonl`. */
 function monthFile(time: Date): string {
-  return join(localDirs().state, 'audit', `${time.toISOString().slice(0, 7)}.jsonl`);
+  return join(auditDir(), `${time.toISOString().slice(0, 7)}.jsonl`);
 }
 
 /**

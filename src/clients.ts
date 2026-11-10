@@ -170,19 +170,31 @@ export function entryState(
 }
 
 /**
+ * The entries of `servers` that use `profile`, by name, with the kind of launch they run: they
+ * start this package (any version) with npx, or the build of this package root (`local`), with
+ * `--profile <profile>`.
+ */
+export function profileEntries(
+  servers: Servers,
+  profile: string,
+): { name: string; kind: 'npx' | 'local' }[] {
+  return Object.entries(servers).flatMap(([name, entry]) => {
+    const argv = commandLine(entry) ?? [];
+    const runsPackage = argv.some(
+      (arg) => arg === packageName || arg.startsWith(`${packageName}@`),
+    );
+    const kind = runsPackage ? 'npx' : argv.includes(BUILT_CLI) ? 'local' : undefined;
+    const forProfile = argv.some((arg, at) => arg === '--profile' && argv[at + 1] === profile);
+    return kind !== undefined && forProfile ? [{ name, kind }] : [];
+  });
+}
+
+/**
  * The names of the entries of `servers` that use `profile`: they start this package (any version)
  * or the build of this package root with `--profile <profile>`.
  */
 export function entriesUsing(servers: Servers, profile: string): string[] {
-  return Object.entries(servers)
-    .filter(([, entry]) => {
-      const argv = commandLine(entry) ?? [];
-      const runsPackage = argv.some(
-        (arg) => arg === packageName || arg.startsWith(`${packageName}@`) || arg === BUILT_CLI,
-      );
-      return runsPackage && argv.some((arg, at) => arg === '--profile' && argv[at + 1] === profile);
-    })
-    .map(([name]) => name);
+  return profileEntries(servers, profile).map(({ name }) => name);
 }
 
 /**
