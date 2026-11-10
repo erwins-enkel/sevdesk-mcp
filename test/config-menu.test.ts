@@ -7,6 +7,7 @@ import { auditDir } from '../src/audit.ts';
 import { runConfig } from '../src/config-menu.ts';
 import { configFile } from '../src/config.ts';
 import type { Locale } from '../src/i18n/index.ts';
+import { version } from '../src/manifest.ts';
 import { claudeCodeFile } from '../src/paths.ts';
 import { writeConfig } from './config-file.ts';
 import { connect, envelopeOf } from './connect.ts';
@@ -89,11 +90,14 @@ test('the overview shows every profile with its state and client entries, and re
 
   expect(done).toBe(true);
   expect(err).toBe('');
-  // The heading once, then the overview in columns, the home directory shown as `~`.
+  // The heading once, then the overview in columns, the home directory shown as `~`. Without a
+  // checkout (as for an installed package) the version is shown and updates are not checked.
   expect(out).toBe(
     [
       'sevdesk-mcp config',
       '',
+      `Version      ${version} (npm)`,
+      'Updates      not checked here (npm install)',
       `Config file  ${tilde(configFile())}`,
       `Audit log    off (${tilde(auditDir())})`,
       '',

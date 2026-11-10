@@ -22,7 +22,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   lists the profiles and `setup --remove <name>` removes one with its token and client entries;
   `sevdesk-mcp config` changes profiles, client entries and the audit switch in a terminal menu.
   Run from a local checkout, the server also has the tool `version`: it reports the version and
-  the commits waiting upstream, and after the user's yes fast-forwards the checkout and builds it.
+  the commits waiting upstream, and after the user's yes fast-forwards the checkout and builds it;
+  `config` shows the same version and updates and offers the same update.
   Priority A runs end to end against the spec-following mock in `bun run test`, and by hand
   against a real account with `bun run test:e2e`. Not built yet (PRD §9): the update checks, the
   `.mcpb`, the release workflow, receipt upload, elicitation and the curated v2 tools.
@@ -57,8 +58,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   third column, unmarked lines are indented by two), `stylesFor()` (SGR only when the stream's
   `hasColors()` is true, which already honours `NO_COLOR`, `FORCE_COLOR=0` and `TERM=dumb`, so no env
   var is read), `createOutput()` (the `SetupOutput` of `src/cli.ts`), `columns()` and `widthOf()`.
-- `src/config-menu.ts`: `runConfig(locale, io)`, the `config` menu (issue #46): an overview
-  (config file, audit log, each profile with company, read-only state, download directory and its
+- `src/config-menu.ts`: `runConfig(locale, io, checkout?)`, the `config` menu (issue #46): an
+  overview (version and updates, config file, audit log, each profile with company, read-only state, download directory and its
   entries per installed client with their kind, `profileEntries()`; never the keychain) and menus
   through `Prompter.choose()` that toggle `readonly` and set or reset `downloadDir`
   (`setProfileKey()`), toggle `audit` (`setAudit()`), and hand off to setup's `runRegister()`,
@@ -84,8 +85,14 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `bun run build`; `update_refused` changed nothing, `update_failed` names the step and the
   commit, no rollback. Commands run through `run()`: no shell, output captured (never this
   process's stdout), inherited `GIT_*` dropped, `GIT_TERMINAL_PROMPT=0`, the running Node's
-  directory first on the PATH. `test/version.test.ts` drives it against real git repositories in a
-  temporary directory (bare origin, the checkout, a second clone that pushes).
+  directory first on the PATH. `checkoutState()` and `updateCheckout()` are the same checks and
+  update as structured data; the tool wraps them, and `config` uses them with `checkout` (the package
+  root, passed by `src/cli.ts` only for a `local` launch): one fetch when it opens, the `Version` and
+  `Updates` rows (never "up to date" unless the comparison worked), the item "Update to <sha>" first
+  in the main menu when one is offered (a yes, the default, updates, then `config` ends).
+  `test/version.test.ts` and `test/config-menu-update.test.ts` drive them against the real git
+  repositories of `test/git-fixture.ts` in a temporary directory (bare origin, the checkout, a
+  second clone that pushes).
 - `src/paths.ts`: `localDirs()`, the OS-standard config and data/state directories (XDG on
   Linux, `~/Library/Application Support` on macOS, `%APPDATA%`/`%LOCALAPPDATA%` on Windows),
   `defaultDownloadDir()`, `~/Downloads/sevdesk/<profile>` unless the profile sets `downloadDir`,

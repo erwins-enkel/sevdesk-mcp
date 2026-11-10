@@ -214,7 +214,9 @@ switch (command) {
     if (rest[0] !== undefined) {
       strayArgument(rest[0]);
     } else {
-      await interactive('config.noTty', (io) => runConfig(locale, io));
+      // A local checkout also shows and offers its updates; an installed package only its version.
+      const checkout = launchKind() === 'local' ? root : undefined;
+      await interactive('config.noTty', (io) => runConfig(locale, io, checkout));
     }
     break;
   default:

@@ -10,7 +10,8 @@ import type { SnippetError } from './sandbox.ts';
 // `version`, the tool of a server that runs from a local checkout (decision 18, addendum on
 // `version`): this server's version and the checkout's git state, with the commits waiting
 // upstream, and, after the user's yes, the update to them. The published package never registers
-// it, so it keeps its two tools.
+// it, so it keeps its two tools. `checkoutState()` and `updateCheckout()` are the same checks and
+// update without the MCP wrapping, which `config` shows in its overview and menu.
 
 /** For git and `bun --version`. */
 const QUICK_TIMEOUT_MS = 30_000;
@@ -164,7 +165,7 @@ function uncomparable({ branch }: Repo): string {
 }
 
 /** How HEAD and its upstream compare after a fetch: the counts, the newest incoming, the tip. */
-interface Comparison {
+export interface Comparison {
   ahead: number;
   behind: number;
   incoming: Commit[];
@@ -231,6 +232,35 @@ function comparisonNotes(repo: Repo, { ahead, behind, incoming }: Comparison): s
 }
 
 /**
+ * The git state of a checkout: its repository (undefined when it cannot be read), how HEAD compares
+ * with its upstream after a fetch (undefined when it cannot be compared), the upstream tip offered
+ * as an update, and why something could not be checked. `offer` is set only when commits are
+ * waiting, the branch has none of its own and nothing tracked is changed; `problem` is set whenever
+ * `comparison` is missing, so nothing unchecked ever reads as up to date.
+ */
+export interface CheckoutState {
+  repo?: Repo;
+  comparison?: Comparison;
+  offer?: string;
+  problem?: string;
+}
+
+/** Reads `checkout`'s repository, fetches its upstream and compares HEAD with it. */
+export async function checkoutState(checkout: string): Promise<CheckoutState> {
+  const found = await repoOf(checkout);
+  if (!found.ok) return { problem: found.reason };
+  const { repo } = found;
+  if (repo.branch === undefined || repo.upstream === undefined) {
+    return { repo, problem: uncomparable(repo) };
+  }
+  const compared = await compare(checkout, repo.upstream);
+  if (!compared.ok) return { repo, problem: compared.reason };
+  const { comparison } = compared;
+  const offer = comparison.behind > 0 && comparison.ahead === 0 && !repo.changed;
+  return { repo, comparison, ...(offer ? { offer: comparison.tip } : {}) };
+}
+
+/**
  * The state `version` reports: name and version, the checkout's branch, HEAD and uncommitted
  * tracked changes, and after a fetch how it compares with its upstream. `update.to` is offered only
  * when commits are waiting, the branch has none of its own and nothing tracked is changed. Whatever
@@ -238,9 +268,8 @@ function comparisonNotes(repo: Repo, { ahead, behind, incoming }: Comparison): s
  */
 async function stateOf(checkout: string): Promise<CallToolResult> {
   const about = { name, version, checkout };
-  const found = await repoOf(checkout);
-  if (!found.ok) return plainResult(about, [`Updates cannot be checked: ${found.reason}.`]);
-  const { repo } = found;
+  const { repo, comparison, offer, problem = '' } = await checkoutState(checkout);
+  if (repo === undefined) return plainResult(about, [`Updates cannot be checked: ${problem}.`]);
   const state = {
     ...about,
     branch: repo.branch,
@@ -248,16 +277,17 @@ async function stateOf(checkout: string): Promise<CallToolResult> {
     changed: repo.changed,
     upstream: repo.upstream,
   };
-  if (repo.branch === undefined || repo.upstream === undefined) {
-    return plainResult(state, [uncomparable(repo)]);
-  }
-  const compared = await compare(checkout, repo.upstream);
-  if (!compared.ok) return plainResult(state, [compared.reason]);
-  const { ahead, behind, incoming, tip } = compared.comparison;
-  const offer = behind > 0 && ahead === 0 && !repo.changed;
+  if (comparison === undefined) return plainResult(state, [problem]);
+  const { ahead, behind, incoming } = comparison;
   return plainResult(
-    { ...state, ahead, behind, incoming, ...(offer ? { update: { to: tip } } : {}) },
-    comparisonNotes(repo, compared.comparison),
+    {
+      ...state,
+      ahead,
+      behind,
+      incoming,
+      ...(offer === undefined ? {} : { update: { to: offer } }),
+    },
+    comparisonNotes(repo, comparison),
   );
 }
 
@@ -317,19 +347,24 @@ async function planUpdate(checkout: string, requested: string): Promise<UpdatePl
   return { from: repo.sha, to, commits: Number(count.stdout.trim()) };
 }
 
+/**
+ * What became of an update: done along `plan` (`installed` and `built` say which steps ran; nothing
+ * ran when HEAD already was the commit), refused before anything changed, or `failed` in `step`
+ * after the checkout was fast-forwarded to `to`, with the end of that step's output.
+ */
+export type UpdateOutcome =
+  | { kind: 'updated'; plan: UpdatePlan; installed: boolean; built: boolean }
+  | { kind: 'refused'; reason: string; hint?: string }
+  | { kind: 'failed'; step: string; to: string; output: string };
+
 /** An update refused before anything changed. */
-function refused(reason: string, hint?: string): CallToolResult {
-  const error: SnippetError = { kind: 'update_refused', message: `Nothing was changed: ${reason}` };
-  return errorResult(hint === undefined ? error : { ...error, hint });
+function refused(reason: string, hint?: string): UpdateOutcome {
+  return hint === undefined ? { kind: 'refused', reason } : { kind: 'refused', reason, hint };
 }
 
 /** An update whose `step` failed after the checkout was fast-forwarded to `to`. */
-function failed(step: string, to: string, checkout: string, ran: Ran): CallToolResult {
-  return errorResult({
-    kind: 'update_failed',
-    message: `The checkout was fast-forwarded to ${to}, but ${step} failed, so the build in dist/ may be old or incomplete: ${ran.output.slice(-OUTPUT_TAIL_CHARS)}`,
-    hint: `Run bun install && bun run build in ${checkout}.`,
-  });
+function failed(step: string, to: string, ran: Ran): UpdateOutcome {
+  return { kind: 'failed', step, to, output: ran.output.slice(-OUTPUT_TAIL_CHARS) };
 }
 
 /** The bun to install and build with: on the PATH, else bun's own install folder; or undefined. */
@@ -351,10 +386,11 @@ async function findBun(checkout: string): Promise<string | undefined> {
  */
 async function applyUpdate(
   checkout: string,
-  { from, to, commits }: UpdatePlan,
+  plan: UpdatePlan,
   bun: string,
   install: boolean,
-): Promise<CallToolResult> {
+): Promise<UpdateOutcome> {
+  const { to } = plan;
   const merged = await git(checkout, 'merge', '--ff-only', '--quiet', to);
   if (!merged.ok) return refused(`git could not fast-forward to ${to}: ${merged.output}`);
   if (install) {
@@ -364,27 +400,21 @@ async function applyUpdate(
       checkout,
       INSTALL_TIMEOUT_MS,
     );
-    if (!installed.ok) return failed('bun install --frozen-lockfile', to, checkout, installed);
+    if (!installed.ok) return failed('bun install --frozen-lockfile', to, installed);
   }
   const built = await run(bun, ['run', 'build'], checkout, BUILD_TIMEOUT_MS);
-  if (!built.ok) return failed('bun run build', to, checkout, built);
-  return plainResult({ updated: { from, to, commits }, installed: install, built: true }, [
-    RESTART_NOTE,
-  ]);
+  if (!built.ok) return failed('bun run build', to, built);
+  return { kind: 'updated', plan, installed: install, built: true };
 }
 
 /**
  * Updates `checkout` to `requested` once `planUpdate()` allows it. Every check, bun included, runs
  * before the fast-forward (`applyUpdate()`), so a refusal changes nothing.
  */
-async function updateTo(checkout: string, requested: string): Promise<CallToolResult> {
+export async function updateCheckout(checkout: string, requested: string): Promise<UpdateOutcome> {
   const plan = await planUpdate(checkout, requested);
   if (typeof plan === 'string') return refused(plan);
-  if (plan.commits === 0) {
-    return plainResult({ updated: plan, installed: false, built: false }, [
-      `Already at ${plan.to}: nothing changed.`,
-    ]);
-  }
+  if (plan.commits === 0) return { kind: 'updated', plan, installed: false, built: false };
   const lock = await git(
     checkout,
     'diff',
@@ -407,6 +437,31 @@ async function updateTo(checkout: string, requested: string): Promise<CallToolRe
     );
   }
   return applyUpdate(checkout, plan, bun, lock.code === 1);
+}
+
+/** `version`'s answer to an update: the outcome of `updateCheckout()` as a tool result. */
+async function updateTo(checkout: string, requested: string): Promise<CallToolResult> {
+  const outcome = await updateCheckout(checkout, requested);
+  switch (outcome.kind) {
+    case 'updated': {
+      const { plan, installed, built } = outcome;
+      const note = built ? RESTART_NOTE : `Already at ${plan.to}: nothing changed.`;
+      return plainResult({ updated: plan, installed, built }, [note]);
+    }
+    case 'refused': {
+      const error: SnippetError = {
+        kind: 'update_refused',
+        message: `Nothing was changed: ${outcome.reason}`,
+      };
+      return errorResult(outcome.hint === undefined ? error : { ...error, hint: outcome.hint });
+    }
+    case 'failed':
+      return errorResult({
+        kind: 'update_failed',
+        message: `The checkout was fast-forwarded to ${outcome.to}, but ${outcome.step} failed, so the build in dist/ may be old or incomplete: ${outcome.output}`,
+        hint: `Run bun install && bun run build in ${checkout}.`,
+      });
+  }
 }
 
 /**
