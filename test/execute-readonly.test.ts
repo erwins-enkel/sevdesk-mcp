@@ -157,7 +157,7 @@ describe.each(setups)('$name', ({ profile, source, arrange }) => {
 
   test('savePdf and getPdf with preventSendBy=true still work', async () => {
     arrange();
-    const file = { base64encoded: true, content: PDF.toString('base64') };
+    const file = { base64Encoded: true, content: PDF.toString('base64') };
     const sevdesk = await mock({
       'GET /Invoice/7': () => ({ json: { objects: [{ id: '7', invoiceNumber: 'RE-1001' }] } }),
       'GET /Invoice/7/getPdf': () => ({ json: { objects: file } }),
@@ -167,7 +167,7 @@ describe.each(setups)('$name', ({ profile, source, arrange }) => {
       code: `
         const saved = await sevdesk.savePdf('Invoice', 7);
         const read = await sevdesk.request('GET', '/Invoice/7/getPdf', { query: { preventSendBy: true } });
-        return { saved, read: read.objects.base64encoded };`,
+        return { saved, read: read.objects.base64Encoded };`,
     });
 
     const path = join(homedir(), 'Downloads', 'sevdesk', profile, 'RE-1001.pdf');

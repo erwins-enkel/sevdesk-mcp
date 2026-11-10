@@ -140,7 +140,7 @@ function account(existing: boolean) {
         objects: {
           filename: 'AN-1042.pdf',
           mimeType: 'application/pdf',
-          base64encoded: true,
+          base64Encoded: true,
           content: PDF.toString('base64'),
         },
       },

@@ -14475,7 +14475,7 @@
                           "type": "string",
                           "example": "application/pdf"
                         },
-                        "base64encoded": {
+                        "base64Encoded": {
                           "type": "boolean",
                           "example": true
                         },
@@ -25411,7 +25411,7 @@
                           "type": "string",
                           "example": "application/pdf"
                         },
-                        "base64encoded": {
+                        "base64Encoded": {
                           "type": "boolean",
                           "example": true
                         },
@@ -33751,7 +33751,7 @@
                           "type": "string",
                           "example": "application/pdf"
                         },
-                        "base64encoded": {
+                        "base64Encoded": {
                           "type": "boolean",
                           "example": true
                         },

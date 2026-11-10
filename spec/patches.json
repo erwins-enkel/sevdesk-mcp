@@ -229,7 +229,7 @@
     ]
   },
   {
-    "why": "getPdf answers { objects: { filename, mimeType, base64encoded, content } } with content as base64 text, not the bare object with binary content the spec shows. Evidence: github.com/j-mastr/sevdesk-php-sdk/issues/70 ('the actual response nests them under an objects key'), github.com/j-mastr/sevdesk-api changelog #66; the response's own base64encoded flag.",
+    "why": "getPdf answers { objects: { filename, mimeType, base64Encoded, content } } with content as base64 text, not the bare object with binary content the spec shows, and spells the flag base64Encoded (as the Export and Report responses do), not base64encoded. Evidence: github.com/j-mastr/sevdesk-php-sdk/issues/70 ('the actual response nests them under an objects key'), github.com/j-mastr/sevdesk-api changelog #66; the response's own base64Encoded flag, seen on a real Order getPdf on 2026-11-10.",
     "changes": [
       {
         "path": "/paths/~1Order~1{orderId}~1getPdf/get/responses/200/content/application~1json/schema",
@@ -267,7 +267,7 @@
                   "type": "string",
                   "example": "application/pdf"
                 },
-                "base64encoded": {
+                "base64Encoded": {
                   "type": "boolean",
                   "example": true
                 },
@@ -318,7 +318,7 @@
                   "type": "string",
                   "example": "application/pdf"
                 },
-                "base64encoded": {
+                "base64Encoded": {
                   "type": "boolean",
                   "example": true
                 },
@@ -369,7 +369,7 @@
                   "type": "string",
                   "example": "application/pdf"
                 },
-                "base64encoded": {
+                "base64Encoded": {
                   "type": "boolean",
                   "example": true
                 },

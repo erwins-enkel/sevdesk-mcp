@@ -496,13 +496,17 @@ function documentNumber(response: unknown, field: string): string | undefined {
 }
 
 /**
- * The PDF of a getPdf response: its base64 `content` (with `base64encoded: true`), under `objects`
- * as sevDesk wraps its responses, or at the top level as the official spec documents it. Anything
- * else fails.
+ * The PDF of a getPdf response: its base64 `content` (with `base64Encoded: true`, as sevDesk sends
+ * it, or `base64encoded: true`, as the official spec documents it), under `objects` as sevDesk wraps
+ * its responses, or at the top level as the official spec documents it. Anything else fails.
  */
 function pdfBytes({ method, path }: Call, response: unknown): Buffer {
   const file = isRecord(response) && isRecord(response.objects) ? response.objects : response;
-  if (isRecord(file) && file.base64encoded === true && typeof file.content === 'string') {
+  if (
+    isRecord(file) &&
+    (file.base64Encoded === true || file.base64encoded === true) &&
+    typeof file.content === 'string'
+  ) {
     const bytes = Buffer.from(file.content, 'base64');
     if (bytes.length > 0) return bytes;
   }
