@@ -277,7 +277,17 @@ profile's download directory and returns only the path. That directory is
   (`preventSendBy=true`). sevDesk keeps the PDF it rendered last, so `savePdf` renders a draft
   again first (`POST /{Type}/{id}/render` with `forceReload`, listed in `writes` and the audit
   log): its PDF always shows the draft as it is now. That costs 3 calls. Any other document gets
-  the PDF sevDesk stored, the one it sent, in 2 calls.
+  the PDF sevDesk stored, the one it sent, in 2 calls. It returns the path and file name with the
+  PDF's `bytes`, `sha256`, `pdfCreated` (its `/CreationDate`) and `documentUpdated` (the
+  document's `update`), both in UTC.
+- A `getPdf` of an order, invoice or credit note through `sevdesk.request` (with
+  `preventSendBy=true`) is saved as a new file named after the path, e.g. `Order-7-getPdf.pdf`,
+  whether sevDesk answers JSON or, with `download=true`, the PDF itself. It reads the document
+  first (2 calls) and returns the same fields. Changes through the API do not update the PDF
+  sevDesk stored, and this call returns that stored PDF; only `savePdf` renders a draft again.
+- When a draft's PDF predates the draft's last change, the result adds `stale: true` and a hint,
+  and the `execute` result's `notes` name the file. The file is saved all the same. Documents
+  that are no drafts are never flagged: a status change such as sending moves `update` too.
 - Any other response that is not JSON, such as a CSV export, is saved as a new file named after the
   request path, e.g. `Export-datevCSV.csv`. An existing file is kept; the new one gets `-2`, `-3`,
   … appended.
@@ -346,8 +356,9 @@ first run and kept. With `SEVDESK_E2E_MAIL_TO` set, one offer is mailed to that 
 there. At the end the run deletes its own offers that are still tagged drafts, through the
 confirmation flow, and deletes nothing if any of them is not. Mailed offers are no longer drafts:
 the report lists them, with anything else left behind, for deletion by hand. The report also
-says whether `getPdf` without `preventSendBy=true` changed an offer's status, and it contains
-neither the token nor the mail address. An interrupted run can leave offers too; find them by the
+says whether `getPdf` without `preventSendBy=true` changed an offer's status and what a `getPdf`
+without a render returns after a change of the draft (its `pdfCreated`, `documentUpdated` and
+`stale`), and it contains neither the token nor the mail address. An interrupted run can leave offers too; find them by the
 tag and the run id.
 
 The product requirements live in [`docs/prd/PRD-sevdesk.md`](docs/prd/PRD-sevdesk.md), the
