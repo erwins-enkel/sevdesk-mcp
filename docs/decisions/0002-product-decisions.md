@@ -93,6 +93,16 @@ rules.
    is not rendered and gets the PDF sevDesk stored, the one it sent, in 2 calls. A sent or
    enshrined document's PDF is never re-rendered. The spec lacks the Order and CreditNote render,
    so `spec/patches.json` adds them from sevDesk's changelog.
+   **Addendum (2026-11-11, issue #52):** a saved PDF says how old it is. `savePdf` and a `getPdf`
+   through `request` return `sha256`, `pdfCreated` (the PDF's `/CreationDate`) and
+   `documentUpdated` (the document's `update`), both as UTC instants. When a draft's PDF predates
+   the draft's last change, the result adds `stale: true` and a hint, and the run's `notes` name
+   the file, whatever the code returns. The file is saved all the same. Only drafts are flagged:
+   sending, payment and other status changes move `update` too, and a sent document's stored PDF
+   is the one that went out. A `/CreationDate` without an offset, partial or not in plain text,
+   or an `update` that is no ISO date-time with offset, gives `null` and no flag, never a guess.
+   No content of the PDF is compared with the API data. `savePdf` reads `update` from the document
+   it already fetches before the render, so its cost stays 3 or 2 calls.
 8. **Elicitation in v1 or v1.x?** §6 step 3 lists it in the flow, §9 puts it in v1.x.
    **Answer:** v1.x. Client support (Claude Desktop, ChatGPT Desktop, Cowork) is inconsistent today,
    so v1 relies on the token alone. Once built, the server elicits additionally during the
@@ -141,6 +151,10 @@ rules.
     directory and returns `{ path, contentType, bytes }`. "Binary data never enters the context"
     thus holds for exports too, without another helper. `savePdf` stays as the shortcut for
     documents. **Source:** §4, §5.1.
+    **Addendum (2026-11-11, issue #52):** a `getPdf` of an order, invoice or credit note through
+    `request` is saved as a file too, also when sevDesk answers JSON with the PDF in base64, so
+    the PDF never reaches the code. It reads the document first (2 calls) and returns
+    `{ path, contentType, bytes }` with the freshness of decision 7.
 16. **What does the audit log contain?**
     **Answer:** Time, profile, method, path, query, status, sevDesk object id, body hash and outcome
     (`executed`, `held`, `confirmed`, `rejected`). No request bodies (no customer data) and never

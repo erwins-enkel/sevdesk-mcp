@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -173,13 +174,27 @@ describe.each(setups)('$name', ({ profile, source, arrange }) => {
       code: `
         const saved = await sevdesk.savePdf('Invoice', 7);
         const read = await sevdesk.request('GET', '/Invoice/7/getPdf', { query: { preventSendBy: true } });
-        return { saved, read: read.objects.base64Encoded };`,
+        return { saved, read };`,
     });
 
-    const path = join(homedir(), 'Downloads', 'sevdesk', profile, 'RE-1001.pdf');
+    const dir = join(homedir(), 'Downloads', 'sevdesk', profile);
+    const path = join(dir, 'RE-1001.pdf');
+    const freshness = {
+      bytes: PDF.length,
+      sha256: createHash('sha256').update(PDF).digest('hex'),
+      pdfCreated: null,
+      documentUpdated: null,
+    };
     expect(isError).toBe(false);
     expect(envelope).toEqual({
-      result: { saved: { path, fileName: 'RE-1001.pdf' }, read: true },
+      result: {
+        saved: { path, fileName: 'RE-1001.pdf', ...freshness },
+        read: {
+          path: join(dir, 'Invoice-7-getPdf.pdf'),
+          contentType: 'application/pdf',
+          ...freshness,
+        },
+      },
       writes: [{ method: 'POST', path: '/Invoice/7/render', status: 201 }],
     });
     expect(readFileSync(path)).toEqual(PDF);
@@ -187,6 +202,7 @@ describe.each(setups)('$name', ({ profile, source, arrange }) => {
       'GET /Invoice/7',
       'POST /Invoice/7/render',
       'GET /Invoice/7/getPdf',
+      'GET /Invoice/7',
       'GET /Invoice/7/getPdf',
     ]);
     const audit = join(localDirs().state, 'audit');

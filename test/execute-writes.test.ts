@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { connect, envelopeOf } from './connect.ts';
 import { type MockRequest, type MockRoutes, startMockSevdesk } from './mock-sevdesk.ts';
+import { getPdfAnswer, sevdeskPdf } from './sevdesk-pdf.ts';
 
 // Writes through `execute` (PRD §6, decisions 6, 7 and 11): reversible writes run and enter the
 // ledger (`writes`), every irreversible call is held before it reaches the mock sevDesk.
@@ -273,10 +274,10 @@ test.each(irreversible)('$name is held without reaching sevDesk', async ({ calls
 });
 
 test('getPdf with preventSendBy=true and an export that does not enshrine run as reads', async () => {
-  const pdf = { objects: { filename: 'RE-1.pdf', mimeType: 'application/pdf' } };
   const job = { objects: { id: 'job-1' } };
   const sevdesk = await mock({
-    'GET /Invoice/1/getPdf': () => ({ json: pdf }),
+    'GET /Invoice/1': () => ({ json: { objects: [{ id: '1', status: '200' }] } }),
+    'GET /Invoice/1/getPdf': () => ({ json: getPdfAnswer(sevdeskPdf()) }),
     'GET /Export/createDatevCsvZipExportJob': () => ({ json: job }),
   });
 
@@ -285,10 +286,11 @@ test('getPdf with preventSendBy=true and an export that does not enshrine run as
     const exported = await sevdesk.request('GET', '/Export/createDatevCsvZipExportJob', {
       query: { enshrineDocuments: false, includeEnshrined: true },
     });
-    return { file, exported };`);
+    return { file: file.contentType, exported };`);
 
-  expect(envelope).toEqual({ result: { file: pdf, exported: job } });
+  expect(envelope).toEqual({ result: { file: 'application/pdf', exported: job } });
   expect(snippetCalls(sevdesk.requests)).toEqual([
+    'GET /Invoice/1',
     'GET /Invoice/1/getPdf',
     'GET /Export/createDatevCsvZipExportJob',
   ]);

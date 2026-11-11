@@ -30,7 +30,9 @@ import {
 // this run's tagged drafts through the confirmation flow (test/e2e/cleanup.ts), all or none, and
 // lists the offers left for manual deletion. The server gets a temporary home, so the real config
 // file, audit log and Downloads folder stay untouched. The report printed at the end names neither
-// the token nor the mail address, so it can go into the issue as it is.
+// the token nor the mail address, so it can go into the issue as it is. The PDFs' freshness (issue
+// #52) is checked live too: savePdf's /CreationDate must not predate the draft's last change, and
+// the report says what a getPdf without a render returns after a change.
 
 /** An environment variable's value, or undefined when it is unset or blank. */
 function setting(value: string | undefined): string | undefined {
@@ -146,16 +148,46 @@ async function pdfText(path: string): Promise<string> {
   }
 }
 
-/** Saves the PDF of offer `id` with savePdf: its text, and whether the run rendered it again. */
-async function savePdfText(id: string): Promise<{ text: string; rendered: boolean }> {
+/** The freshness a saved PDF comes back with (issue #52). */
+interface Freshness {
+  path: string;
+  pdfCreated: string | null;
+  documentUpdated: string | null;
+  stale?: true;
+}
+
+/**
+ * Saves the PDF of offer `id` with savePdf: its text, whether the run rendered it again, and its
+ * freshness.
+ */
+async function savePdfText(
+  id: string,
+): Promise<{ text: string; rendered: boolean; saved: Freshness }> {
   const { result, writes = [] } = await run(
     `return await sevdesk.savePdf('Order', ${JSON.stringify(id)});`,
   );
+  const saved = result as Freshness;
   const render = `/Order/${id}/render`;
   return {
-    text: await pdfText((result as { path: string }).path),
+    text: await pdfText(saved.path),
     rendered: (writes as { path: string }[]).some(({ path }) => path === render),
+    saved,
   };
+}
+
+/** A saved PDF's creation date, the document's last change and the stale flag, for the report. */
+function dates({ pdfCreated, documentUpdated, stale }: Freshness): string {
+  return `pdfCreated ${String(pdfCreated)}, documentUpdated ${String(documentUpdated)}, ${stale === true ? 'stale' : 'not stale'}`;
+}
+
+/** Fails unless the saved PDF has a creation date and the draft did not change after it. */
+function expectCurrent({ pdfCreated, documentUpdated, stale }: Freshness): void {
+  expect(pdfCreated).not.toBeNull();
+  expect(documentUpdated).not.toBeNull();
+  expect(Date.parse(String(pdfCreated))).toBeGreaterThanOrEqual(
+    Date.parse(String(documentUpdated)),
+  );
+  expect(stale).toBeUndefined();
 }
 
 /** The offer `id` as sevDesk has it now. */
@@ -341,11 +373,34 @@ function liveRun(apiToken: string): void {
       const after = await readOffer(id);
       const shows = second.text.includes(headerMarker);
       report.push(
-        `savePdf after changing the header of ${label(after)}: the PDF ${shows ? 'shows' : 'does not show'} the change; ${change(before, after)}`,
+        `savePdf after changing the header of ${label(after)}: the PDF ${shows ? 'shows' : 'does not show'} the change (${dates(second.saved)}); ${change(before, after)}`,
       );
       expect([first.rendered, second.rendered]).toEqual([true, true]);
       expect(first.text.includes(headerMarker)).toBe(false);
       expect(shows).toBe(true);
+      expectCurrent(second.saved);
+      expect([after.status, after.sendDate]).toEqual([before.status, before.sendDate]);
+    });
+
+    test('issue #52: after a change of the draft, the report shows what getPdf without a render returns; savePdf is current', async () => {
+      const id = earlier(offerId, 'offer from the PDF-only test');
+      const before = await readOffer(id);
+      const header = `Angebot ${before.number ?? ''} ${headerMarker} 52`;
+      await run(
+        `await sevdesk.request('PUT', '/Order/${id}', { body: { header: ${JSON.stringify(header)} } }); return true;`,
+      );
+      const { result } = await run(
+        `return await sevdesk.request('GET', '/Order/${id}/getPdf', { query: { preventSendBy: true } });`,
+      );
+      const stored = result as Freshness;
+      const saved = await savePdfText(id);
+      const after = await readOffer(id);
+      report.push(
+        `getPdf without a render after changing the header of ${label(after)}: ${dates(stored)}; savePdf then: ${dates(saved.saved)}`,
+      );
+      expect(stored.pdfCreated).not.toBeNull();
+      expect(saved.rendered).toBe(true);
+      expectCurrent(saved.saved);
       expect([after.status, after.sendDate]).toEqual([before.status, before.sendDate]);
     });
 

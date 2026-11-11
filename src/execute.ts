@@ -26,7 +26,7 @@ import {
 const description = ({
   maxCalls,
   limits,
-}: Config) => `Call the sevDesk REST API. \`code\` is the body of an async JavaScript function, run in a sandbox with \`console.log\`, \`sevdesk.request(method, path, { query, body })\`, \`sevdesk.paginate(path, query)\` and \`sevdesk.savePdf(type, id)\`; no other network or file access. \`path\` is relative to the API base (e.g. '/Contact'), \`body\` a JSON object; a request resolves to the parsed JSON or throws an Error with \`status\`, \`sevdeskMessage\` and \`hint\`. A non-JSON response (e.g. a CSV export) is saved as a new file in the profile's download folder and resolves to \`{ path, contentType, bytes }\`. \`paginate\` resolves to all objects of a list as one array, fetched in pages of ${String(PAGE_SIZE)} (each page is a call). \`savePdf\` saves a document's PDF (type one of ${Object.keys(PDF_TYPES).join(', ')}) in that folder as <number>.pdf, replacing an older copy, without marking it sent, and resolves to \`{ path, fileName }\`. A draft is rendered again first, so its PDF is current (3 calls, the render listed in \`writes\`); any other document gets the PDF sevDesk stored (2 calls). File contents never come back. Rate limits (429) and GET server errors (5xx) are retried automatically, at most ${String(maxCalls)} calls per run, held calls and their preview reads included. Reads and the POST/PUT calls that create or change drafts run directly. Irreversible calls are held, not sent, and resolve to { held: true }: DELETE, sending, enshrine, bookAmount, cancel, reset, a status in an Invoice/Order/CreditNote/Voucher body (only a new draft via Factory/save* may carry its draft status), getPdf without preventSendBy=true, write paths not in the spec. A successful run with held calls returns \`confirmation\`: a preview of each and a token. Show the user the preview; only after their yes call execute with \`confirm\` (the token) and no \`code\`: it sends exactly those calls once, in order, stops at the first failure and reports each in \`confirmed\`. A token works once, for 10 minutes. Find paths and parameters with \`search\` first. Only the return value and console output (each cut at ${String(limits.outputChars)} characters) come back, plus \`writes\`: every write sent (method, path, status, objectId), also when the code fails. Return just what you need, e.g.:
+}: Config) => `Call the sevDesk REST API. \`code\` is the body of an async JavaScript function, run in a sandbox with \`console.log\`, \`sevdesk.request(method, path, { query, body })\`, \`sevdesk.paginate(path, query)\` and \`sevdesk.savePdf(type, id)\`; no other network or file access. \`path\` is relative to the API base (e.g. '/Contact'), \`body\` a JSON object; a request resolves to the parsed JSON or throws an Error with \`status\`, \`sevdeskMessage\` and \`hint\`. A non-JSON response (e.g. a CSV export) or a getPdf PDF is saved as a new file in the profile's download folder and resolves to \`{ path, contentType, bytes }\` (a PDF adds sha256, pdfCreated, documentUpdated and stale, as savePdf does). \`paginate\` resolves to all objects of a list as one array, fetched in pages of ${String(PAGE_SIZE)} (each page is a call). \`savePdf\` saves a document's PDF (type one of ${Object.keys(PDF_TYPES).join(', ')}) in that folder as <number>.pdf, replacing an older copy, without marking it sent, and resolves to \`{ path, fileName, bytes, sha256, pdfCreated, documentUpdated }\`, plus \`stale: true\` and a \`hint\` if the PDF predates the draft's last change. A draft is rendered again first, so its PDF is current (3 calls, the render listed in \`writes\`); any other document gets the PDF sevDesk stored (2 calls). File contents never come back. Rate limits (429) and GET server errors (5xx) are retried automatically, at most ${String(maxCalls)} calls per run, held calls and their preview reads included. Reads and the POST/PUT calls that create or change drafts run directly. Irreversible calls are held, not sent, and resolve to { held: true }: DELETE, sending, enshrine, bookAmount, cancel, reset, a status in an Invoice/Order/CreditNote/Voucher body (only a new draft via Factory/save* may carry its draft status), getPdf without preventSendBy=true, write paths not in the spec. A successful run with held calls returns \`confirmation\`: a preview of each and a token. Show the user the preview; only after their yes call execute with \`confirm\` (the token) and no \`code\`: it sends exactly those calls once, in order, stops at the first failure and reports each in \`confirmed\`. A token works once, for 10 minutes. Find paths and parameters with \`search\` first. Only the return value and console output (each cut at ${String(limits.outputChars)} characters) come back, plus \`writes\`: every write sent (method, path, status, objectId), also when the code fails. Return just what you need, e.g.:
 const r = await sevdesk.request('GET', '/Contact', { query: { depth: 1, limit: 10 } });
 return r.objects.map((c) => ({ id: c.id, name: c.name }))`;
 
@@ -197,14 +197,15 @@ export function registerExecuteTool(
    * the run could not be written, the run fails with that `audit_error`, whatever the code did.
    */
   async function run(code: string, profile: Profile): Promise<CallToolResult> {
-    const { request, paginate, savePdf, writes, held, readDocument, settled } = createClient({
-      baseUrl: config.baseUrl,
-      token: profile.token,
-      maxCalls: config.maxCalls,
-      downloadDir: profile.downloadDir,
-      readOnly: readOnlyReason(profile),
-      audit: auditFor(profile),
-    });
+    const { request, paginate, savePdf, writes, held, stalePdfs, readDocument, settled } =
+      createClient({
+        baseUrl: config.baseUrl,
+        token: profile.token,
+        maxCalls: config.maxCalls,
+        downloadDir: profile.downloadDir,
+        readOnly: readOnlyReason(profile),
+        audit: auditFor(profile),
+      });
     const ran = await runSnippet(code, {}, config.limits, {
       sevdesk: { request, paginate, savePdf },
     });
@@ -214,13 +215,15 @@ export function registerExecuteTool(
       auditError === undefined ? ran : { ...ran, ok: false as const, error: auditError };
     const { outputChars, timeoutMs } = config.limits;
     const dropped = { dropped: held.map(({ method, path }) => `${method} ${path}`) };
-    if (!outcome.ok || held.length === 0)
-      return toToolResult(outcome, outputChars, writes, dropped);
+    const stale = [...stalePdfs];
+    if (!outcome.ok || held.length === 0) {
+      return toToolResult(outcome, outputChars, writes, dropped, stale);
+    }
     const signal = AbortSignal.timeout(timeoutMs);
     try {
       const previews = await previewHeld(held, (path) => readDocument(path, signal));
       const confirmation = confirmations.issue(profile, held, previews);
-      return toToolResult(outcome, outputChars, writes, { confirmation });
+      return toToolResult(outcome, outputChars, writes, { confirmation }, stale);
     } catch (error) {
       if (!(error instanceof HostError)) throw error;
       return toToolResult(
@@ -228,6 +231,7 @@ export function registerExecuteTool(
         outputChars,
         writes,
         dropped,
+        stale,
       );
     }
   }

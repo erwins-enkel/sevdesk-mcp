@@ -46,12 +46,15 @@ function heldNotes(held: Held | undefined): string[] {
  * the ledger of the write calls the run sent, comes back whether the run failed or not; a note
  * flags writes that may have been applied without a success answer. `held` adds the confirmation
  * request of the held calls with a note on what to do, or a note that they were dropped.
+ * `stalePdfs`, the saved PDFs that predate the last change of their draft (issue #52), get a note
+ * whatever the code returned, as the files exist whether the run failed or not.
  */
 export function toToolResult(
   outcome: SandboxOutcome,
   outputChars: number,
   writes: Write[] = [],
   held?: Held,
+  stalePdfs: string[] = [],
 ): CallToolResult {
   const envelope: Envelope = {};
   const notes: string[] = [];
@@ -79,6 +82,11 @@ export function toToolResult(
   }
   if (held !== undefined && 'confirmation' in held) envelope.confirmation = held.confirmation;
   notes.push(...heldNotes(held));
+  if (stalePdfs.length > 0) {
+    notes.push(
+      `A saved PDF predates the last change of its draft and does not show the current data: ${stalePdfs.join(', ')}. Do not hand it out as current.`,
+    );
+  }
   if (notes.length > 0) envelope.notes = notes;
 
   const content: CallToolResult['content'] = [{ type: 'text', text: JSON.stringify(envelope) }];

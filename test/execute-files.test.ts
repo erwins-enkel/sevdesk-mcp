@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, relative } from 'node:path';
@@ -9,6 +10,7 @@ import { writeConfig } from './config-file.ts';
 import { connect, envelopeOf } from './connect.ts';
 import { fakeKeychain } from './fake-keychain.ts';
 import { type MockRequest, type MockRoutes, startMockSevdesk } from './mock-sevdesk.ts';
+import { getPdfAnswer, sevdeskPdf } from './sevdesk-pdf.ts';
 
 // `sevdesk.savePdf` and the non-JSON responses of `sevdesk.request`, end to end through `execute`
 // (decisions 7, 14 and 15): files land in the profile's download directory, inside this test's
@@ -22,6 +24,16 @@ const BASE64 = PDF.toString('base64');
 // The status of a draft, which savePdf renders again, and of a sent document, which it does not.
 const DRAFT = '100';
 const SENT = '200';
+// The last change of a document (2026-11-10T09:41:00Z) and a PDF created before it, as on the offer
+// of issue #52: sevDesk returned a PDF from the day before.
+const UPDATED = '2026-11-10T10:41:00+01:00';
+const OLDER_PDF = sevdeskPdf('D:20261109144400Z');
+const OLDER_FRESHNESS = {
+  bytes: OLDER_PDF.length,
+  sha256: sha256(OLDER_PDF),
+  pdfCreated: '2026-11-09T14:44:00.000Z',
+  documentUpdated: '2026-11-10T09:41:00.000Z',
+};
 const closers: (() => Promise<void>)[] = [];
 
 beforeEach(() => {
@@ -46,9 +58,31 @@ function downloads(name = 'env'): string {
   return join(homedir(), 'Downloads', 'sevdesk', name);
 }
 
-/** The response of `GET /{Type}/{id}`: one document with `field` set to `number`, and `status`. */
-function document(field: string, number: string | null, status = SENT) {
-  return () => ({ json: { objects: [{ id: '7', [field]: number, status }] } });
+/** The hex SHA-256 of `bytes`. */
+function sha256(bytes: Buffer): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+/** What a saved copy of `PDF` comes back with: it has no creation date, its document no update. */
+const PDF_FRESHNESS = {
+  bytes: PDF.length,
+  sha256: sha256(PDF),
+  pdfCreated: null,
+  documentUpdated: null,
+};
+
+/** The envelope note on stale PDFs saved at `paths`. */
+function staleNote(...paths: string[]): string {
+  return `A saved PDF predates the last change of its draft and does not show the current data: ${paths.join(', ')}. Do not hand it out as current.`;
+}
+
+/**
+ * The response of `GET /{Type}/{id}`: one document with `field` set to `number`, `status`, and its
+ * last change `update` if given.
+ */
+function document(field: string, number: string | null, status = SENT, update?: string) {
+  const changed = update === undefined ? {} : { update };
+  return () => ({ json: { objects: [{ id: '7', [field]: number, status, ...changed }] } });
 }
 
 /** The answer to a forced render: the PDF's metadata and the whole PDF in base64. */
@@ -101,7 +135,7 @@ async function execute(code: string, account?: string) {
   }
 }
 
-test('savePdf renders a draft again, then saves its PDF under its number without marking it sent; only the path comes back', async () => {
+test('savePdf renders a draft again, then saves its PDF under its number without marking it sent; only its path and freshness come back', async () => {
   const sevdesk = await mock({
     'GET /Order/7': document('orderNumber', 'AN-1042', DRAFT),
     'POST /Order/7/render': rendered(),
@@ -117,8 +151,8 @@ test('savePdf renders a draft again, then saves its PDF under its number without
 
   expect(isError).toBe(false);
   expect(envelope.result).toEqual([
-    { path: join(downloads(), 'AN-1042.pdf'), fileName: 'AN-1042.pdf' },
-    { path: join(downloads(), 'RE-1001.pdf'), fileName: 'RE-1001.pdf' },
+    { path: join(downloads(), 'AN-1042.pdf'), fileName: 'AN-1042.pdf', ...PDF_FRESHNESS },
+    { path: join(downloads(), 'RE-1001.pdf'), fileName: 'RE-1001.pdf', ...PDF_FRESHNESS },
   ]);
   expect(readFileSync(join(downloads(), 'AN-1042.pdf'))).toEqual(PDF);
   expect(readFileSync(join(downloads(), 'RE-1001.pdf'))).toEqual(PDF);
@@ -163,6 +197,7 @@ test('without a document number the PDF is named <Type>-<id>.pdf and replaces an
   expect(envelope.result).toEqual({
     path: join(downloads(), 'CreditNote-7.pdf'),
     fileName: 'CreditNote-7.pdf',
+    ...PDF_FRESHNESS,
   });
   expect(readFileSync(join(downloads(), 'CreditNote-7.pdf'))).toEqual(PDF);
   expect(readdirSync(downloads())).toEqual(['CreditNote-7.pdf']);
@@ -189,6 +224,143 @@ test('a document that is no draft gets the PDF sevDesk stored, without a render'
     'GET /Order/7/getPdf',
     'GET /CreditNote/7',
     'GET /CreditNote/7/getPdf',
+  ]);
+});
+
+test('savePdf flags a draft whose PDF predates its last change, saves it all the same, and notes it in the run', async () => {
+  await mock({
+    'GET /Order/7': document('orderNumber', 'AN-1006', DRAFT, UPDATED),
+    'POST /Order/7/render': rendered(),
+    'GET /Order/7/getPdf': () => ({ json: getPdfAnswer(OLDER_PDF) }),
+  });
+
+  const saved = await execute("return await sevdesk.savePdf('Order', 7)");
+  const pathOnly = await execute("return (await sevdesk.savePdf('Order', 7)).path");
+
+  const path = join(downloads(), 'AN-1006.pdf');
+  expect(saved.isError).toBe(false);
+  expect(saved.envelope).toEqual({
+    result: {
+      path,
+      fileName: 'AN-1006.pdf',
+      ...OLDER_FRESHNESS,
+      stale: true,
+      hint: 'The PDF predates the last change of the draft, so it does not show the current data, although savePdf rendered it again. Do not hand it out as current; tell the user.',
+    },
+    writes: [{ method: 'POST', path: '/Order/7/render', status: 201 }],
+    notes: [staleNote(path)],
+  });
+  expect(readFileSync(path)).toEqual(OLDER_PDF);
+  // The code returned only the path; the run's note still says the PDF is stale.
+  expect(pathOnly.envelope.result).toBe(path);
+  expect(pathOnly.envelope.notes).toEqual([staleNote(path)]);
+});
+
+test('a current PDF that replaces a stale one of the same name in the run takes it out of the note', async () => {
+  let fetches = 0;
+  await mock({
+    'GET /Order/7': document('orderNumber', 'AN-1006', DRAFT, UPDATED),
+    'POST /Order/7/render': rendered(),
+    'GET /Order/7/getPdf': () => {
+      fetches += 1;
+      return { json: getPdfAnswer(fetches === 1 ? OLDER_PDF : sevdeskPdf('D:20261110105759Z')) };
+    },
+  });
+
+  const { isError, envelope } = await execute(`
+    const first = await sevdesk.savePdf('Order', 7);
+    const second = await sevdesk.savePdf('Order', 7);
+    return [first.stale, second.stale];`);
+
+  expect(isError).toBe(false);
+  expect(envelope.result).toEqual([true, null]);
+  expect(envelope).not.toHaveProperty('notes');
+});
+
+test('no flag for a PDF as new as the change or newer, one without a creation date, or a document that is no draft', async () => {
+  const cases = [
+    { status: DRAFT, created: 'D:20261110094100Z' },
+    { status: DRAFT, created: "D:20261110115759+01'00'" },
+    { status: DRAFT, created: undefined },
+    { status: SENT, created: 'D:20261109144400Z' },
+  ];
+  const routes: MockRoutes = {};
+  cases.forEach(({ status, created }, index) => {
+    const id = String(index + 1);
+    routes[`GET /Order/${id}`] = document('orderNumber', `AN-${id}`, status, UPDATED);
+    routes[`POST /Order/${id}/render`] = rendered();
+    routes[`GET /Order/${id}/getPdf`] = () => ({ json: getPdfAnswer(sevdeskPdf(created)) });
+  });
+  await mock(routes);
+
+  const { isError, envelope } = await execute(`
+    const results = [];
+    for (let id = 1; id <= ${String(cases.length)}; id++) {
+      const { pdfCreated, documentUpdated, stale, hint } = await sevdesk.savePdf('Order', id);
+      results.push({ pdfCreated, documentUpdated, stale, hint });
+    }
+    return results;`);
+
+  const documentUpdated = '2026-11-10T09:41:00.000Z';
+  expect(isError).toBe(false);
+  expect(envelope.result).toEqual([
+    { pdfCreated: '2026-11-10T09:41:00.000Z', documentUpdated },
+    { pdfCreated: '2026-11-10T10:57:59.000Z', documentUpdated },
+    { pdfCreated: null, documentUpdated },
+    { pdfCreated: '2026-11-09T14:44:00.000Z', documentUpdated },
+  ]);
+  expect(envelope).not.toHaveProperty('notes');
+});
+
+test('a getPdf through request reads the document first, then saves the PDF as a new file with its freshness, from JSON or download=true', async () => {
+  const sevdesk = await mock({
+    'GET /Order/7': document('orderNumber', 'AN-1006', DRAFT, UPDATED),
+    'GET /Order/7/getPdf': (request) =>
+      request.query.get('download') === 'true'
+        ? { contentType: 'application/pdf', bytes: OLDER_PDF }
+        : { json: getPdfAnswer(OLDER_PDF) },
+    'GET /Invoice/8': document('invoiceNumber', 'RE-1001', SENT, UPDATED),
+    'GET /Invoice/8/getPdf': () => ({ json: getPdfAnswer(OLDER_PDF) }),
+  });
+
+  const { isError, envelope, text } = await execute(`
+    const query = { preventSendBy: true };
+    const results = [
+      await sevdesk.request('GET', '/Order/7/getPdf', { query }),
+      await sevdesk.request('GET', '/Order/7/getPdf', { query: { ...query, download: true } }),
+      await sevdesk.request('GET', '/Invoice/8/getPdf', { query }),
+    ];
+    try { await sevdesk.request('GET', '/Order/404/getPdf', { query }); }
+    catch (e) { results.push({ kind: e.kind, message: e.message }); }
+    return results;`);
+
+  const paths = ['Order-7-getPdf.pdf', 'Order-7-getPdf-2.pdf', 'Invoice-8-getPdf.pdf'].map((name) =>
+    join(downloads(), name),
+  );
+  const stale = {
+    stale: true,
+    hint: 'The PDF predates the last change of the draft, so it does not show the current data: getPdf returns the PDF sevDesk stored. Use sevdesk.savePdf, which renders a draft again first.',
+  };
+  expect(isError).toBe(false);
+  expect(envelope).toEqual({
+    result: [
+      { path: paths[0], contentType: 'application/pdf', ...OLDER_FRESHNESS, ...stale },
+      { path: paths[1], contentType: 'application/pdf', ...OLDER_FRESHNESS, ...stale },
+      { path: paths[2], contentType: 'application/pdf', ...OLDER_FRESHNESS },
+      { kind: 'api_error', message: 'GET /Order/404 returned HTTP 404.' },
+    ],
+    notes: [staleNote(...paths.slice(0, 2))],
+  });
+  for (const path of paths) expect(readFileSync(path)).toEqual(OLDER_PDF);
+  expect(text).not.toContain(OLDER_PDF.toString('base64'));
+  expect(snippetCalls(sevdesk.requests)).toEqual([
+    'GET /Order/7',
+    'GET /Order/7/getPdf',
+    'GET /Order/7',
+    'GET /Order/7/getPdf',
+    'GET /Invoice/8',
+    'GET /Invoice/8/getPdf',
+    'GET /Order/404',
   ]);
 });
 

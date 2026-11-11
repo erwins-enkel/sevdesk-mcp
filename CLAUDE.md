@@ -146,10 +146,14 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `sevdesk.request`, `sevdesk.paginate` and `sevdesk.savePdf` (HTTPS base URL, relative paths only,
   JSON bodies, token added host-side, shared call budget, pages of 1,000, structured errors;
   `request` saves a non-JSON response and holds an irreversible call in `held` as `{ held: true }`;
+  a getPdf of a `PDF_TYPES` document through `request` (`requestPdf()`) reads the document first
+  and saves the PDF as a file, JSON or `download=true`;
   with `readOnly` set, `build()` rejects every write and irreversible call as `read_only` first;
   `savePdf` the PDF of a `PDF_TYPES` document with `preventSendBy=true`, a draft rendered again
   first (`renderDraft()`, `POST /{Type}/{id}/render` with `forceReload`, a write that runs even in
-  read-only mode); `writes` is the run's ledger of sent writes with status and object id;
+  read-only mode); both return the PDF's freshness (`withFreshness()`, issue #52) and put a stale
+  one's path into `stalePdfs`, which `toToolResult()` turns into a note;
+  `writes` is the run's ledger of sent writes with status and object id;
   `readDocument()` is the preview's counted read);
   `send()` resolves to the 2xx response and retries per decision 10 (`retry: false` sends once);
   `replay()` sends confirmed calls once each, in order, stopping at the first failure. Every write
@@ -167,7 +171,10 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `createConfirmations()`, the in-memory token store (single use, 10 minutes, bound to the profile
   and the exact stored calls). `src/downloads.ts`: `fileStem()` (a file name that cannot leave its
   directory) and `saveFile()` (temp file, then rename; replace or next free name;
-  `download_error`). `src/profile.ts`: tenant resolution (decision 1):
+  `download_error`). `src/pdf-freshness.ts`: `pdfFreshness()`, a saved PDF's `sha256`,
+  `pdfCreated` (its last literal-string `/CreationDate` with an offset, else null) and
+  `documentUpdated` (the document's ISO `update`, else null) as UTC instants, and `stale` for a
+  draft whose PDF predates that change. `src/profile.ts`: tenant resolution (decision 1):
   `reachableProfiles()` (env profile or config profiles, narrowed by `--profile`) and
   `selectProfile()` (`account`, else the only one, else `account_required`). `src/keychain.ts`:
   `readToken()`, a profile's token from the OS keychain via `@napi-rs/keyring` (service
@@ -210,12 +217,16 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   (`test/setup-clients-local.test.ts`); the test files that check the `npx` entry mock
   `src/manifest.ts` with `test/installed-package.ts`, whose `root` lies under `node_modules`.
   `test/guide-template.ts`: `template()` and `fill()`, a guide's JSON template as snippet code.
+  `test/sevdesk-pdf.ts`: `sevdeskPdf()`, a small PDF with `/CreationDate(D:…)` as sevDesk writes
+  it, and `getPdfAnswer()`, sevDesk's getPdf answer (`objects`, `base64Encoded`).
   `test/e2e/`: the manual E2E run against a real account (decision 29; `bun run test:e2e` with
   `vitest.e2e.config.ts`; `*.e2e.ts` never matches `bun run test`, so neither `verify` nor CI
   runs it). `live.e2e.ts` spawns the server over stdio with `SEVDESK_E2E_TOKEN` and its own
   temporary home, drives Priority A on the persistent fixtures "MCP Test GmbH" and tag
   `mcp-test`, checks that a PDF saved after a change of the offer's header shows it (PDF text via
-  `pdfjs-dist`), records what `getPdf` without `preventSendBy=true` does to the status, and prints
+  `pdfjs-dist`) and that its `pdfCreated` is not before the offer's `update`, reports what a getPdf
+  without a render returns after a change (issue #52), records what `getPdf` without
+  `preventSendBy=true` does to the status, and prints
   a report without token or mail address. `cleanup.ts`: `cleanUp()` deletes only this run's
   tagged drafts, all or none (`cleanupGuard()`), through `confirm`; `test/e2e-cleanup.test.ts`
   checks it offline.
