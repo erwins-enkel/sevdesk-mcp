@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -363,9 +364,22 @@ function audited(outcome: string, method: string, path: string, status?: number,
 /** Where the offer's PDF lands: the profile's download directory in this test's home. */
 const pdfPath = () => join(homedir(), 'Downloads', 'sevdesk', PROFILE, 'AN-1042.pdf');
 
-/** The result of the draft run: the offer's id, its saved PDF, the draft and its render. */
+/**
+ * The result of the draft run: the offer's id, its saved PDF with its freshness (the test PDF has
+ * no creation date, the mock's offer no update), the draft and its render.
+ */
 const draftResult = () => ({
-  result: { id: '42', pdf: { path: pdfPath(), fileName: 'AN-1042.pdf' } },
+  result: {
+    id: '42',
+    pdf: {
+      path: pdfPath(),
+      fileName: 'AN-1042.pdf',
+      bytes: PDF.length,
+      sha256: createHash('sha256').update(PDF).digest('hex'),
+      pdfCreated: null,
+      documentUpdated: null,
+    },
+  },
   writes: [
     { method: 'POST', path: '/Order/Factory/saveOrder', status: 201, objectId: '42' },
     { method: 'POST', path: '/Order/42/render', status: 201 },

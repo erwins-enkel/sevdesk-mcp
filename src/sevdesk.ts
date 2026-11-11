@@ -2,6 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { type AuditLog, NO_AUDIT } from './audit.ts';
 import { confirmationReason, DRAFT_STATUS } from './classify.ts';
 import { binaryFileName, fileStem, saveFile } from './downloads.ts';
+import { pdfFreshness } from './pdf-freshness.ts';
 import { HostError, type HostFunction, type SnippetError } from './sandbox.ts';
 
 /** sevDesk's API base (PRD §5.6). It must be HTTPS so the token never travels in clear text. */
@@ -26,6 +27,15 @@ export const PDF_TYPES = {
   CreditNote: 'creditNoteNumber',
 } as const;
 type PdfType = keyof typeof PDF_TYPES;
+
+// A getPdf of a `PDF_TYPES` document as `sevdesk.request` takes it: `/{Type}/{id}/getPdf`.
+const GET_PDF = new RegExp(`^/(${Object.keys(PDF_TYPES).join('|')})/([^/]+)/getPdf$`);
+
+// The hints of a saved PDF that predates the last change of its draft (issue #52).
+const STALE_RENDERED =
+  'The PDF predates the last change of the draft, so it does not show the current data, although savePdf rendered it again. Do not hand it out as current; tell the user.';
+const STALE_STORED =
+  'The PDF predates the last change of the draft, so it does not show the current data: getPdf returns the PDF sevDesk stored. Use sevdesk.savePdf, which renders a draft again first.';
 
 // A document id as `savePdf` takes it: a positive integer.
 const DOCUMENT_ID = /^[1-9]\d*$/;
@@ -399,6 +409,12 @@ function contentTypeOf(response: Response): string {
   return response.headers.get('content-type') ?? '';
 }
 
+/** The content type of a saved non-JSON response: without one a recipient may assume octet-stream. */
+function fileContentType(response: Response): string {
+  // RFC 9110, 8.3.
+  return contentTypeOf(response) || 'application/octet-stream';
+}
+
 /** The parsed JSON of a 2xx response; a non-JSON body or invalid JSON fails. */
 async function readJson(call: Call, response: Response): Promise<unknown> {
   const { method, path } = call;
@@ -434,8 +450,7 @@ async function saveBody(
   downloadDir: string,
   signal: AbortSignal,
 ): Promise<SavedFile> {
-  // Without a content type a recipient may assume application/octet-stream (RFC 9110, 8.3).
-  const contentType = contentTypeOf(response) || 'application/octet-stream';
+  const contentType = fileContentType(response);
   const name = binaryFileName(call.path, contentType);
   const body = response.body ?? new Uint8Array();
   const { path, bytes } = await saveFile(downloadDir, name, body, { replace: false, signal });
@@ -497,6 +512,12 @@ function pdfArguments([type, id, ...rest]: unknown[]): { type: PdfType; id: stri
 function documentOf(response: unknown): unknown {
   const objects = isRecord(response) ? response.objects : undefined;
   return Array.isArray(objects) ? objects[0] : undefined;
+}
+
+/** The document a getPdf through `sevdesk.request` is of, or undefined for any other path. */
+function getPdfOf(path: string): { type: PdfType; id: string } | undefined {
+  const [, type, id] = GET_PDF.exec(path) ?? [];
+  return type === undefined || id === undefined ? undefined : { type: type as PdfType, id };
 }
 
 /** The document number in the response of `GET /{Type}/{id}`, if it has one. */
@@ -629,11 +650,13 @@ function recording(log: AuditLog, failed: (error: SnippetError) => void): AuditL
 
 /**
  * Creates `sevdesk.request`, `sevdesk.paginate` and `sevdesk.savePdf` for one run. `request`
- * validates a call and returns the parsed JSON, or saves a non-JSON response in `downloadDir` and
- * returns where; `paginate` collects every object of a list, page by page, into one array;
- * `savePdf` saves a document's PDF in `downloadDir`. Between them they send at most `maxCalls`
- * calls (each page is one, `savePdf` costs three for a draft, which it renders again first, and two
- * otherwise, a retry none) to `baseUrl` with the token added here (never visible to the code),
+ * validates a call and returns the parsed JSON, or saves a non-JSON response, or the PDF of a
+ * getPdf, in `downloadDir` and returns where; `paginate` collects every object of a list, page by
+ * page, into one array; `savePdf` saves a document's PDF in `downloadDir`. A saved PDF comes back
+ * with its freshness (issue #52); the path of one that predates the last change of its draft enters
+ * `stalePdfs`. Between them they send at most `maxCalls` calls (each page is one, `savePdf` costs
+ * three for a draft, which it renders again first, and two otherwise, a getPdf through `request`
+ * two, a retry none) to `baseUrl` with the token added here (never visible to the code),
  * retried as decision 10 allows. A reversible write runs and enters `writes`, the run's ledger. An
  * irreversible call through `request` is held (decision 5): it is not sent, enters `held` and
  * resolves to `{ held: true }`; `paginate` and `savePdf` refuse one. A held call takes a call of
@@ -661,6 +684,7 @@ export function createClient({
   savePdf: HostFunction;
   writes: Write[];
   held: Call[];
+  stalePdfs: Set<string>;
   readDocument: (path: string, signal: AbortSignal) => Promise<unknown>;
   settled: () => Promise<SnippetError | undefined>;
 } {
@@ -669,6 +693,7 @@ export function createClient({
   const withinBudget = () => (sent += 1) <= maxCalls;
   const writes: Write[] = [];
   const held: Call[] = [];
+  const stalePdfs = new Set<string>();
   let auditFailure: SnippetError | undefined;
   const audit = recording(log, (error) => {
     auditFailure ??= error;
@@ -743,12 +768,60 @@ export function createClient({
     return Promise.resolve({ held: true });
   };
 
+  /**
+   * `saved`, the result of the PDF `pdf` saved for the document in `fields` (the response of
+   * `GET /{Type}/{id}`), with the PDF's freshness next to the document's `update`. A stale one
+   * (`draft` and older than that change) also gets `hint`, and its path enters `stalePdfs`; a
+   * current one that replaced a stale file of the same name takes that path out again.
+   */
+  const withFreshness = <Saved extends { path: string }>(
+    saved: Saved,
+    pdf: Uint8Array,
+    { fields, draft }: { fields: unknown; draft: boolean },
+    hint: string,
+  ) => {
+    const document = documentOf(fields);
+    const update = isRecord(document) ? document.update : undefined;
+    const freshness = pdfFreshness(pdf, { update, draft });
+    if (freshness.stale === undefined) {
+      stalePdfs.delete(saved.path);
+      return { ...saved, ...freshness };
+    }
+    stalePdfs.add(saved.path);
+    return { ...saved, ...freshness, hint };
+  };
+
+  /**
+   * A getPdf of the document `/{type}/{id}` through `sevdesk.request`, which runs directly only with
+   * preventSendBy=true. The document is read first: its status tells a draft, its `update` the last
+   * change, and an unknown id fails there. The PDF, from a JSON answer or a non-JSON one
+   * (`download=true`), is saved like any non-JSON answer, as a new file, with its freshness; its
+   * content never reaches the code.
+   */
+  const requestPdf = async (call: Call, type: PdfType, id: string, signal: AbortSignal) => {
+    const hint = 'Fetch fewer PDFs per run: a getPdf through sevdesk.request costs 2 calls.';
+    const document = prepare(baseUrl, ['GET', `/${type}/${id}`], gate);
+    const fields = await readJson(document, await sendCounted(document, signal, hint));
+    const draft = documentStatus(document, fields) === DRAFT_STATUS.get(type);
+    const response = await sendCounted(call, signal, hint);
+    const json = JSON_CONTENT_TYPE.test(contentTypeOf(response));
+    const contentType = json ? 'application/pdf' : fileContentType(response);
+    const pdf = json
+      ? pdfBytes(call, await readJson(call, response))
+      : new Uint8Array(await response.arrayBuffer());
+    const name = binaryFileName(call.path, contentType);
+    const { path, bytes } = await saveFile(downloadDir, name, pdf, { replace: false, signal });
+    return withFreshness({ path, contentType, bytes }, pdf, { fields, draft }, STALE_STORED);
+  };
+
   const request: HostFunction = (args, signal) => {
     const { call, reason } = build(baseUrl, args, gate);
     if (reason !== undefined) return hold(call);
     if (call.method !== 'GET') {
       return sendWrite(call, signal, 'Spread the writes over several runs.');
     }
+    const pdf = getPdfOf(call.path);
+    if (pdf !== undefined) return requestPdf(call, pdf.type, pdf.id, signal);
     const hint = 'Fetch fewer, larger pages, or filter with query parameters.';
     return sendCounted(call, signal, hint).then((response) =>
       readBody(call, response, downloadDir, signal),
@@ -788,10 +861,12 @@ export function createClient({
     return sendWrite(render, signal, hint, discardBody);
   };
 
-  // The document is fetched first: its number names the file, its status tells a draft, and an
-  // unknown id fails there. A draft, the only document that can still change, is rendered again
-  // before its PDF is fetched; any other document gets the PDF sevDesk stored, the one it sent. The
-  // PDF is fetched with preventSendBy=true, so sevDesk never marks the document as sent (decision 7).
+  // The document is fetched first: its number names the file, its status tells a draft, its
+  // `update` the last change, and an unknown id fails there. A draft, the only document that can
+  // still change, is rendered again before its PDF is fetched; any other document gets the PDF
+  // sevDesk stored, the one it sent. The PDF is fetched with preventSendBy=true, so sevDesk never
+  // marks the document as sent (decision 7). It comes back with its freshness: a draft's PDF older
+  // than the draft's last change (a render that did nothing) is flagged, never hidden (issue #52).
   const savePdf: HostFunction = (args, signal) => {
     const { type, id } = pdfArguments(args);
     const document = prepare(baseUrl, ['GET', `/${type}/${id}`], gate);
@@ -805,15 +880,17 @@ export function createClient({
       readJson(document, response),
     );
     return fetched.then(async (fields) => {
-      if (documentStatus(document, fields) === DRAFT_STATUS.get(type)) {
-        await renderDraft(type, id, signal, hint);
-      }
+      const draft = documentStatus(document, fields) === DRAFT_STATUS.get(type);
+      if (draft) await renderDraft(type, id, signal, hint);
       const number = documentNumber(fields, PDF_TYPES[type]);
       const stem = number === undefined ? undefined : fileStem(number);
       const fileName = `${stem ?? `${type}-${id}`}.pdf`;
-      const bytes = pdfBytes(pdf, await readJson(pdf, await sendCounted(pdf, signal, hint)));
-      const { path } = await saveFile(downloadDir, fileName, bytes, { replace: true, signal });
-      return { path, fileName };
+      const content = pdfBytes(pdf, await readJson(pdf, await sendCounted(pdf, signal, hint)));
+      const { path, bytes } = await saveFile(downloadDir, fileName, content, {
+        replace: true,
+        signal,
+      });
+      return withFreshness({ path, fileName, bytes }, content, { fields, draft }, STALE_RENDERED);
     });
   };
 
@@ -831,7 +908,7 @@ export function createClient({
     return auditFailure;
   };
 
-  return { request, paginate, savePdf, writes, held, readDocument, settled };
+  return { request, paginate, savePdf, writes, held, stalePdfs, readDocument, settled };
 }
 
 interface ReplayOptions {
