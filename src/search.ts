@@ -20,7 +20,7 @@ const guidesJson = JSON.stringify(GUIDES);
 /** The tool description, with the configured output limit. */
 const description = (
   outputChars: number,
-) => `Explore the sevDesk REST API. \`code\` is the body of an async JavaScript function, run in a sandbox with \`spec\` (the official sevDesk OpenAPI 3.0 spec with known errors patched, all $refs resolved), \`guides\` (curated recipes as { id: { title, text } }: offers, tax rules, invoices, receipts, pagination, dates and time zone, sending; list the titles and read the matching one before writing to sevDesk) and \`console.log\`; no network or file access. Only the return value and console output come back, each cut at ${String(outputChars)} characters, so return just what you need, e.g.:
+) => `Explore the sevDesk REST API. \`code\` is the body of an async JavaScript function, run in a sandbox with \`spec\` (the official sevDesk OpenAPI 3.0 spec with known errors patched, all $refs resolved), \`guides\` (curated recipes as { id: { title, text } }: offers, tax rules, invoices, receipts, pagination, dates and time zone, sending, status codes; list the titles and read the matching one before writing to sevDesk) and \`console.log\`; no network or file access. Only the return value and console output come back, each cut at ${String(outputChars)} characters, so return just what you need, e.g.:
 return Object.entries(spec.paths).filter(([p]) => p.startsWith('/Order')).map(([p, ops]) => ({ path: p, methods: Object.keys(ops) }))`;
 
 /**

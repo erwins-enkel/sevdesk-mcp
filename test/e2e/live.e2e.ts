@@ -8,6 +8,7 @@ import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotoc
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { GUIDES } from '../../src/guides.ts';
+import { statusText } from '../../src/status.ts';
 import { fill, template } from '../guide-template.ts';
 import {
   cleanUp,
@@ -32,7 +33,10 @@ import {
 // file, audit log and Downloads folder stay untouched. The report printed at the end names neither
 // the token nor the mail address, so it can go into the issue as it is. The PDFs' freshness (issue
 // #52) is checked live too: savePdf's /CreationDate must not predate the draft's last change, and
-// the report says what a getPdf without a render returns after a change.
+// the report says what a getPdf without a render returns after a change. Every status code of the
+// account's orders, invoices, credit notes and vouchers must have a label from sevdesk.statusText
+// (issue #58): the report lists the codes per type and orderType, invoiceType or voucherType, and a
+// code without a label fails the run; an offer sent by mail must be labelled "sent".
 
 /** An environment variable's value, or undefined when it is unset or blank. */
 function setting(value: string | undefined): string | undefined {
@@ -198,7 +202,49 @@ async function readOffer(id: string): Promise<LiveOffer> {
 }
 
 function label({ id, number, status }: LiveOffer): string {
-  return `Order ${id} (${number ?? 'no number'}, status ${status ?? 'unknown'})`;
+  const text = statusText('Order', status) ?? 'no label';
+  return `Order ${id} (${number ?? 'no number'}, status ${status ?? 'unknown'} ${text})`;
+}
+
+/** A status seen on the account's documents of one type and subtype, with its label and count. */
+interface SeenStatus {
+  type: string;
+  subtype: string | null;
+  status: string;
+  statusText?: string;
+  count: number;
+}
+
+/** A seen status for the report, e.g. `Order AN 100 draft ×3`. */
+function seen({ type, subtype, status, statusText: text, count }: SeenStatus): string {
+  return `${type}${subtype === null ? '' : ` ${subtype}`} ${status} ${text ?? '(no label)'} ×${String(count)}`;
+}
+
+/**
+ * Every distinct status of the account's orders, invoices, credit notes and vouchers, by type and
+ * subtype (orderType, invoiceType, voucherType; credit notes have none in the spec), with its label
+ * from sevdesk.statusText, read in one run.
+ */
+async function accountStatuses(): Promise<SeenStatus[]> {
+  const { result } = await run(`
+    const subtypes = { Order: 'orderType', Invoice: 'invoiceType', CreditNote: null, Voucher: 'voucherType' };
+    const seen = new Map();
+    for (const [type, field] of Object.entries(subtypes)) {
+      for (const document of await sevdesk.paginate('/' + type)) {
+        const subtype = field === null ? null : (document[field] ?? null);
+        const key = JSON.stringify([type, subtype, document.status]);
+        const entry = seen.get(key) ?? { type, subtype, status: document.status, statusText: sevdesk.statusText(type, document.status), count: 0 };
+        entry.count += 1;
+        seen.set(key, entry);
+      }
+    }
+    return [...seen.values()];`);
+  return (result as SeenStatus[]).sort(
+    (a, b) =>
+      a.type.localeCompare(b.type) ||
+      String(a.subtype).localeCompare(String(b.subtype)) ||
+      Number(a.status) - Number(b.status),
+  );
 }
 
 /** The status and sendDate of `before` and `after`, and whether either changed. */
@@ -438,6 +484,20 @@ function liveRun(apiToken: string): void {
       report.push(`Mail test: ${label(after)} sent to SEVDESK_E2E_MAIL_TO`);
       keepIfSent(after);
       expect(after.status).not.toBe(DRAFT);
+      expect(statusText('Order', after.status)).toBe('sent');
+    });
+
+    test("issue #58: every status code of the account's orders, invoices, credit notes and vouchers has a label", async () => {
+      const statuses = await accountStatuses();
+      const unlabelled = statuses.filter(({ statusText: text }) => text === undefined).map(seen);
+      report.push(
+        `Status codes in the account: ${statuses.length === 0 ? 'none' : statuses.map(seen).join(', ')}`,
+      );
+      report.push(
+        `Status codes without a label: ${unlabelled.length === 0 ? 'none' : unlabelled.join(', ')}`,
+      );
+      expect(statuses.length).toBeGreaterThan(0);
+      expect(unlabelled).toEqual([]);
     });
   });
 }
