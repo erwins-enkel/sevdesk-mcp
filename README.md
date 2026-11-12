@@ -350,7 +350,7 @@ bun run test:e2e      # by hand only: Priority A against a real sevDesk account
 
 `bun run test:e2e` runs the offer flow against the account of `SEVDESK_E2E_TOKEN` and skips
 without it. It is never part of `bun run test`, `bun run verify` or CI. It writes only contacts
-and offers, never invoices; it reads one existing invoice. Every offer goes to the contact "MCP Test GmbH" and carries
+and offers, never invoices. Every offer goes to the contact "MCP Test GmbH" and carries
 the tag `mcp-test` and the run id in its head text; the contact and the tag are created on the
 first run and kept. With `SEVDESK_E2E_MAIL_TO` set, one offer is mailed to that address and only
 there. At the end the run deletes its own offers that are still tagged drafts, through the
@@ -360,8 +360,10 @@ says whether `getPdf` without `preventSendBy=true` changed an offer's status and
 without a render returns after a change of the draft (its `pdfCreated`, `documentUpdated` and
 `stale`), and it contains neither the token nor the mail address. An interrupted run can leave offers too; find them by the
 tag and the run id. The run also records the shape (field names and types, never values) of the
-real answers the guides and helpers rely on in `test/sevdesk-shapes.json`, which `bun run test`
-checks the patched spec and the mock's answers against; commit it after a run. Its report lists
+real answers the guides and helpers rely on (one existing invoice is read for its shape) in
+`test/sevdesk-shapes.json`, which `bun run test`
+checks the patched spec and the mock's answers against (skipped while no run has recorded it);
+commit it after a run. Its report lists
 how the real answers differ from the patched spec.
 
 The product requirements live in [`docs/prd/PRD-sevdesk.md`](docs/prd/PRD-sevdesk.md), the

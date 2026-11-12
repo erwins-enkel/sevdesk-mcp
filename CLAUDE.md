@@ -27,7 +27,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `config` shows the same version and updates and offers the same update.
   Priority A runs end to end against the spec-following mock in `bun run test`, and by hand
   against a real account with `bun run test:e2e`, which also records the real answers' shapes that
-  `bun run test` checks the spec and the mock against. Not built yet (PRD §9): the update checks, the
+  `bun run test` checks the spec and the mock against (no run has recorded them yet, so those
+  checks are skipped). Not built yet (PRD §9): the update checks, the
   `.mcpb`, the release workflow, receipt upload, elicitation and the curated v2 tools.
 
 ## Orientation
@@ -219,7 +220,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   never values), `specShape()`, `specDifferences()`, `mockDifferences()`, `privacyViolations()`
   and `nextRecording()`. `test/sevdesk-shapes.json` is the recording, written only by the E2E run;
   `test/response-shapes.test.ts` fails when it holds anything but `RECORDED` fields with types, lacks
-  one, or the patched spec or `ANSWERS` lack a recorded field or type it, naming endpoint and field.
+  one, or the patched spec or `ANSWERS` lack a recorded field or type it, naming endpoint and field;
+  without the file (until a first run records it) those checks are skipped, visibly.
   `test/setup.ts` (vitest `setupFiles`) gives every test a fresh `mkdtemp` home
   and points `HOME`, `USERPROFILE`, `XDG_*` and `APPDATA`/`LOCALAPPDATA` there, so in-process and
   spawned servers never touch the real local directories or `~/Downloads`; it also unsets

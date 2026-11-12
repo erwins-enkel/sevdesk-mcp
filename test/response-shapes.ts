@@ -1,8 +1,10 @@
 // The shapes of real sevDesk answers (issue #60): field names and types, never values. The manual
 // E2E run records them through test/e2e/record-shapes.ts and writes the fields of `RECORDED` to
 // test/sevdesk-shapes.json; test/response-shapes.test.ts checks the patched spec and the mock's
-// canonical answers (test/sevdesk-answers.ts) against that recording. It imports nothing, because
-// the recorder loads it into the server the E2E run spawns.
+// canonical answers (test/sevdesk-answers.ts) against that recording. It imports only Node's
+// built-ins, because the recorder loads it into the server the E2E run spawns.
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * A shape: each field path with its types. A path joins the keys with `.` and writes an array item
@@ -15,8 +17,11 @@ export type Shape = Record<string, string>;
 /** The recorded shapes by endpoint (`METHOD /path template`), as test/sevdesk-shapes.json has them. */
 export type Recording = Record<string, Shape>;
 
-/** The recording of the last E2E run, written by test/e2e/live.e2e.ts only. */
-export const RECORDING_FILE = new URL('./sevdesk-shapes.json', import.meta.url);
+/**
+ * The recording of the last E2E run, written by test/e2e/live.e2e.ts only. A file path rather than
+ * a module URL: the file exists only once a run against a real account has recorded it.
+ */
+export const RECORDING_FILE = join(dirname(fileURLToPath(import.meta.url)), 'sevdesk-shapes.json');
 
 /** The types a shape knows: those of JSON values. */
 const TYPES = new Set(['array', 'boolean', 'null', 'number', 'object', 'string']);
