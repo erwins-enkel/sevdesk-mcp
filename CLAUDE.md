@@ -26,7 +26,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   the commits waiting upstream, and after the user's yes fast-forwards the checkout and builds it;
   `config` shows the same version and updates and offers the same update.
   Priority A runs end to end against the spec-following mock in `bun run test`, and by hand
-  against a real account with `bun run test:e2e`. Not built yet (PRD §9): the update checks, the
+  against a real account with `bun run test:e2e`, which also records the real answers' shapes that
+  `bun run test` checks the spec and the mock against. Not built yet (PRD §9): the update checks, the
   `.mcpb`, the release workflow, receipt upload, elicitation and the curated v2 tools.
 
 ## Orientation
@@ -211,7 +212,15 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `GET /SevClient`. A spawned server reaches the mock with `node --import <serverImport>`.
   `test/priority-a.test.ts` drives PRD §4 Priority A over stdio with the guides' templates as
   `search` returns them, and checks after each test that no send or delete reached the mock
-  outside an accepted `confirm`. `test/setup.ts` (vitest `setupFiles`) gives every test a fresh `mkdtemp` home
+  outside an accepted `confirm`; its account answers with `ANSWERS` of `test/sevdesk-answers.ts`,
+  the mock's canonical answer per endpoint whose real shape is recorded (issue #60).
+  `test/response-shapes.ts`: `RECORDED` (those endpoints, each with the fields the guides, helpers
+  and `savePdf` rely on), `shapeOf()` (field paths like `objects[].update` with their JSON types,
+  never values), `specShape()`, `specDifferences()`, `mockDifferences()`, `privacyViolations()`
+  and `nextRecording()`. `test/sevdesk-shapes.json` is the recording, written only by the E2E run;
+  `test/response-shapes.test.ts` fails when it holds anything but `RECORDED` fields with types, lacks
+  one, or the patched spec or `ANSWERS` lack a recorded field or type it, naming endpoint and field.
+  `test/setup.ts` (vitest `setupFiles`) gives every test a fresh `mkdtemp` home
   and points `HOME`, `USERPROFILE`, `XDG_*` and `APPDATA`/`LOCALAPPDATA` there, so in-process and
   spawned servers never touch the real local directories or `~/Downloads`; it also unsets
   `SEVDESK_API_TOKEN` and mocks `@napi-rs/keyring` with the in-memory `test/fake-keychain.ts`
@@ -234,7 +243,13 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `pdfjs-dist`) and that its `pdfCreated` is not before the offer's `update`, reports what a getPdf
   without a render returns after a change (issue #52), records what `getPdf` without
   `preventSendBy=true` does to the status, and prints
-  a report without token or mail address. `cleanup.ts`: `cleanUp()` deletes only this run's
+  a report without token or mail address. The server it spawns loads `record-shapes.ts`
+  (`--import recorderImport(file)`), which appends the shape of every 2xx JSON answer from sevDesk
+  to a file in that home; the run also reads the offer's positions and one existing invoice (read
+  only), then writes the `RECORDED` fields it saw to `test/sevdesk-shapes.json` (`nextRecording()`:
+  endpoints it did not see keep their entry), and its report lists how the real answers differ from
+  the patched spec, a starting point for `spec/patches.json`. Commit the updated recording.
+  `cleanup.ts`: `cleanUp()` deletes only this run's
   tagged drafts, all or none (`cleanupGuard()`), through `confirm`; `test/e2e-cleanup.test.ts`
   checks it offline.
   `scripts/`: the i18n drift gate, the pinned actionlint runner and `update-spec`.

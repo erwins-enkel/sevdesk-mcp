@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,16 @@ import { GUIDES } from '../../src/guides.ts';
 import { statusText } from '../../src/status.ts';
 import { fill, template } from '../guide-template.ts';
 import {
+  nextRecording,
+  privacyViolations,
+  RECORDED,
+  RECORDING_FILE,
+  type Recording,
+  type Shape,
+  specDifferences,
+  specShape,
+} from '../response-shapes.ts';
+import {
   cleanUp,
   type Execute,
   executeVia,
@@ -20,6 +30,7 @@ import {
   TEST_CONTACT,
   TEST_TAG,
 } from './cleanup.ts';
+import { readRecorded, recorderImport } from './record-shapes.ts';
 
 // The manual E2E run against a real sevDesk account (issue #21, PRD §8, decision 29), started with
 // `bun run test:e2e` and never in CI. It drives PRD §4 Priority A through a server spawned over
@@ -36,7 +47,11 @@ import {
 // the report says what a getPdf without a render returns after a change. Every status code of the
 // account's orders, invoices, credit notes and vouchers must have a label from sevdesk.statusText
 // (issue #58): the report lists the codes per type and orderType, invoiceType or voucherType, and a
-// code without a label fails the run; an offer sent by mail must be labelled "sent".
+// code without a label fails the run; an offer sent by mail must be labelled "sent". The server
+// records the shape (field names and types, never values) of every real answer
+// (test/e2e/record-shapes.ts, issue #60); the run reads the offer's positions and one existing
+// invoice (read only) for theirs, writes the recorded fields to test/sevdesk-shapes.json and
+// reports how the real answers differ from the patched spec.
 
 /** An environment variable's value, or undefined when it is unset or blank. */
 function setting(value: string | undefined): string | undefined {
@@ -48,6 +63,9 @@ const token = setting(process.env.SEVDESK_E2E_TOKEN);
 const mailTo = setting(process.env.SEVDESK_E2E_MAIL_TO);
 
 const cli = fileURLToPath(new URL('../../src/cli.ts', import.meta.url));
+const spec = JSON.parse(
+  readFileSync(new URL('../../spec/sevdesk-openapi.json', import.meta.url), 'utf8'),
+) as unknown;
 const PROFILE = 'e2e';
 const SAVE_ORDER = '/Order/Factory/saveOrder';
 const DRAFT = '100';
@@ -68,6 +86,8 @@ const created: string[] = [];
 const kept = new Map<string, LiveOffer>();
 
 let home: string | undefined;
+/** The file the server's shape recorder writes, in `home`. */
+let shapesFile: string | undefined;
 let client: Client | undefined;
 let execute: Execute;
 let contactId: string | undefined;
@@ -349,15 +369,68 @@ async function cleanUpAndReport(): Promise<void> {
     throw new Error(`The cleanup left offers of this run: ${reasons.join('; ')}`);
 }
 
+/** A list for the report: the items joined, or `none`. */
+function listed(items: string[]): string {
+  return items.length === 0 ? 'none' : items.join(', ');
+}
+
+/**
+ * How the real answers in `seen` (full shapes) differ from the patched spec, one line per field: a
+ * field only in the real answer or with another type there, and a field only in the spec.
+ */
+function specReport(seen: Record<string, Shape>): string[] {
+  return Object.entries(seen).flatMap(([endpoint, real]) => {
+    const documented = specShape(spec, endpoint);
+    const onlyInSpec = Object.keys(documented ?? {})
+      .filter((field) => real[field] === undefined)
+      .map((field) => `${endpoint}: ${field}: only in the patched spec`);
+    return [...specDifferences(endpoint, real, documented), ...onlyInSpec];
+  });
+}
+
+/**
+ * Writes the fields of `RECORDED` that the run saw to test/sevdesk-shapes.json, keeping the earlier
+ * recording of each endpoint it did not see, and adds what it recorded to the report. Returns the
+ * recorder's errors and the recorded fields the real answers lacked.
+ */
+function recordShapes(file: string): { errors: string[]; seen: string[]; missing: string[] } {
+  const { seen, errors } = readRecorded(file);
+  const previous = existsSync(RECORDING_FILE)
+    ? (JSON.parse(readFileSync(RECORDING_FILE, 'utf8')) as Recording)
+    : {};
+  const next = nextRecording(previous, seen);
+  const violations = privacyViolations(next);
+  if (violations.length > 0) throw new Error(`Not written: ${violations.join('; ')}`);
+  writeFileSync(RECORDING_FILE, `${JSON.stringify(next, null, 2)}\n`);
+
+  const missing = Object.entries(seen).flatMap(([endpoint, shape]) =>
+    (RECORDED[endpoint] ?? [])
+      .filter((field) => shape[field] === undefined)
+      .map((field) => `${endpoint}: ${field}`),
+  );
+  const unseen = Object.keys(RECORDED).filter((endpoint) => seen[endpoint] === undefined);
+  const differences = specReport(seen);
+  report.push(
+    `Shapes recorded in test/sevdesk-shapes.json: ${listed(Object.keys(seen))}`,
+    `Shapes not seen in this run, the earlier recording kept: ${listed(unseen)}`,
+    `Recorded fields the real answers lacked: ${listed(missing)}`,
+    `Real answers against the patched spec (a starting point for spec/patches.json):${differences.length === 0 ? ' no difference' : ''}`,
+    ...differences.map((line) => `- ${line}`),
+  );
+  if (errors.length > 0) report.push(`Shape recorder errors: ${errors.join('; ')}`);
+  return { errors, seen: Object.keys(seen), missing };
+}
+
 function liveRun(apiToken: string): void {
   describe(`the real sevDesk account, run ${runId}`, () => {
     beforeAll(async () => {
       home = mkdtempSync(join(tmpdir(), 'sevdesk-mcp-e2e-'));
+      shapesFile = join(home, 'shapes.jsonl');
       client = new Client({ name: 'sevdesk-mcp-e2e', version: '0.0.0' });
       await client.connect(
         new StdioClientTransport({
           command: process.execPath,
-          args: [cli],
+          args: ['--import', recorderImport(shapesFile), cli],
           env: {
             ...getDefaultEnvironment(),
             ...homeEnv(home),
@@ -405,6 +478,26 @@ function liveRun(apiToken: string): void {
       const after = await readOffer(id);
       report.push(`savePdf (preventSendBy=true) on ${label(after)}: ${change(before, after)}`);
       expect([after.status, after.sendDate]).toEqual([before.status, before.sendDate]);
+    });
+
+    test("the offer draft's one position reads back through getPositions", async () => {
+      const id = earlier(offerId, 'offer from the PDF-only test');
+      const { result } = await run(
+        `return (await sevdesk.request('GET', '/Order/${id}/getPositions')).objects.map((position) => position.name);`,
+      );
+      expect(result).toEqual(['sevdesk-mcp E2E test']);
+    });
+
+    test('one existing invoice is read, never written, so its shape is recorded', async () => {
+      // Only whether there was one comes back, never the invoice.
+      const { result } = await run(`
+        const [invoice] = (await sevdesk.request('GET', '/Invoice', { query: { limit: 1 } })).objects;
+        if (invoice === undefined) return false;
+        await sevdesk.request('GET', '/Invoice/' + invoice.id);
+        return true;`);
+      report.push(
+        `Invoice: ${result === true ? 'one existing invoice read' : 'the account has none, so its shape was not recorded'}`,
+      );
     });
 
     test('issue #49: a PDF saved after a change of the offer draft shows the change', async () => {
@@ -498,6 +591,13 @@ function liveRun(apiToken: string): void {
       );
       expect(statuses.length).toBeGreaterThan(0);
       expect(unlabelled).toEqual([]);
+    });
+
+    test('issue #60: the shapes of the real answers go to test/sevdesk-shapes.json, and the report lists how they differ from the patched spec', () => {
+      const { errors, seen, missing } = recordShapes(earlier(shapesFile, 'shape recorder'));
+      expect(errors).toEqual([]);
+      expect(seen).not.toEqual([]);
+      expect(missing).toEqual([]);
     });
   });
 }
