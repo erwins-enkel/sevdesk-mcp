@@ -11,11 +11,12 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - Status: the M0 Code Mode spine is in place (version 0.0.0, not yet on npm). `search` runs in the
   QuickJS sandbox with the patched spec and the guides; `execute` reads sevDesk, runs reversible
   writes (listed in the result's `writes` ledger), holds every irreversible call until
-  `execute({ confirm })`, and saves PDFs (`savePdf`) and non-JSON responses in the profile's
-  download directory, within the limits and base URL of the optional config file. Profiles come
-  from `SEVDESK_API_TOKEN` or the config file, their tokens from the OS keychain. Read-only mode
-  (`SEVDESK_READONLY` or a profile's `readonly`) rejects every write and irreversible call; every
-  write call gets a line in the monthly audit log unless the config file sets `audit: false`.
+  `execute({ confirm })`, labels document status codes (`sevdesk.statusText`), and saves PDFs
+  (`savePdf`) and non-JSON responses in the profile's download directory, within the limits and
+  base URL of the optional config file. Profiles come from `SEVDESK_API_TOKEN` or the config file,
+  their tokens from the OS keychain. Read-only mode (`SEVDESK_READONLY` or a profile's `readonly`)
+  rejects every write and irreversible call; every write call gets a line in the monthly audit log
+  unless the config file sets `audit: false`.
   `sevdesk-mcp setup` adds a profile (token into the OS keychain) and registers it in the
   installed Claude Desktop, Claude Code, ChatGPT Desktop / Codex and OpenCode (run from a local
   checkout, with an entry that starts its build with `--reload`, for the beta before npm), `setup --list`
@@ -133,12 +134,18 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   default 30 s and 64 MB, captured `console.log`, error kinds
   `timeout`/`memory_limit`/`snippet_error`). Host functions (`HostFunction`) return promises to
   the code; a `HostError` is catchable there and, uncaught, ends the run with its structured
-  error; a fatal one ends the run at once. `src/envelope.ts`: `toToolResult()`, the JSON result
-  envelope (`result`, `error`, `console`, `writes`, `confirmation`, `notes`; results over the
-  output limit, by default 20,000 characters, are cut), and `confirmedResult()`, the result of a
-  confirmation run (`confirmed`, one outcome per held call). `src/search.ts`: the `search` tool.
+  error; a fatal one ends the run at once. A synchronous helper (`SyncHostFunction`, `{ sync }`)
+  returns its string or undefined at once, without a promise. `src/envelope.ts`: `toToolResult()`,
+  the JSON result envelope (`result`, `error`, `console`, `writes`, `confirmation`, `notes`;
+  results over the output limit, by default 20,000 characters, are cut), and `confirmedResult()`,
+  the result of a confirmation run (`confirmed`, one outcome per held call). `src/search.ts`: the
+  `search` tool.
   `src/guides.ts`: `GUIDES`, the curated recipes `search` offers as `guides` (system 2.0 only;
   endpoints written `METHOD /path`, checked against the patched spec by `test/guides.test.ts`).
+  `src/status.ts`: `STATUS`, the status codes of Order, Invoice, CreditNote and Voucher with an
+  English label and meaning each (issue #58; one table for every orderType), and `statusText()`,
+  the synchronous `sevdesk.statusText` of `execute` (an unknown type or code: undefined, never a
+  guess); `guides.status` lists the codes from `STATUS`.
 - `src/execute.ts`: the `execute` tool (`code` or `confirm`, bookkeeping-system check per profile
   and session, destructive annotation or `readOnlyHint` when `SEVDESK_READONLY` is on or the
   pinned profile is read-only; a run with held calls gets their previews and a token, a failed run

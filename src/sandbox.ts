@@ -66,8 +66,20 @@ export class HostError extends Error {
  */
 export type HostFunction = (args: unknown[], signal: AbortSignal) => Promise<unknown>;
 
-/** Host functions by global object, e.g. `{ sevdesk: { request } }` for `sevdesk.request`. */
-export type Host = Record<string, Record<string, HostFunction>>;
+/**
+ * A synchronous helper the code can call, e.g. a lookup: it gets the code's arguments as JSON values
+ * and returns a string, or undefined, at once, not as a promise. It reaches nothing outside the host
+ * and must not throw.
+ */
+export interface SyncHostFunction {
+  sync: (args: unknown[]) => string | undefined;
+}
+
+/**
+ * Host functions by global object, e.g. `{ sevdesk: { request } }` for `sevdesk.request`; a method
+ * may be a synchronous helper instead.
+ */
+export type Host = Record<string, Record<string, HostFunction | SyncHostFunction>>;
 
 /** What a run produced: the return value as JSON text (`undefined` when there is none) or an error. */
 export type SandboxOutcome = { console: string[]; consoleCut: boolean } & (
@@ -216,21 +228,34 @@ function startCall(
   return call;
 }
 
-/** Sets each object of `host` on `vm`, with its host functions as methods returning promises. */
+/**
+ * The VM function for `fn`: calling a host function returns a promise, calling a synchronous helper
+ * its string (or undefined) at once. The helper's string handle is the VM's to free, so it is not
+ * kept.
+ */
+function hostMethod(
+  vm: QuickJSContext,
+  calls: HostCalls,
+  name: string,
+  fn: HostFunction | SyncHostFunction,
+): QuickJSHandle {
+  return vm.newFunction(name, (...handles) => {
+    const args = handles.map((arg) => vm.dump(arg) as unknown);
+    if (typeof fn === 'function') return startCall(vm, calls, fn, args).deferred.handle;
+    const value = fn.sync(args);
+    return value === undefined ? undefined : vm.newString(value);
+  });
+}
+
+/**
+ * Sets each object of `host` on `vm`, with its host functions as methods returning promises and its
+ * synchronous helpers as methods returning their value.
+ */
 function installHost(vm: QuickJSContext, host: Host, calls: HostCalls, keep: Keep): void {
   for (const [objectName, functions] of Object.entries(host)) {
     const object = keep(vm.newObject());
     for (const [name, fn] of Object.entries(functions)) {
-      const method = vm.newFunction(name, (...args) => {
-        const call = startCall(
-          vm,
-          calls,
-          fn,
-          args.map((arg) => vm.dump(arg) as unknown),
-        );
-        return call.deferred.handle;
-      });
-      vm.setProp(object, name, keep(method));
+      vm.setProp(object, name, keep(hostMethod(vm, calls, name, fn)));
     }
     vm.setProp(vm.global, objectName, object);
   }
@@ -417,9 +442,9 @@ function toSnippetError(message: string, timedOut: boolean, limits: SandboxLimit
 
 /**
  * Runs `code` in a fresh QuickJS sandbox. Its only non-standard globals are `globals` (each parsed
- * from JSON text), the objects of `host` with their host functions, and `console.log`; there is no
- * file system, environment, network or `process` besides what a host function does. Only the
- * return value (as JSON text) and the captured console output come back.
+ * from JSON text), the objects of `host` with their host functions and synchronous helpers, and
+ * `console.log`; there is no file system, environment, network or `process` besides what a host
+ * function does. Only the return value (as JSON text) and the captured console output come back.
  */
 export async function runSnippet(
   code: string,

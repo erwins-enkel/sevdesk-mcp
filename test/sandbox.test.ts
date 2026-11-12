@@ -182,6 +182,42 @@ test('a host function gets the arguments as JSON values and its result reaches t
   expect(outcome).toMatchObject({ ok: true, json: JSON.stringify({ first: { objects: [1, 2] } }) });
 });
 
+test('a synchronous helper returns its value without await, next to the host functions of its object', async () => {
+  const seen: unknown[][] = [];
+  const outcome = await runSnippet(
+    `const labels = [1, 2, 3].map((n) => api.label(n, { n }));
+    const fetched = await api.get();
+    return { labels, types: labels.map((label) => typeof label), fetched }`,
+    {},
+    DEFAULT_LIMITS,
+    {
+      api: {
+        get: () => Promise.resolve('fetched'),
+        label: {
+          sync: (args) => {
+            seen.push(args);
+            return args[0] === 3 ? undefined : `label ${String(args[0])}`;
+          },
+        },
+      },
+    },
+  );
+
+  expect(seen).toEqual([
+    [1, { n: 1 }],
+    [2, { n: 2 }],
+    [3, { n: 3 }],
+  ]);
+  expect(outcome).toMatchObject({
+    ok: true,
+    json: JSON.stringify({
+      labels: ['label 1', 'label 2', null],
+      types: ['string', 'string', 'undefined'],
+      fetched: 'fetched',
+    }),
+  });
+});
+
 test('a HostError is catchable with its fields and, uncaught or rethrown, ends the run as it is', async () => {
   const rejects: HostFunction = () => Promise.reject(new HostError(notFound));
   const throwsAtOnce: HostFunction = () => {

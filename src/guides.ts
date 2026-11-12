@@ -1,9 +1,22 @@
 import { PAGE_SIZE } from './sevdesk.ts';
+import { STATUS } from './status.ts';
 
 /** A curated recipe for the model (PRD §5.4): a title to find it and its English text. */
 interface Guide {
   title: string;
   text: string;
+}
+
+/** Each type's status codes as guide lines, `- <code> <label>: <meaning>`, from `STATUS`. */
+function statusLines(): string {
+  return Object.entries(STATUS)
+    .flatMap(([type, codes]) => [
+      `${type}:`,
+      ...Object.entries(codes).map(
+        ([code, { label, meaning }]) => `- ${code} ${label}: ${meaning}`,
+      ),
+    ])
+    .join('\n');
 }
 
 /**
@@ -111,5 +124,12 @@ GET /Contact returns only organisations unless depth is 1. Positions are not par
 A current PDF: sevDesk stores a document's PDF, and changes through the API (PUT /Order/{orderId}, PUT /OrderPos/{orderPosId}, POST /Order/Factory/saveOrder) do not update it. GET /Order/{orderId}/getPdf returns that stored file, with download=true too (sevdesk.request saves it as a file). Only sevdesk.savePdf renders a draft again first, so use it for the PDF of a changed draft. Both report pdfCreated (from the PDF) and documentUpdated (the document's update) in UTC, and sha256; stale: true means a draft's PDF predates its last change and does not show the current data: never hand it out as current.
 Marking as sent is a separate step, only after the user says it went out: PUT /Order/{orderId}/sendBy with { "sendType": "VPDF", "sendDraft": false } (VPDF downloaded PDF, VM mail, VP postal, VPR print) sets status 200 (delivered) and is irreversible. Do not set status 200 through POST /Order/Factory/saveOrder or PUT /Order/{orderId} instead.
 Invoices: POST /Invoice/{invoiceId}/sendViaEmail, PUT /Invoice/{invoiceId}/sendBy, sevdesk.savePdf('Invoice', id). Credit notes: POST /CreditNote/{creditNoteId}/sendViaEmail, PUT /CreditNote/{creditNoteId}/sendBy, sevdesk.savePdf('CreditNote', id).`,
+  },
+
+  status: {
+    title: 'Status codes of orders, invoices, credit notes and vouchers',
+    text: `An Order, Invoice, CreditNote or Voucher carries status as a code whose meaning depends on the type; sevDesk answers it as a string, e.g. "100". In execute, sevdesk.statusText(type, status) returns its label, with type the objectName: sevdesk.statusText("Order", "100") is "draft". It is synchronous (no await) and returns undefined for a code not listed here: then report the code itself, never guess its meaning. Orders share one table for every orderType (AN offer, AB order confirmation, LI delivery note).
+${statusLines()}
+Status changes that cannot be undone are held until execute with confirm: sending (POST /Order/{orderId}/sendViaEmail, PUT /Order/{orderId}/sendBy, the same for invoices and credit notes; guides.delivery) sets 200; booking a payment (PUT /Invoice/{invoiceId}/bookAmount, PUT /CreditNote/{creditNoteId}/bookAmount, PUT /Voucher/{voucherId}/bookAmount) sets 750 or 1000; PUT /Invoice/{invoiceId}/resetToOpen and PUT /Invoice/{invoiceId}/resetToDraft (the same for credit notes and vouchers) go back; POST /Invoice/{invoiceId}/cancelInvoice cancels an invoice. A status in a PUT or Factory/save* body is held too, except the draft status of a new document. POST /Invoice/Factory/createInvoiceFromOrder runs directly and moves its order to 750 or 1000. enshrined is a date, not a status: enshrining (PUT /Invoice/{invoiceId}/enshrine, the same for credit notes and vouchers) is held as well, and an enshrined document cannot be changed any more.`,
   },
 };

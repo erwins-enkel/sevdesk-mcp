@@ -335,6 +335,28 @@ test('sevdesk.paginate returns every object of a list that spans several pages',
   );
 });
 
+test('sevdesk.statusText labels a document status without await or a request; an unknown code gets none', async () => {
+  const orders = ['100', '200', '999'].map((status, index) => ({
+    id: String(index + 1),
+    objectName: 'Order',
+    orderType: 'AN',
+    status,
+  }));
+  const sevdesk = await mock({ 'GET /Order': () => ({ json: { objects: orders } }) });
+
+  const { isError, envelope } = await executeOnce(`
+    const { objects } = await sevdesk.request('GET', '/Order', { query: { orderType: 'AN' } });
+    return objects.map((o) => ({ id: o.id, status: o.status, statusText: sevdesk.statusText(o.objectName, o.status) }));`);
+
+  expect(isError).toBe(false);
+  expect(envelope.result).toEqual([
+    { id: '1', status: '100', statusText: 'draft' },
+    { id: '2', status: '200', statusText: 'sent' },
+    { id: '3', status: '999' },
+  ]);
+  expect(snippetCalls(sevdesk.requests)).toEqual(['GET /Order']);
+});
+
 test('sevdesk.paginate rejects paging parameters and irreversible reads unsent, and a non-list', async () => {
   const sevdesk = await mock({
     'GET /Invoice/1/getIsPartiallyPaid': () => ({ json: { objects: false } }),
