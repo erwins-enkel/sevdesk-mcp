@@ -38,3 +38,8 @@ it:
   path is gone. Check the new upstream value, then update or delete the patch.
 - After changing `patches.json`, run `bun run update-spec`; until then `test/patch-spec.test.ts`
   fails because the embedded file lacks the change.
+
+The manual E2E run (`bun run test:e2e`) records the shapes of real answers in
+`test/sevdesk-shapes.json`, and once it exists, `bun run test` fails when the patched spec lacks a
+recorded field or gives it another type. The run's report lists every difference between the real answers and the
+patched spec: a starting point for a new patch, with the recording as its evidence.

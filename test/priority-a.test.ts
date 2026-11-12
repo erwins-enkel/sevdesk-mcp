@@ -17,6 +17,7 @@ import {
   specOperation,
   startMockSevdesk,
 } from './mock-sevdesk.ts';
+import { ANSWERS, CONTACT, ORDER } from './sevdesk-answers.ts';
 
 // PRD §4 Priority A end to end (issue #18): an MCP client drives a spawned server over stdio, as a
 // model would, against the mock sevDesk, which follows the embedded spec. Every body it writes is a
@@ -60,16 +61,14 @@ afterEach(async () => {
 });
 
 /**
- * A sevDesk account in memory, served by routes that are all spec operations. `existing` starts it
- * with the company (id 7) and its contact person (id 8); new objects get the next ids. The offer is
- * order 42, `order` as sevDesk would answer it.
+ * A sevDesk account in memory, served by routes that are all spec operations, with the answers of
+ * test/sevdesk-answers.ts where sevDesk's real shape is recorded. `existing` starts it with the
+ * company (id 7) and its contact person (id 8); new objects get the next ids. The offer is order
+ * 42, `order` as sevDesk would answer it: `ORDER` with what the draft sets.
  */
 function account(existing: boolean) {
   const contacts: Row[] = existing
-    ? [
-        { id: '7', objectName: 'Contact', name: COMPANY },
-        { id: '8', objectName: 'Contact', surename: 'Max', familyname: 'Mustermann' },
-      ]
+    ? [CONTACT, { id: '8', objectName: 'Contact', surename: 'Max', familyname: 'Mustermann' }]
     : [];
   let nextId = 7 + contacts.length;
   const order: Row = {};
@@ -82,12 +81,13 @@ function account(existing: boolean) {
   const list = (objects: Row[]) => () => ({ json: { objects } });
 
   const routes: MockRoutes = {
-    'GET /Contact': ({ query }) =>
-      list(
+    'GET /Contact': ({ query }) => ({
+      json: ANSWERS['GET /Contact'](
         contacts.filter((contact) =>
           [contact.name, contact.surename, contact.familyname].includes(query.get('name')),
         ),
-      )(),
+      ),
+    }),
     'POST /Contact': ({ body }) => {
       const contact = create('Contact', body);
       contacts.push(contact);
@@ -103,7 +103,7 @@ function account(existing: boolean) {
     'POST /CommunicationWay': ({ body }) => created(create('CommunicationWay', body)),
     'GET /SevUser': list([{ id: '3', objectName: 'SevUser', username: 'kai' }]),
     'GET /SevSequence/Factory/getByType': () => ({
-      json: { objects: { format: 'AN-%NUMBER', nextSequence: 1042 } },
+      json: ANSWERS['GET /SevSequence/Factory/getByType'](),
     }),
     'GET /Unity': list([
       { id: '1', objectName: 'Unity', name: 'Stk' },
@@ -125,7 +125,7 @@ function account(existing: boolean) {
         0,
       );
       const [day, month, year] = String(saved.order.orderDate).split('.');
-      Object.assign(order, saved.order, {
+      Object.assign(order, ORDER, saved.order, {
         id: '42',
         objectName: 'Order',
         status: '100',
@@ -133,21 +133,14 @@ function account(existing: boolean) {
         sumNet: String(net),
         sumGross: String(net + tax),
       });
-      return created({ order, orderPos: positions });
+      return { status: 201, json: ANSWERS['POST /Order/Factory/saveOrder'](order, positions) };
     },
-    'GET /Order/42': list([order]),
-    'POST /Order/42/render': () =>
-      created({ pdf: PDF.toString('base64'), docId: 'd4605b19248ad176443b7cb382679b1f' }),
-    'GET /Order/42/getPdf': () => ({
-      json: {
-        objects: {
-          filename: 'AN-1042.pdf',
-          mimeType: 'application/pdf',
-          base64Encoded: true,
-          content: PDF.toString('base64'),
-        },
-      },
+    'GET /Order/42': () => ({ json: ANSWERS['GET /Order/{orderId}'](order) }),
+    'POST /Order/42/render': () => ({
+      status: 201,
+      json: ANSWERS['POST /Order/{orderId}/render'](PDF),
     }),
+    'GET /Order/42/getPdf': () => ({ json: ANSWERS['GET /Order/{orderId}/getPdf'](PDF) }),
     [`POST ${SEND}`]: () => {
       order.status = '200';
       return created([{ id: '5', objectName: 'Email', subject: 'Angebot AN-1042' }]);
@@ -366,7 +359,7 @@ const pdfPath = () => join(homedir(), 'Downloads', 'sevdesk', PROFILE, 'AN-1042.
 
 /**
  * The result of the draft run: the offer's id, its saved PDF with its freshness (the test PDF has
- * no creation date, the mock's offer no update), the draft and its render.
+ * no creation date, so the PDF is not flagged stale), the draft and its render.
  */
 const draftResult = () => ({
   result: {
@@ -377,7 +370,7 @@ const draftResult = () => ({
       bytes: PDF.length,
       sha256: createHash('sha256').update(PDF).digest('hex'),
       pdfCreated: null,
-      documentUpdated: null,
+      documentUpdated: new Date(String(ORDER.update)).toISOString(),
     },
   },
   writes: [
