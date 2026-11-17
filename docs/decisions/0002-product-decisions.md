@@ -93,6 +93,12 @@ rules.
    ignored) with a value other than `null` or an empty string, array or object makes any POST or
    PUT irreversible. A save without such a key, or with it `null` or empty (the voucher guide sends
    `voucherPosDelete: null`), runs directly. Read-only mode rejects it like every write.
+   **Addendum (2026-11-17, issue #72):** fail closed holds for reads too. The spec has GETs that
+   change data (`sendByWithRender`, `getPdf` without `preventSendBy=true`), so a GET whose path is
+   no operation of the patched spec is treated as irreversible: `request` holds it, `paginate`
+   refuses it, read-only mode rejects it, and the error points to `search`. The one exception is
+   `GET /SevClient`, which the server reads for the company name. An undocumented endpoint that
+   proves to be a plain read is added through `spec/patches.json`.
 7. **How is a PDF fetched without flipping the sent status?**
    **Answer:** `savePdf` always passes `preventSendBy=true`; per third-party documentation `getPdf`
    may otherwise mark the document as sent (to verify against the live API). A `getPdf` via
@@ -118,6 +124,9 @@ rules.
    or an `update` that is no ISO date-time with offset, gives `null` and no flag, never a guess.
    No content of the PDF is compared with the API data. `savePdf` reads `update` from the document
    it already fetches before the render, so its cost stays 3 or 2 calls.
+   **Addendum (2026-11-17, issue #72):** a `getPdf` through `request` runs directly only with
+   exactly one query key that equals `preventSendBy` when case is ignored, and that key is
+   `preventSendBy=true`. A second such key in other case needs confirmation.
 8. **Elicitation in v1 or v1.x?** §6 step 3 lists it in the flow, §9 puts it in v1.x.
    **Answer:** v1.x. Client support (Claude Desktop, ChatGPT Desktop, Cowork) is inconsistent today,
    so v1 relies on the token alone. Once built, the server elicits additionally during the

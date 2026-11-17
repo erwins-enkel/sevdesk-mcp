@@ -152,6 +152,56 @@ test.each([
   expect(confirmationReason(method, path, none, body)).toEqual(expect.any(String));
 });
 
+test('every read GET of the table runs directly, with each path parameter an id', () => {
+  const reads = Object.entries(OPERATIONS)
+    .filter(([operation, effect]) => operation.startsWith('GET ') && effect === 'read')
+    .map(([operation]) => (operation.split(' ')[1] ?? '').replace(/\{\w+\}/g, '1'));
+
+  expect(reads.length).toBeGreaterThan(0);
+  expect(reads.filter((path) => confirmationReason('GET', path, none, undefined))).toEqual([]);
+});
+
+test('GET /SevClient, which the spec lacks and the server reads for the company name, runs directly', () => {
+  expect(confirmationReason('GET', '/SevClient', none, undefined)).toBeUndefined();
+});
+
+test.each([
+  { name: 'a path the spec lacks', path: '/Missing' },
+  { name: 'an action the spec lacks on a document', path: '/Invoice/1/getHistory' },
+  { name: 'a read path in other case', path: '/contact' },
+  { name: 'a named segment where the spec has an id', path: '/Contact/abc' },
+  {
+    name: 'a getPdf of a type the spec has none for',
+    path: '/Voucher/1/getPdf',
+    query: { preventSendBy: 'true' },
+  },
+])('a GET of $name needs confirmation and points to search', ({ path, query }) => {
+  const reason = confirmationReason('GET', path, new URLSearchParams(query), undefined);
+
+  expect(reason).toContain(`GET ${path} is not a GET path of the sevDesk API spec`);
+  expect(reason).toContain('Find the path with search.');
+});
+
+test('a getPdf runs directly only with exactly one preventSendBy key, case ignored, set to true', () => {
+  const reason = (query: [string, string][]) =>
+    confirmationReason('GET', '/Order/1/getPdf', new URLSearchParams(query), undefined);
+
+  expect(reason([['preventSendBy', 'true']])).toBeUndefined();
+  expect(reason([['PreventSendBy', 'true']])).toEqual(expect.any(String));
+  expect(
+    reason([
+      ['preventSendBy', 'true'],
+      ['PreventSendBy', 'false'],
+    ]),
+  ).toContain('differs from it only in case');
+  expect(
+    reason([
+      ['preventSendBy', 'true'],
+      ['PREVENTSENDBY', 'true'],
+    ]),
+  ).toEqual(expect.any(String));
+});
+
 const position = (objectName: string) => ({ id: 7, objectName });
 
 test.each([

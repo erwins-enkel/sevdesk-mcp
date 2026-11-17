@@ -1213,8 +1213,9 @@ export async function bookkeepingSystemError(
 }
 
 /**
- * The account's company name, as plain text. `GET /SevClient` is not in sevDesk's spec; it answers
- * the account as the first row of `objects` (or as `objects` itself), with the company in `name`.
+ * The account's company name, as plain text. `GET /SevClient` is not in sevDesk's spec but runs as
+ * a read (`UNDOCUMENTED_READS` in src/classify.ts); it answers the account as the first row of
+ * `objects` (or as `objects` itself), with the company in `name`.
  * A missing or blank name fails with an `api_error`; a failed request rejects with its `HostError`.
  */
 export async function companyName(account: Account, signal: AbortSignal): Promise<string> {

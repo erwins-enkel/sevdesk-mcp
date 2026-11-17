@@ -22,7 +22,10 @@ const COMPANY = 'MCP Test GmbH';
 const PDF = Buffer.from('%PDF-1.4\n% sevdesk-mcp read-only test\n%%EOF\n', 'latin1');
 const closers: (() => Promise<void>)[] = [];
 
-/** Calls read-only mode blocks: writes of every method, an irreversible POST and GET. */
+/**
+ * Calls read-only mode blocks: writes of every method, an irreversible POST and GET, and a GET the
+ * spec lacks.
+ */
 const BLOCKED: [string, string, object?][] = [
   ['POST', '/Contact', { body: { name: COMPANY } }],
   ['PUT', '/Contact/1', { body: { name: COMPANY } }],
@@ -35,6 +38,7 @@ const BLOCKED: [string, string, object?][] = [
     { body: { order: { id: 42 }, orderPosDelete: [{ id: 7, objectName: 'OrderPos' }] } },
   ],
   ['GET', '/Order/42/getPdf'],
+  ['GET', '/Invoice/7/getHistory'],
 ];
 
 afterEach(async () => {
@@ -139,6 +143,9 @@ describe.each(setups)('$name', ({ profile, source, arrange }) => {
 
     const deleted = await execute({ code: "await sevdesk.request('DELETE', '/Contact/1')" });
     const pdf = await execute({ code: "await sevdesk.request('GET', '/Order/42/getPdf')" });
+    const unknown = await execute({
+      code: "await sevdesk.request('GET', '/Invoice/7/getHistory')",
+    });
 
     expect(deleted).toEqual({
       isError: true,
@@ -158,6 +165,15 @@ describe.each(setups)('$name', ({ profile, source, arrange }) => {
       message: expect.stringMatching(
         new RegExp(
           `^GET /Order/42/getPdf was rejected: ${source}, .* or use sevdesk\\.savePdf\\.$`,
+        ),
+      ) as string,
+    });
+    expect(unknown.isError).toBe(true);
+    expect(unknown.envelope.error).toMatchObject({
+      kind: 'read_only',
+      message: expect.stringMatching(
+        new RegExp(
+          `^GET /Invoice/7/getHistory was rejected: ${source}, .* Find the path with search\\.$`,
         ),
       ) as string,
     });

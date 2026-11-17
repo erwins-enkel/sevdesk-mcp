@@ -6,8 +6,8 @@
 
 Reading and creating or changing drafts run directly. Anything that cannot be undone (deleting,
 sending, enshrining, booking, cancelling, resetting, changing a document's status, `getPdf`
-without `preventSendBy=true`, and any write path the sevdesk specification does not know) is held
-instead of sent:
+without `preventSendBy=true`, and any path the sevdesk specification does not know, for reads and
+writes alike) is held instead of sent:
 
 1. The code's call resolves to `{ held: true }` and the code goes on, so drafts before and after it
    are created as usual.
@@ -29,6 +29,10 @@ as `orderPosDelete` (positions) or `discountDelete` (discounts) of a factory sav
 `POST /Order/Factory/saveOrder`. Set to `null` or left empty, the key deletes nothing and the save
 runs directly.
 
+A read is held too when the specification does not know its path, since some GETs of the
+specification change data as well, such as `getPdf`. The one exception is `GET /SevClient`, which
+the server reads for the company name.
+
 A token works once, for 10 minutes, for the profile that held the calls, and only until the server
 restarts. If the run fails, its held calls are dropped and no token is issued. Held calls, and the
 reads of the documents they act on for the preview, count towards
@@ -48,15 +52,15 @@ either switch is on; neither can turn the other off:
   only `SEVDESK_READONLY` applies to it.
 
 In read-only mode every call that is not a GET, and every call that would be held for confirmation
-(including a GET such as `getPdf` without `preventSendBy=true`), fails with a `read_only` error.
-Such a call is rejected outright, never held, so no confirmation token can get it through, and
-`execute` with `confirm` is rejected as well. Reads and `sevdesk.savePdf` keep working (`savePdf`
-always sets `preventSendBy=true`). The render `savePdf` sends for a draft is the one write that
-read-only mode lets through: it changes no status, it keeps the PDF current, and it is listed in
-`writes` and the audit log. The same render sent through `sevdesk.request` is rejected. When
-`SEVDESK_READONLY` is on, or the server is pinned with `--profile` to a read-only profile, `execute`
-carries the MCP `readOnlyHint` annotation. The server reads both switches when it starts, so restart
-it after a change.
+(including a GET such as `getPdf` without `preventSendBy=true`, or a GET of a path the specification
+does not know), fails with a `read_only` error. Such a call is rejected outright, never held, so no
+confirmation token can get it through, and `execute` with `confirm` is rejected as well. Reads and
+`sevdesk.savePdf` keep working (`savePdf` always sets `preventSendBy=true`). The render `savePdf`
+sends for a draft is the one write that read-only mode lets through: it changes no status, it keeps
+the PDF current, and it is listed in `writes` and the audit log. The same render sent through
+`sevdesk.request` is rejected. When `SEVDESK_READONLY` is on, or the server is pinned with
+`--profile` to a read-only profile, `execute` carries the MCP `readOnlyHint` annotation. The server
+reads both switches when it starts, so restart it after a change.
 
 ## Audit log
 

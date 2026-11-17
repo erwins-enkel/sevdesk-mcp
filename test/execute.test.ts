@@ -367,6 +367,7 @@ test('sevdesk.paginate rejects paging parameters and irreversible reads unsent, 
       ['/Contact', { limit: 10 }],
       ['/Contact', { offset: 5, depth: 1 }],
       ['/Invoice/1/getPdf'],
+      ['/Invoice/1/getHistory'],
       ['/Invoice/1/getIsPartiallyPaid'],
     ];
     const errors = [];
@@ -382,6 +383,10 @@ test('sevdesk.paginate rejects paging parameters and irreversible reads unsent, 
     { kind: 'invalid_request', message: paging('limit') },
     { kind: 'invalid_request', message: paging('offset') },
     { kind: 'needs_confirmation', message: expect.stringContaining('getPdf') as string },
+    {
+      kind: 'needs_confirmation',
+      message: expect.stringContaining('Find the path with search.') as string,
+    },
     {
       kind: 'invalid_request',
       message:
