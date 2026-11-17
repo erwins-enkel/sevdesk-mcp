@@ -51,7 +51,9 @@ import { readRecorded, recorderImport } from './record-shapes.ts';
 // records the shape (field names and types, never values) of every real answer
 // (test/e2e/record-shapes.ts, issue #60); the run reads the offer's positions and one existing
 // invoice (read only) for theirs, writes the recorded fields to test/sevdesk-shapes.json and
-// reports how the real answers differ from the patched spec.
+// reports how the real answers differ from the patched spec. getDocument (issue #59) reads the
+// draft with its contact, contact person, unit names and line sums; the report says whether
+// sevDesk sent the line sums or they were derived.
 
 /** An environment variable's value, or undefined when it is unset or blank. */
 function setting(value: string | undefined): string | undefined {
@@ -541,6 +543,44 @@ function liveRun(apiToken: string): void {
       expect(saved.rendered).toBe(true);
       expectCurrent(saved.saved);
       expect([after.status, after.sendDate]).toEqual([before.status, before.sendDate]);
+    });
+
+    test('issue #59: getDocument reads the tagged offer draft compactly, with names, line sums and its texts', async () => {
+      const id = earlier(offerId, 'offer from the PDF-only test');
+      const before = await readOffer(id);
+      const { result } = await run(
+        `return await sevdesk.getDocument('Order', ${JSON.stringify(id)});`,
+      );
+      const document = result as {
+        number: string | null;
+        status: string | null;
+        contact: { id: string | null; name: string | null } | null;
+        contactPerson: { name: string | null } | null;
+        headText: string | null;
+        positions: Record<string, unknown>[];
+      };
+      const [position] = document.positions;
+      report.push(
+        `getDocument on ${label(before)}: ${String(document.positions.length)} position(s), line sums from ${String(position?.sumSource)}`,
+      );
+      expect(document).toMatchObject({
+        number: before.number,
+        status: DRAFT,
+        statusText: 'draft',
+        contact: { id: earlier(contactId, 'contact'), name: TEST_CONTACT },
+      });
+      expect(typeof document.contactPerson?.name).toBe('string');
+      expect(document.headText).toContain(marker);
+      expect(document.positions).toHaveLength(1);
+      expect(position).toMatchObject({
+        name: 'sevdesk-mcp E2E test',
+        quantity: 3,
+        price: 1200,
+        taxRate: 19,
+        sumNet: 3600,
+        sumGross: 4284,
+        unity: { name: expect.any(String) as string },
+      });
     });
 
     test('decision 7: getPdf without preventSendBy=true is held, and the run records what it does to the status', async () => {

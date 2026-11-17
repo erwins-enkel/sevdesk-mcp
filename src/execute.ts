@@ -27,7 +27,7 @@ import { statusText } from './status.ts';
 const description = ({
   maxCalls,
   limits,
-}: Config) => `Call the sevDesk REST API. \`code\` is the body of an async JavaScript function, run in a sandbox with \`console.log\`, \`sevdesk.request(method, path, { query, body })\`, \`sevdesk.paginate(path, query)\`, \`sevdesk.savePdf(type, id)\` and \`sevdesk.statusText(type, status)\`; no other network or file access. \`path\` is relative to the API base (e.g. '/Contact'), \`body\` a JSON object; a request resolves to the parsed JSON or throws an Error with \`status\`, \`sevdeskMessage\` and \`hint\`. A non-JSON response (e.g. a CSV export) or a getPdf PDF is saved as a new file in the profile's download folder and resolves to \`{ path, contentType, bytes }\` (a PDF adds sha256, pdfCreated, documentUpdated and stale, as savePdf does). \`paginate\` resolves to all objects of a list as one array, fetched in pages of ${String(PAGE_SIZE)} (each page is a call). \`savePdf\` saves a document's PDF (type one of ${Object.keys(PDF_TYPES).join(', ')}) in that folder as <number>.pdf, replacing an older copy, without marking it sent, and resolves to \`{ path, fileName, bytes, sha256, pdfCreated, documentUpdated }\`, plus \`stale: true\` and a \`hint\` if the PDF predates the draft's last change. A draft is rendered again first, so its PDF is current (3 calls, the render listed in \`writes\`); any other document gets the PDF sevDesk stored (2 calls). File contents never come back. \`statusText\` returns a document status's label at once (no await), e.g. 'draft', or undefined (codes: guides.status). Rate limits (429) and GET server errors (5xx) are retried automatically, at most ${String(maxCalls)} calls per run, held calls and their preview reads included. Reads and the POST/PUT calls that create or change drafts run directly. Irreversible calls are held, not sent, and resolve to { held: true }: DELETE, sending, enshrine, bookAmount, cancel, reset, a status in an Invoice/Order/CreditNote/Voucher body (only a new draft via Factory/save* may carry its draft status), getPdf without preventSendBy=true, write paths not in the spec. A successful run with held calls returns \`confirmation\`: a preview of each and a token. Show the user the preview; only after their yes call execute with \`confirm\` (the token) and no \`code\`: it sends exactly those calls once, in order, stops at the first failure and reports each in \`confirmed\`. A token works once, for 10 minutes. Find paths and parameters with \`search\` first. Only the return value and console output (each cut at ${String(limits.outputChars)} characters) come back, plus \`writes\`: every write sent (method, path, status, objectId), also when the code fails. Return just what you need, e.g.:
+}: Config) => `Call the sevDesk REST API. \`code\` is the body of an async JavaScript function, run in a sandbox with \`console.log\`, \`sevdesk.request(method, path, { query, body })\`, \`sevdesk.paginate(path, query)\`, \`sevdesk.savePdf(type, id)\`, \`sevdesk.getDocument(type, id)\` (guides.document) and \`sevdesk.statusText(type, status)\`; no other network or file access. \`path\` is relative to the API base (e.g. '/Contact'), \`body\` a JSON object; a request resolves to the parsed JSON or throws an Error with \`status\`, \`sevdeskMessage\` and \`hint\`. A non-JSON response (e.g. a CSV export) or a getPdf PDF is saved as a new file in the profile's download folder and resolves to \`{ path, contentType, bytes }\` (a PDF adds sha256, pdfCreated, documentUpdated and stale, as savePdf does). \`paginate\` resolves to all objects of a list as one array, fetched in pages of ${String(PAGE_SIZE)} (each page is a call). \`savePdf\` saves a document's PDF (type one of ${Object.keys(PDF_TYPES).join(', ')}) in that folder as <number>.pdf, replacing an older copy, without marking it sent, and resolves to \`{ path, fileName, bytes, sha256, pdfCreated, documentUpdated }\`, plus \`stale: true\` and a \`hint\` if the PDF predates the draft's last change. A draft is rendered again first, so its PDF is current (3 calls, the render listed in \`writes\`); any other document gets the PDF sevDesk stored (2 calls). File contents never come back. \`statusText\` returns a document status's label at once (no await), e.g. 'draft', or undefined (codes: guides.status). Rate limits (429) and GET server errors (5xx) are retried automatically, at most ${String(maxCalls)} calls per run, held calls and their preview reads included. Reads and the POST/PUT calls that create or change drafts run directly. Irreversible calls are held, not sent, and resolve to { held: true }: DELETE, sending, enshrine, bookAmount, cancel, reset, a status in an Invoice/Order/CreditNote/Voucher body (only a new draft via Factory/save* may carry its draft status), getPdf without preventSendBy=true, write paths not in the spec. A successful run with held calls returns \`confirmation\`: a preview of each and a token. Show the user the preview; only after their yes call execute with \`confirm\` (the token) and no \`code\`: it sends exactly those calls once, in order, stops at the first failure and reports each in \`confirmed\`. A token works once, for 10 minutes. Find paths and parameters with \`search\` first. Only the return value and console output (each cut at ${String(limits.outputChars)} characters) come back, plus \`writes\`: every write sent (method, path, status, objectId), also when the code fails. Return just what you need, e.g.:
 const r = await sevdesk.request('GET', '/Contact', { query: { depth: 1, limit: 10 } });
 return r.objects.map((c) => ({ id: c.id, name: c.name }))`;
 
@@ -81,21 +81,22 @@ function readOnlySwitch(): boolean {
 
 /**
  * Registers `execute`: the model's code runs in the sandbox with `sevdesk.request`,
- * `sevdesk.paginate`, `sevdesk.savePdf` and the synchronous `sevdesk.statusText` (a document
- * status's label, sending nothing) against the sevDesk account of the profile it selects
- * with `account` (decision 1: among the profiles this server reaches, `pinnedProfile` narrowing them
- * to one), at the configured base URL, within the configured limits and call budget, saving files in
- * the profile's download directory. A keychain profile's token is read on every call. The
- * bookkeeping system is checked on the first call per profile and remembered for the session (this
- * server instance), never at startup. With an invalid config file it returns the config error and
- * sends nothing. Reversible writes run, and the result lists every write the run sent. Irreversible
- * calls are held (decision 5): a run that succeeds returns their previews and a token, which
- * `confirm` (on the same profile, instead of `code`) redeems once to send exactly those calls.
- * Read-only mode (decision 3), from `SEVDESK_READONLY` (read once per server) or the profile's
- * `readonly`, rejects every write and irreversible call, and every `confirm`. Every write call gets
- * a line in the profile's audit log (decision 16) unless the config file turns it off; a log that
- * cannot be written fails the call. The tool carries the read-only annotation when the switch is on
- * or the pinned profile is read-only, otherwise the destructive one.
+ * `sevdesk.paginate`, `sevdesk.savePdf`, `sevdesk.getDocument` and the synchronous
+ * `sevdesk.statusText` (a document status's label, sending nothing) against the sevDesk account of
+ * the profile it selects with `account` (decision 1: among the profiles this server reaches,
+ * `pinnedProfile` narrowing them to one), at the configured base URL, within the configured limits
+ * and call budget, saving files in the profile's download directory. A keychain profile's token is
+ * read on every call. The bookkeeping system is checked on the first call per profile and
+ * remembered for the session (this server instance), never at startup. With an invalid config file
+ * it returns the config error and sends nothing. Reversible writes run, and the result lists every
+ * write the run sent. Irreversible calls are held (decision 5): a run that succeeds returns their
+ * previews and a token, which `confirm` (on the same profile, instead of `code`) redeems once to
+ * send exactly those calls. Read-only mode (decision 3), from `SEVDESK_READONLY` (read once per
+ * server) or the profile's `readonly`, rejects every write and irreversible call, and every
+ * `confirm`. Every write call gets a line in the profile's audit log (decision 16) unless the
+ * config file turns it off; a log that cannot be written fails the call. The tool carries the
+ * read-only annotation when the switch is on or the pinned profile is read-only, otherwise the
+ * destructive one.
  */
 export function registerExecuteTool(
   server: McpServer,
@@ -199,20 +200,30 @@ export function registerExecuteTool(
    * the run could not be written, the run fails with that `audit_error`, whatever the code did.
    */
   async function run(code: string, profile: Profile): Promise<CallToolResult> {
-    const { request, paginate, savePdf, writes, held, stalePdfs, readDocument, settled } =
-      createClient({
-        baseUrl: config.baseUrl,
-        token: profile.token,
-        maxCalls: config.maxCalls,
-        downloadDir: profile.downloadDir,
-        readOnly: readOnlyReason(profile),
-        audit: auditFor(profile),
-      });
+    const {
+      request,
+      paginate,
+      savePdf,
+      getDocument,
+      writes,
+      held,
+      stalePdfs,
+      readDocument,
+      settled,
+    } = createClient({
+      baseUrl: config.baseUrl,
+      token: profile.token,
+      maxCalls: config.maxCalls,
+      downloadDir: profile.downloadDir,
+      readOnly: readOnlyReason(profile),
+      audit: auditFor(profile),
+    });
     const ran = await runSnippet(code, {}, config.limits, {
       sevdesk: {
         request,
         paginate,
         savePdf,
+        getDocument,
         statusText: { sync: ([type, status]) => statusText(type, status) },
       },
     });

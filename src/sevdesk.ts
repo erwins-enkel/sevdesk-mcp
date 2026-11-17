@@ -1,6 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { type AuditLog, NO_AUDIT } from './audit.ts';
 import { confirmationReason, DRAFT_STATUS } from './classify.ts';
+import { compactDocument, isBare, positionsCall } from './document.ts';
 import { binaryFileName, fileStem, saveFile } from './downloads.ts';
 import { pdfFreshness } from './pdf-freshness.ts';
 import { HostError, type HostFunction, type SnippetError } from './sandbox.ts';
@@ -20,6 +21,7 @@ export const PAGE_SIZE = 1000;
 /**
  * The document types `sevdesk.savePdf` saves (those with a `getPdf` and a `render` endpoint), each
  * with the field that holds its document number, the name of the saved file (decision 14).
+ * `sevdesk.getDocument` reads the same types (issue #59).
  */
 export const PDF_TYPES = {
   Order: 'orderNumber',
@@ -495,8 +497,8 @@ function objectIdOf(response: unknown): string | undefined {
   return undefined;
 }
 
-/** The `(type, id)` of `sevdesk.savePdf`: a type of `PDF_TYPES` and a positive integer id. */
-function pdfArguments([type, id, ...rest]: unknown[]): { type: PdfType; id: string } {
+/** The `(type, id)` of a document helper: a type of `PDF_TYPES` and a positive integer id. */
+function documentArguments(type: unknown, id: unknown): { type: PdfType; id: string } {
   if (typeof type !== 'string' || !Object.hasOwn(PDF_TYPES, type)) {
     throw invalidRequest(`type must be one of ${Object.keys(PDF_TYPES).join(', ')}.`);
   }
@@ -504,14 +506,89 @@ function pdfArguments([type, id, ...rest]: unknown[]): { type: PdfType; id: stri
   if (typeof text !== 'string' || !DOCUMENT_ID.test(text)) {
     throw invalidRequest('id must be the positive integer id of the document, e.g. 123.');
   }
-  if (rest.length > 0) throw invalidRequest('sevdesk.savePdf takes only (type, id).');
   return { type: type as PdfType, id: text };
+}
+
+/** The `(type, id)` of `sevdesk.savePdf`. */
+function pdfArguments([type, id, ...rest]: unknown[]): { type: PdfType; id: string } {
+  const document = documentArguments(type, id);
+  if (rest.length > 0) throw invalidRequest('sevdesk.savePdf takes only (type, id).');
+  return document;
+}
+
+/**
+ * The `(type, id, options)` of `sevdesk.getDocument`: options left out, or `{ html }` with a
+ * boolean `html` (true keeps HTML texts).
+ */
+function getDocumentArguments([type, id, options, ...rest]: unknown[]) {
+  const document = documentArguments(type, id);
+  if (rest.length > 0) throw invalidRequest('sevdesk.getDocument takes only (type, id, options).');
+  if (options === undefined) return { ...document, html: false };
+  if (
+    !isRecord(options) ||
+    Object.keys(options).some((key) => key !== 'html') ||
+    (options.html !== undefined && typeof options.html !== 'boolean')
+  ) {
+    throw invalidRequest('options must be { html: true } to keep HTML texts, or left out.');
+  }
+  return { ...document, html: options.html === true };
 }
 
 /** The document in the response of `GET /{Type}/{id}`: the first row of `objects`, if any. */
 function documentOf(response: unknown): unknown {
   const objects = isRecord(response) ? response.objects : undefined;
   return Array.isArray(objects) ? objects[0] : undefined;
+}
+
+/** The document in the response of `GET path`; an answer without one fails. */
+function requireDocument(path: string, response: unknown): Record<string, unknown> {
+  const document = documentOf(response);
+  if (isRecord(document)) return document;
+  throw new HostError({
+    kind: 'api_error',
+    message: `GET ${path} returned no document.`,
+    method: 'GET',
+    path,
+  });
+}
+
+/** A read of `GET path` within the run's budget, resolving to its JSON. */
+type Read = (path: string) => Promise<unknown>;
+
+/**
+ * Replaces the contact and contact person of `document` that sevDesk answered bare (`isBare`) with
+ * the objects `read` fetches: the contact (`GET /Contact/{contactId}`), and the contact person's
+ * row of the user list (`GET /SevUser`). One the answer lacks stays bare.
+ */
+async function nameBareContacts(document: Record<string, unknown>, read: Read): Promise<void> {
+  const { contact, contactPerson } = document;
+  if (isBare(contact)) {
+    document.contact = documentOf(await read(`/Contact/${String(contact.id)}`)) ?? contact;
+  }
+  if (isBare(contactPerson)) {
+    document.contactPerson = rowWithId(await read('/SevUser'), contactPerson.id) ?? contactPerson;
+  }
+}
+
+/**
+ * Replaces each unit of `positions` that sevDesk answered bare with its row of the unit list
+ * (`GET /Unity`), read once, at the first bare unit. One the list lacks stays bare.
+ */
+async function nameBareUnits(positions: unknown[], read: Read): Promise<void> {
+  let units: Promise<unknown> | undefined;
+  for (const position of positions) {
+    const unity = isRecord(position) ? position.unity : undefined;
+    if (!isRecord(position) || !isBare(unity)) continue;
+    units ??= read('/Unity');
+    position.unity = rowWithId(await units, unity.id) ?? unity;
+  }
+}
+
+/** The row of a list response whose id is `id`, if any. */
+function rowWithId(response: unknown, id: string | number): unknown {
+  const objects = isRecord(response) ? response.objects : undefined;
+  if (!Array.isArray(objects)) return undefined;
+  return objects.find((row) => isRecord(row) && String(row.id) === String(id));
 }
 
 /** The document a getPdf through `sevdesk.request` is of, or undefined for any other path. */
@@ -649,27 +726,28 @@ function recording(log: AuditLog, failed: (error: SnippetError) => void): AuditL
 }
 
 /**
- * Creates `sevdesk.request`, `sevdesk.paginate` and `sevdesk.savePdf` for one run. `request`
- * validates a call and returns the parsed JSON, or saves a non-JSON response, or the PDF of a
- * getPdf, in `downloadDir` and returns where; `paginate` collects every object of a list, page by
- * page, into one array; `savePdf` saves a document's PDF in `downloadDir`. A saved PDF comes back
- * with its freshness (issue #52); the path of one that predates the last change of its draft enters
- * `stalePdfs`. Between them they send at most `maxCalls` calls (each page is one, `savePdf` costs
- * three for a draft, which it renders again first, and two otherwise, a getPdf through `request`
- * two, a retry none) to `baseUrl` with the token added here (never visible to the code),
- * retried as decision 10 allows. A reversible write runs and enters `writes`, the run's ledger. An
- * irreversible call through `request` is held (decision 5): it is not sent, enters `held` and
- * resolves to `{ held: true }`; `paginate` and `savePdf` refuse one. A held call takes a call of
- * the budget, as does each `readDocument`, the host's read for the confirmation preview. The call
- * over `maxCalls` is not sent (or held) and ends the run, so `paginate` never returns a partial
- * list. With `readOnly` set (decision 3) every write and every irreversible call fails with
- * `read_only` before it is sent or held; reads and `savePdf` run, the render of a draft included,
- * the one write read-only mode lets through. Every write call gets its line in `audit` (decision
- * 16): `executed` once a sent write settles (an unwritable log stops it before it is sent), `held`,
- * or `rejected` by read-only mode or the gate; plain reads get none. A log that cannot be written
- * throws a fatal `audit_error`; `settled` waits for the writes still in flight and resolves to the
- * run's first such error, so the caller fails the run even when the code caught it, never awaited
- * the write, or the run ended first.
+ * Creates `sevdesk.request`, `sevdesk.paginate`, `sevdesk.savePdf` and `sevdesk.getDocument` for
+ * one run. `request` validates a call and returns the parsed JSON, or saves a non-JSON response,
+ * or the PDF of a getPdf, in `downloadDir` and returns where; `paginate` collects every object of
+ * a list, page by page, into one array; `savePdf` saves a document's PDF in `downloadDir`;
+ * `getDocument` reads a document with its positions as one compact object (3 to 6 reads). A saved
+ * PDF comes back with its freshness (issue #52); the path of one that predates the last change of
+ * its draft enters `stalePdfs`. Between them they send at most `maxCalls` calls (each page is one,
+ * `savePdf` costs three for a draft, which it renders again first, and two otherwise, a getPdf
+ * through `request` two, a retry none) to `baseUrl` with the token added here (never visible to
+ * the code), retried as decision 10 allows. A reversible write runs and enters `writes`, the run's
+ * ledger. An irreversible call through `request` is held (decision 5): it is not sent, enters
+ * `held` and resolves to `{ held: true }`; `paginate` and `savePdf` refuse one. A held call takes
+ * a call of the budget, as does each `readDocument`, the host's read for the confirmation preview.
+ * The call over `maxCalls` is not sent (or held) and ends the run, so `paginate` never returns a
+ * partial list. With `readOnly` set (decision 3) every write and every irreversible call fails
+ * with `read_only` before it is sent or held; reads and `savePdf` run, the render of a draft
+ * included, the one write read-only mode lets through. Every write call gets its line in `audit`
+ * (decision 16): `executed` once a sent write settles (an unwritable log stops it before it is
+ * sent), `held`, or `rejected` by read-only mode or the gate; plain reads get none. A log that
+ * cannot be written throws a fatal `audit_error`; `settled` waits for the writes still in flight
+ * and resolves to the run's first such error, so the caller fails the run even when the code
+ * caught it, never awaited the write, or the run ended first.
  */
 export function createClient({
   baseUrl,
@@ -682,6 +760,7 @@ export function createClient({
   request: HostFunction;
   paginate: HostFunction;
   savePdf: HostFunction;
+  getDocument: HostFunction;
   writes: Write[];
   held: Call[];
   stalePdfs: Set<string>;
@@ -828,17 +907,20 @@ export function createClient({
     );
   };
 
-  const paginate: HostFunction = async (args, signal) => {
-    const call = preparePages(baseUrl, args, gate);
+  /**
+   * Every object of the list `call`, page by page, `PAGE_SIZE` each and every page a call of the
+   * budget. The page over the budget is not sent and ends the run with `hint`, `stopped` saying
+   * from the number of objects fetched what is left incomplete, so no partial list is returned.
+   */
+  const collectPages = async (
+    call: Call,
+    signal: AbortSignal,
+    stopped: (fetched: number) => string,
+    hint: string,
+  ): Promise<unknown[]> => {
     const objects: unknown[] = [];
     for (;;) {
-      if (!withinBudget()) {
-        throw budgetError(
-          maxCalls,
-          `sevdesk.paginate('${call.path}') had fetched ${String(objects.length)} objects and its list is incomplete, so none of it is returned.`,
-          'Narrow the list with query parameters, or fetch it in parts across runs with sevdesk.request and limit/offset.',
-        );
-      }
+      if (!withinBudget()) throw budgetError(maxCalls, stopped(objects.length), hint);
       const page = pageCall(call, objects.length);
       const response = await send(page, { token, signal, retry: DEFAULT_RETRY });
       const items = listObjects(call, await readJson(page, response));
@@ -847,6 +929,17 @@ export function createClient({
       if (items.length === 0) return objects;
       objects.push(...items);
     }
+  };
+
+  const paginate: HostFunction = async (args, signal) => {
+    const call = preparePages(baseUrl, args, gate);
+    return collectPages(
+      call,
+      signal,
+      (fetched) =>
+        `sevdesk.paginate('${call.path}') had fetched ${String(fetched)} objects and its list is incomplete, so none of it is returned.`,
+      'Narrow the list with query parameters, or fetch it in parts across runs with sevdesk.request and limit/offset.',
+    );
   };
 
   /**
@@ -894,6 +987,37 @@ export function createClient({
     });
   };
 
+  /**
+   * `sevdesk.getDocument(type, id, options)` (issue #59): the document `/{type}/{id}` with its
+   * contact and contact person embedded, then its positions with their units embedded, paged like
+   * `paginate`, as one compact object (`compactDocument`). A reference sevDesk answers bare is
+   * fetched instead, one call per kind: the contact (`GET /Contact/{id}`), the user list for the
+   * contact person (`GET /SevUser`) and the unit list for every bare unit (`GET /Unity`); an id the
+   * answer lacks stays bare, so its name is null. 3 calls when sevDesk embeds, at most 6. Only
+   * reads, so it runs in read-only mode; an unknown id fails at the first read.
+   */
+  const getDocument: HostFunction = async (args, signal) => {
+    const { type, id, html } = getDocumentArguments(args);
+    const hint = 'Read fewer documents per run: each costs 3 to 6 calls.';
+    const read = async (path: string, query?: Record<string, string>) => {
+      const call = prepare(baseUrl, ['GET', path, { query }], gate);
+      return readJson(call, await sendCounted(call, signal, hint));
+    };
+    const path = `/${type}/${id}`;
+    const document = requireDocument(path, await read(path, { embed: 'contact,contactPerson' }));
+    const list = positionsCall(type, id);
+    const positions = await collectPages(
+      prepare(baseUrl, ['GET', list.path, { query: { ...list.query, embed: 'unity' } }], gate),
+      signal,
+      (fetched) =>
+        `sevdesk.getDocument('${type}', ${id}) had fetched ${String(fetched)} positions and the document is incomplete, so none of it is returned.`,
+      hint,
+    );
+    await nameBareContacts(document, read);
+    await nameBareUnits(positions, read);
+    return compactDocument(type, document, positions, { html });
+  };
+
   /** The JSON of `GET path`, a document a held call acts on, read for the confirmation preview. */
   const readDocument = async (path: string, signal: AbortSignal): Promise<unknown> => {
     const call = prepare(baseUrl, ['GET', path], gate);
@@ -908,7 +1032,17 @@ export function createClient({
     return auditFailure;
   };
 
-  return { request, paginate, savePdf, writes, held, stalePdfs, readDocument, settled };
+  return {
+    request,
+    paginate,
+    savePdf,
+    getDocument,
+    writes,
+    held,
+    stalePdfs,
+    readDocument,
+    settled,
+  };
 }
 
 interface ReplayOptions {

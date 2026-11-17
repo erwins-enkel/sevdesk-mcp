@@ -27,6 +27,7 @@ lokal auf deinem Rechner, und nichts Unumkehrbares passiert ohne dein Ja.
 - „Wie viel Umsatz habe ich dieses Jahr mit jedem Kunden gemacht?“
 - „Leg den Kontakt Muster GmbH mit Ansprechpartnerin Erika Beispiel und Adresse an.“
 - „Speicher mir das PDF zu Rechnung RE-1042.“
+- „Prüf das Angebot AN-1006 auf Tippfehler und interne Notizen.“
 - „Mach aus Angebot AN-1007 einen Rechnungsentwurf.“
 
 Alles, was die sevdesk-API kann, kann auch die KI: Kontakte, Angebote, Aufträge, Rechnungen,
@@ -178,6 +179,7 @@ nothing irreversible happens without your yes.
 - "How much revenue did I make with each customer this year?"
 - "Add the contact Muster GmbH with Erika Beispiel as contact person and the address."
 - "Save the PDF of invoice RE-1042 for me."
+- "Check offer AN-1006 for typos and internal notes."
 - "Turn offer AN-1007 into an invoice draft."
 
 Whatever the sevdesk API can do, the AI can do: contacts, offers, orders, invoices, credit notes,

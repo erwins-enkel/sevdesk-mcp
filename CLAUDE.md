@@ -11,12 +11,13 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - Status: the M0 Code Mode spine is in place (version 0.0.0, not yet on npm). `search` runs in the
   QuickJS sandbox with the patched spec and the guides; `execute` reads sevDesk, runs reversible
   writes (listed in the result's `writes` ledger), holds every irreversible call until
-  `execute({ confirm })`, labels document status codes (`sevdesk.statusText`), and saves PDFs
-  (`savePdf`) and non-JSON responses in the profile's download directory, within the limits and
-  base URL of the optional config file. Profiles come from `SEVDESK_API_TOKEN` or the config file,
-  their tokens from the OS keychain. Read-only mode (`SEVDESK_READONLY` or a profile's `readonly`)
-  rejects every write and irreversible call; every write call gets a line in the monthly audit log
-  unless the config file sets `audit: false`.
+  `execute({ confirm })`, labels document status codes (`sevdesk.statusText`), reads a whole
+  document compactly (`getDocument`), and saves PDFs (`savePdf`) and non-JSON responses in the
+  profile's download directory, within the limits and base URL of the optional config file.
+  Profiles come from `SEVDESK_API_TOKEN` or the config file, their tokens from the OS keychain.
+  Read-only mode (`SEVDESK_READONLY` or a profile's `readonly`) rejects every write and
+  irreversible call; every write call gets a line in the monthly audit log unless the config file
+  sets `audit: false`.
   `sevdesk-mcp setup` adds a profile (token into the OS keychain) and registers it in the
   installed Claude Desktop, Claude Code, ChatGPT Desktop / Codex and OpenCode (run from a local
   checkout, with an entry that starts its build with `--reload`, for the beta before npm), `setup --list`
@@ -153,8 +154,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   and session, destructive annotation or `readOnlyHint` when `SEVDESK_READONLY` is on or the
   pinned profile is read-only; a run with held calls gets their previews and a token, a failed run
   or preview read drops them). `src/sevdesk.ts`: `createClient()`, the host side of
-  `sevdesk.request`, `sevdesk.paginate` and `sevdesk.savePdf` (HTTPS base URL, relative paths only,
-  JSON bodies, token added host-side, shared call budget, pages of 1,000, structured errors;
+  `sevdesk.request`, `sevdesk.paginate`, `sevdesk.savePdf` and `sevdesk.getDocument` (HTTPS base
+  URL, relative paths only, JSON bodies, token added host-side, shared call budget, pages of 1,000
+  through `collectPages()`, structured errors;
   `request` saves a non-JSON response and holds an irreversible call in `held` as `{ held: true }`;
   a getPdf of a `PDF_TYPES` document through `request` (`requestPdf()`) reads the document first
   and saves the PDF as a file, JSON or `download=true`;
@@ -163,6 +165,10 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   first (`renderDraft()`, `POST /{Type}/{id}/render` with `forceReload`, a write that runs even in
   read-only mode); both return the PDF's freshness (`withFreshness()`, issue #52) and put a stale
   one's path into `stalePdfs`, which `toToolResult()` turns into a note;
+  `getDocument` (issue #59) reads `GET /{Type}/{id}` with `embed=contact,contactPerson`, then the
+  positions (`positionsCall()`) with `embed=unity`, and fetches what sevDesk answers bare
+  (`isBare()`) with one read per kind (`GET /Contact/{contactId}`, `GET /SevUser`, `GET /Unity`):
+  3 to 6 calls, all reads, so it runs in read-only mode;
   `writes` is the run's ledger of sent writes with status and object id;
   `readDocument()` is the preview's counted read);
   `send()` resolves to the 2xx response and retries per decision 10 (`retry: false` sends once);
@@ -176,6 +182,11 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   several processes never tear lines; time, profile, method, path, query, status, object id,
   SHA-256 body hash, outcome; never a body or the token; an unwritable log is a fatal
   `audit_error`), and `NO_AUDIT` for `audit: false`.
+  `src/document.ts`: the document vocabulary the preview and `getDocument` share (`DOCUMENTS`,
+  `kindOf()`, `textOf()`, `numberOf()`, `dateOf()`), `positionsCall()`, `isBare()` and
+  `compactDocument()`, the compact form getDocument resolves to (every key present, null where
+  sevDesk sent no value; texts as plain text via `entities` unless `html`; line sums as sevDesk
+  sends them, else derived exactly in BigInt decimals, `sumSource` saying which).
   `src/confirm.ts`: `previewHeld()`, the structured English preview of held calls (decision 9;
   document kind, number, ISO date, amount with currency, recipient, subject), and
   `createConfirmations()`, the in-memory token store (single use, 10 minutes, bound to the profile
@@ -223,7 +234,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `test/response-shapes.test.ts` fails when it holds anything but `RECORDED` fields with types, lacks
   one, or the patched spec or `ANSWERS` lack a recorded field or type it, naming endpoint and field;
   without the file (until a first run records it) those checks are skipped, visibly.
-  `test/setup.ts` (vitest `setupFiles`) gives every test a fresh `mkdtemp` home
+  `test/execute-document.test.ts` drives `getDocument` per type against the mock (embedded and bare
+  references, read-only, budget), `test/document.test.ts` `compactDocument()` (plain text, names,
+  line sums). `test/setup.ts` (vitest `setupFiles`) gives every test a fresh `mkdtemp` home
   and points `HOME`, `USERPROFILE`, `XDG_*` and `APPDATA`/`LOCALAPPDATA` there, so in-process and
   spawned servers never touch the real local directories or `~/Downloads`; it also unsets
   `SEVDESK_API_TOKEN` and mocks `@napi-rs/keyring` with the in-memory `test/fake-keychain.ts`
@@ -244,7 +257,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   temporary home, drives Priority A on the persistent fixtures "MCP Test GmbH" and tag
   `mcp-test`, checks that a PDF saved after a change of the offer's header shows it (PDF text via
   `pdfjs-dist`) and that its `pdfCreated` is not before the offer's `update`, reports what a getPdf
-  without a render returns after a change (issue #52), records what `getPdf` without
+  without a render returns after a change (issue #52), reads the draft with `getDocument` (names,
+  line sums 3600 / 4284, its `sumSource` in the report; issue #59), records what `getPdf` without
   `preventSendBy=true` does to the status, and prints
   a report without token or mail address. The server it spawns loads `record-shapes.ts`
   (`--import recorderImport(file)`), which appends the shape of every 2xx JSON answer from sevDesk

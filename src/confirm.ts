@@ -1,36 +1,23 @@
 // The confirmation of held calls (PRD §6, decisions 5 and 9): the preview the human confirms and
 // the in-memory, single-use tokens that let `execute({ confirm })` send exactly those calls.
 import { randomUUID } from 'node:crypto';
+import {
+  DOCUMENTS,
+  type DocumentType,
+  dateOf,
+  isDocumentType,
+  kindOf,
+  numberOf,
+  textOf,
+} from './document.ts';
 import { HostError, type SnippetError } from './sandbox.ts';
 import type { Call } from './sevdesk.ts';
 
 /** How long a confirmation token is valid (decision 5). */
 const TOKEN_TTL_MS = 10 * 60 * 1000;
 
-/**
- * The document types a preview reads, with their kind and the fields holding their number and date.
- * A voucher's description is essentially its number (the receipt number).
- */
-const DOCUMENTS: Record<string, { label: string; number: string; date: string }> = {
-  Order: { label: 'Order', number: 'orderNumber', date: 'orderDate' },
-  Invoice: { label: 'Invoice', number: 'invoiceNumber', date: 'invoiceDate' },
-  CreditNote: { label: 'Credit note', number: 'creditNoteNumber', date: 'creditNoteDate' },
-  Voucher: { label: 'Voucher', number: 'description', date: 'voucherDate' },
-};
-
-// An Order by its orderType.
-const ORDER_LABELS: Record<string, string> = {
-  AN: 'Offer',
-  AB: 'Order confirmation',
-  LI: 'Delivery note',
-};
-
 // The document a held call acts on: `/{Type}/{id}` (the match) at the start of its path.
 const DOCUMENT_PATH = /^\/(Order|Invoice|CreditNote|Voucher)\/\d+(?=\/|$)/;
-
-// sevDesk answers dates as ISO 8601 with the Berlin offset; the first 10 characters are the
-// calendar day (guides.dates).
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}(?:T|$)/;
 
 /**
  * One held call as the human confirms it (decision 9): the exact call (method, path, query, JSON
@@ -66,17 +53,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** A non-empty string, or undefined. */
-function textOf(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() !== '' ? value : undefined;
-}
-
-/** A sum as sevDesk answers it (a decimal string, or a number) as a number, or undefined. */
-function numberOf(value: unknown): number | undefined {
-  const number = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
-  return typeof number === 'number' && Number.isFinite(number) ? number : undefined;
-}
-
 /** The net and gross sums with the currency code; undefined without a currency or any sum. */
 function amountOf(document: Record<string, unknown>): Preview['amount'] {
   const currency = textOf(document.currency);
@@ -84,11 +60,6 @@ function amountOf(document: Record<string, unknown>): Preview['amount'] {
   const gross = numberOf(document.sumGross);
   if (currency === undefined || (net === undefined && gross === undefined)) return undefined;
   return { net, gross, currency };
-}
-
-/** The calendar day of an ISO 8601 date, as `YYYY-MM-DD`, or undefined. */
-function dateOf(value: unknown): string | undefined {
-  return typeof value === 'string' && ISO_DATE.test(value) ? value.slice(0, 10) : undefined;
 }
 
 /** Who the call reaches: the mail address of a send, else the document's addressee. */
@@ -113,14 +84,11 @@ function documentOf(path: string, response: unknown): Record<string, unknown> {
   });
 }
 
-/** The preview fields of a document, as sevDesk answered it, read with its `DOCUMENTS` entry. */
-function documentFields(
-  { label, number, date }: (typeof DOCUMENTS)[string],
-  document: Record<string, unknown>,
-): Partial<Preview> {
-  const order = label === 'Order' ? ORDER_LABELS[String(document.orderType)] : undefined;
+/** The preview fields of a document of `type`, as sevDesk answered it. */
+function documentFields(type: DocumentType, document: Record<string, unknown>): Partial<Preview> {
+  const { number, date } = DOCUMENTS[type];
   return {
-    document: order ?? label,
+    document: kindOf(type, document),
     number: textOf(document[number]),
     date: dateOf(document[date]),
     amount: amountOf(document),
@@ -149,12 +117,11 @@ export async function previewHeld(
       body,
     };
     const [path, type = ''] = DOCUMENT_PATH.exec(call.path) ?? [];
-    const kind = DOCUMENTS[type];
     let document: Record<string, unknown> | undefined;
-    if (path !== undefined && kind !== undefined) {
+    if (path !== undefined && isDocumentType(type)) {
       document = documents.get(path) ?? documentOf(path, await read(path));
       documents.set(path, document);
-      Object.assign(preview, documentFields(kind, document));
+      Object.assign(preview, documentFields(type, document));
     }
     preview.recipient = recipientOf(body, document);
     preview.subject = isRecord(body) ? textOf(body.subject) : undefined;

@@ -105,7 +105,18 @@ creditDebit "C" is an expense (you bought something), "D" revenue (you sold some
     title: 'Lists, filters and pagination',
     text: `A list answers { "objects": [...] }; with countAll=true it adds "total". limit (1 to 1000) and offset page through it: GET /Contact with { limit: 100, offset: 100 } returns the second hundred. sevdesk.paginate(path, query) collects all pages, ${String(PAGE_SIZE)} objects each, and every page counts as a call, so narrow the list with filters first.
 Filters go into query as sevDesk writes them, nested ones with brackets: GET /Order with { "contact[id]": 123, "contact[objectName]": "Contact", orderType: "AN" }. A resource's filters are in its tag description, section "How to filter", e.g. spec.tags.find((t) => t.name === "Invoice").description. embed returns nested objects in full instead of { id, objectName }, e.g. { embed: "contact" }.
-GET /Contact returns only organisations unless depth is 1. Positions are not part of a document's answer: GET /Order/{orderId}/getPositions, GET /InvoicePos with invoice[id] and invoice[objectName], GET /VoucherPos with voucher[id] and voucher[objectName].`,
+GET /Contact returns only organisations unless depth is 1. Positions are not part of a document's answer: GET /Order/{orderId}/getPositions, GET /InvoicePos with invoice[id] and invoice[objectName], GET /VoucherPos with voucher[id] and voucher[objectName]. sevdesk.getDocument(type, id) reads an order, invoice or credit note with its positions in one go (guides.document).`,
+  },
+
+  document: {
+    title: 'Read or proofread one document (offer, invoice, credit note)',
+    text: `sevdesk.getDocument(type, id) reads an Order, Invoice or CreditNote with its contact and positions as one compact object, also in read-only mode. It costs 3 calls (more pages only beyond 1,000 positions); when sevDesk does not embed the contact, the contact person or the units, one more call each fetches their names (at most 6). It resolves to { type, id, kind, number, status, statusText, date, sendDate, update, contact: { id, name, customerNumber }, contactPerson: { id, name }, address, header, headText, footText, taxRule, taxText, currency, showNet, sumNet, sumTax, sumGross, positions }; an Order adds paymentTerms and deliveryTerms, an Invoice deliveryDate, deliveryDateUntil, timeToPay, discount and discountTime, a CreditNote deliveryDate. Each position is { number, name, text, quantity, unity: { id, name }, price, priceNet, priceGross, discount, taxRate, sumNet, sumGross, sumSource, optional }, sorted by number.
+- contactPerson is the sevDesk user on the document; address is the recipient block as printed on it.
+- Dates are calendar days (YYYY-MM-DD), update is sevDesk's timestamp, amounts are numbers, status is sevDesk's code and statusText its label (guides.status). null means sevDesk sent no value.
+- sumSource "sevDesk": the line sums as sevDesk sent them; "derived": quantity × priceNet (and priceGross) less the discount percentage, exact to the cent; null: they could not be derived.
+- headText, footText and the position texts come as plain text; sevdesk.getDocument(type, id, { html: true }) keeps their HTML.
+To proofread a document, read the header, headText, footText and every position's name and text: internal notes slip in there.
+The id from a document number: GET /Order with { orderNumber: "AN-1006" }, GET /Invoice with { invoiceNumber }, GET /CreditNote with { creditNoteNumber }. Numbers are not unique: when several documents match, ask the user which one.`,
   },
 
   dates: {
