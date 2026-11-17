@@ -11,8 +11,8 @@ einer Datei gelesen; ein Schlüssel `token` in der Konfigurationsdatei ist ein F
 ## Profil hinzufügen: `setup`
 
 Ein Profil fügst du im Terminal mit `npx @erwins-enkel/sevdesk-mcp setup` hinzu (`setup --add`
-macht dasselbe). Solange das Paket nicht auf npm ist, führst du stattdessen
-`node dist/cli.js setup` in einem lokalen Checkout aus ([Beta-Test](beta-test.md)).
+macht dasselbe). Aus einem lokalen Checkout führst du stattdessen `node dist/cli.js setup` aus
+([Beta-Test](beta-test.md)).
 
 1. Es fragt nach dem Profilnamen (1 bis 32 Zeichen `a-z`, `0-9`, `-`). Ein vorhandenes Profil
    wird nur nach einem ausdrücklichen Ja ersetzt.

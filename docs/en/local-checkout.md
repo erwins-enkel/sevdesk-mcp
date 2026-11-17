@@ -2,10 +2,10 @@
 
 [Deutsch](../de/beta-test.md) · **English** · [Overview](../../README.md#english)
 
-Until the package is on npm, its `npx` entry cannot start. To try the whole flow in real clients
-before that, run `setup` from a local checkout: `setup` counts as installed when it runs from a
-folder under `node_modules` (as with `npx` or a global install), and as a local checkout otherwise.
-You need [Bun](https://bun.sh) ≥ 1.4.4 and Node.js ≥ 22.
+To try changes in real clients before the next release, run `setup` from a local checkout:
+`setup` counts as installed when it runs from a folder under `node_modules` (as with `npx` or a
+global install), and as a local checkout otherwise. You need [Bun](https://bun.sh) ≥ 1.4.4 and
+Node.js ≥ 22.
 
 1. Clone the repository into a folder that stays where it is, not a temporary worktree, and build
    it: `git clone https://github.com/erwins-enkel/sevdesk-mcp.git`, then
@@ -42,6 +42,6 @@ You need [Bun](https://bun.sh) ≥ 1.4.4 and Node.js ≥ 22.
    list once, so after the build that first brings `version`, restart the client once.
    `sevdesk-mcp config` shows the same state and offers the same update in the terminal
    ([`config`](setup.md#changing-profiles-and-settings-config)).
-5. Once the package is published, switch with `npx @erwins-enkel/sevdesk-mcp setup` and the same
+5. To switch to the package on npm, run `npx @erwins-enkel/sevdesk-mcp setup` with the same
    profile name: replace the profile (it asks for the token again), then answer yes when it asks to
    replace each client's entry with the `npx` one.

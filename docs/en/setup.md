@@ -10,7 +10,7 @@ account. A token is never read from a file; a `token` key in the config file is 
 ## Adding a profile: `setup`
 
 Add a profile in a terminal with `npx @erwins-enkel/sevdesk-mcp setup` (`setup --add` does the
-same). Until the package is on npm, run `node dist/cli.js setup` in a local checkout instead
+same). From a local checkout, run `node dist/cli.js setup` instead
 ([beta testing](local-checkout.md)).
 
 1. It asks for the profile name (1 to 32 characters `a-z`, `0-9`, `-`). An existing profile is

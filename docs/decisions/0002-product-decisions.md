@@ -242,11 +242,31 @@ rules.
     **Answer:** Embed it with attribution and mark it in the README as "© sevDesk, not covered by the
     MIT licence". Verify sevDesk's terms before the first npm release (P4). If redistribution is
     not allowed, the server downloads the spec on first start and caches it. **Source:** §5.4.
+    **Addendum (2026-11-17, the check before 0.1.0):** The spec ships inside the npm package, with
+    the attribution above. The check found no terms that cover redistribution: the spec has no
+    licence field, and sevDesk publishes no terms for it. sevDesk does state publicly that anyone
+    may build an integration on its OpenAPI without approval
+    (<https://sevdesk.de/technologie-partner-werden/>), and community projects redistribute the
+    spec. The operator accepts the remaining risk; if sevDesk objects, the spec leaves the
+    package and the fallback above applies.
 24. **How are releases published and versioned?**
     **Answer:** 0.1.0 once Priority A works end to end; 1.0.0 when the v1 row of the roadmap is
     complete. A tag set by the operator triggers a GitHub Actions workflow that publishes with npm
     trusted publishing (OIDC, provenance) and attaches the `.mcpb` to the GitHub release. A merged
     spec update ships as a patch release. **Source:** §5.6, §9.
+    **Addendum (2026-11-17, the first release):** 0.1.0 is published as a beta while Priority A
+    runs end to end against the spec-following mock; the first run against a real account (#63)
+    follows, and what it finds ships as patch releases. Trusted publishing can only be set up for
+    a package that exists, so the workflow publishes 0.1.0 with a granular token limited to the
+    `@erwins-enkel` scope and valid for one day, with provenance; the operator then deletes it,
+    disallows tokens for the package and adds the trusted publisher right before the next
+    release, and the token path leaves the workflow (#66). The workflow runs only from `v*` tags in
+    the GitHub environment `npm`, checks that the tag matches `package.json` and points to a
+    commit on `main`, runs `bun run verify`, and publishes exactly the tarball it installed and
+    smoke-tested; `publishConfig` requires provenance and public access. The job that installs
+    dependencies has no write or OIDC permission; the publishing job installs nothing. It creates the GitHub
+    release with generated notes; the `.mcpb` joins it with its own slice. Every release goes to
+    the dist-tag `latest`. The steps are in `CONTRIBUTING.md` (`## Releasing`).
 25. **Listing in the official MCP Registry (`server.json`)?**
     **Answer:** Yes, from 1.0. **Source:** §1.
 26. **README language?**

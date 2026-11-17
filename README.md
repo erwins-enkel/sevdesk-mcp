@@ -13,9 +13,8 @@ mit nur zwei Tools. Du sagst in normaler Sprache, was du brauchst: ein Angebot s
 Rechnungen finden, Umsätze auswerten. Die KI erledigt es in deinem sevdesk-Konto. Der Server läuft
 lokal auf deinem Rechner, und nichts Unumkehrbares passiert ohne dein Ja.
 
-> **Beta:** sevdesk-mcp ist in früher Entwicklung und noch nicht auf npm; du installierst es aus
-> dem Quellcode. Probier es zuerst mit einem Testkonto oder im
-> [Nur-Lesen-Modus](docs/de/sicherheit.md#nur-lesen-modus) aus.
+> **Beta:** sevdesk-mcp ist in früher Entwicklung (Version 0.x). Probier es zuerst mit einem
+> Testkonto oder im [Nur-Lesen-Modus](docs/de/sicherheit.md#nur-lesen-modus) aus.
 >
 > Nicht von sevdesk entwickelt oder unterstützt.
 
@@ -71,22 +70,16 @@ Cloudflare und Anthropic).
 ### Schnellstart
 
 Du brauchst ein sevdesk-Konto mit dem Buchhaltungssystem 2.0 und dessen API-Token (in sevdesk
-unter Erweiterungen → API), [Bun](https://bun.sh) ≥ 1.4.4, Node.js ≥ 22 und einen der KI-Clients
-unten.
+unter Erweiterungen → API), [Node.js](https://nodejs.org) ≥ 22 und einen der KI-Clients unten.
 
 ```sh
-git clone https://github.com/erwins-enkel/sevdesk-mcp.git
-cd sevdesk-mcp
-bun install && bun run build
-node dist/cli.js setup
+npx @erwins-enkel/sevdesk-mcp setup
 ```
 
 `setup` fragt nach Profilname und API-Token, legt den Token im Schlüsselbund ab und trägt den
 Server in deine installierten KI-Clients ein. Auf die Frage nach dem Nur-Lesen-Modus antwortest du
 für den Anfang am besten mit Ja. Danach startest du den Client neu und legst los. Details:
-[Beta-Test aus einem lokalen Checkout](docs/de/beta-test.md) und
-[Einrichtung und Profile](docs/de/einrichtung.md). Mit dem ersten Release auf npm reicht
-`npx @erwins-enkel/sevdesk-mcp setup`.
+[Einrichtung und Profile](docs/de/einrichtung.md).
 
 ### Unterstützte KI-Clients
 
@@ -134,8 +127,8 @@ sich sagen, welches gemeint ist.
 
 #### Brauche ich Programmierkenntnisse?
 
-Nein. Den Code schreibt die KI; du sagst in normaler Sprache, was du willst. Für die
-Beta-Installation brauchst du ein Terminal, Git und Bun; mit dem npm-Release reicht ein Befehl.
+Nein. Den Code schreibt die KI; du sagst in normaler Sprache, was du willst. Für die Installation
+reicht ein Befehl im Terminal.
 
 #### Ersetzt sevdesk-mcp meine Steuerberatung?
 
@@ -148,8 +141,8 @@ Nein. Der Server prüft nicht, ob etwas steuerlich richtig ist; er führt aus, w
 - [Konfiguration](docs/de/konfiguration.md): `config.json`, Limits, Download-Ordner
 - [Sicherheit und Datenschutz](docs/de/sicherheit.md): Bestätigung, Nur-Lesen-Modus, Audit-Log
 - [Dateien](docs/de/dateien.md): PDFs und Exporte
-- [Beta-Test aus einem lokalen Checkout](docs/de/beta-test.md): Installation vor dem npm-Release,
-  Updates
+- [Beta-Test aus einem lokalen Checkout](docs/de/beta-test.md): neue Stände vor dem nächsten
+  Release ausprobieren, Updates
 - [Mitmachen](CONTRIBUTING.md) und die [sevdesk-API-Spezifikation](spec/README.md) (beide auf
   Englisch)
 
@@ -166,8 +159,8 @@ tools. You say in plain words what you need: write an offer, find unpaid invoice
 revenue. The AI does it in your sevdesk account. The server runs locally on your computer, and
 nothing irreversible happens without your yes.
 
-> **Beta:** sevdesk-mcp is in early development and not on npm yet; you install it from the source
-> code. Try it with a test account or in [read-only mode](docs/en/safety.md#read-only-mode) first.
+> **Beta:** sevdesk-mcp is in early development (version 0.x). Try it with a test account or in
+> [read-only mode](docs/en/safety.md#read-only-mode) first.
 >
 > Not developed or endorsed by sevdesk.
 
@@ -222,22 +215,16 @@ called Code Mode (modelled on Cloudflare and Anthropic).
 ### Quick start
 
 You need a sevdesk account on bookkeeping system 2.0 and its API token (in sevdesk under
-Erweiterungen → API, i.e. Extensions → API), [Bun](https://bun.sh) ≥ 1.4.4, Node.js ≥ 22 and one
-of the AI clients below.
+Erweiterungen → API, i.e. Extensions → API), [Node.js](https://nodejs.org) ≥ 22 and one of the
+AI clients below.
 
 ```sh
-git clone https://github.com/erwins-enkel/sevdesk-mcp.git
-cd sevdesk-mcp
-bun install && bun run build
-node dist/cli.js setup
+npx @erwins-enkel/sevdesk-mcp setup
 ```
 
 `setup` asks for a profile name and the API token, stores the token in the OS keychain and
 registers the server in your installed AI clients. To start with, answer yes when it asks about
-read-only mode. Then restart the client and go. Details:
-[beta testing from a local checkout](docs/en/local-checkout.md) and
-[setup and profiles](docs/en/setup.md). With the first release on npm,
-`npx @erwins-enkel/sevdesk-mcp setup` is all it takes.
+read-only mode. Then restart the client and go. Details: [setup and profiles](docs/en/setup.md).
 
 ### Supported AI clients
 
@@ -285,8 +272,8 @@ asks which one is meant.
 
 #### Do I need to know how to program?
 
-No. The AI writes the code; you say in plain words what you want. The beta installation needs a
-terminal, Git and Bun; with the npm release, one command is enough.
+No. The AI writes the code; you say in plain words what you want. Installing takes one command
+in a terminal.
 
 #### Does sevdesk-mcp replace my tax advisor?
 
@@ -299,7 +286,7 @@ you approve.
 - [Configuration](docs/en/configuration.md): `config.json`, limits, download folder
 - [Safety and privacy](docs/en/safety.md): confirmation, read-only mode, audit log
 - [Files](docs/en/files.md): PDFs and exports
-- [Beta testing from a local checkout](docs/en/local-checkout.md): installing before the npm
+- [Beta testing from a local checkout](docs/en/local-checkout.md): trying changes before the next
   release, updates
 - [Contributing](CONTRIBUTING.md) and the [sevdesk API specification](spec/README.md)
 

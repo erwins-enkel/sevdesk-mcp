@@ -8,7 +8,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - Product source of truth: `docs/prd/PRD-sevdesk.md` (German).
 - Foundation decisions and their rationale: `docs/decisions/0001-foundation.md`.
 - Product decisions and their rationale: `docs/decisions/0002-product-decisions.md`.
-- Status: the M0 Code Mode spine is in place (version 0.0.0, not yet on npm). `search` runs in the
+- Status: the M0 Code Mode spine is in place (version 0.1.0, the npm beta; a `v*` tag publishes it
+  through `.github/workflows/release.yml`, see `CONTRIBUTING.md#releasing`). `search` runs in the
   QuickJS sandbox with the patched spec and the guides; `execute` reads sevDesk, runs reversible
   writes (listed in the result's `writes` ledger), holds every irreversible call until
   `execute({ confirm })`, labels document status codes (`sevdesk.statusText`), reads a whole
@@ -20,7 +21,7 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   sets `audit: false`.
   `sevdesk-mcp setup` adds a profile (token into the OS keychain) and registers it in the
   installed Claude Desktop, Claude Code, ChatGPT Desktop / Codex and OpenCode (run from a local
-  checkout, with an entry that starts its build with `--reload`, for the beta before npm), `setup --list`
+  checkout, with an entry that starts its build with `--reload`, to try unreleased changes), `setup --list`
   lists the profiles and `setup --remove <name>` removes one with its token and client entries;
   `sevdesk-mcp config` changes profiles, client entries and the audit switch in a terminal menu.
   Run from a local checkout, the server also has the tool `version`: it reports the version and
@@ -30,7 +31,7 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   against a real account with `bun run test:e2e`, which also records the real answers' shapes that
   `bun run test` checks the spec and the mock against (no run has recorded them yet, so those
   checks are skipped). Not built yet (PRD §9): the update checks, the
-  `.mcpb`, the release workflow, receipt upload, elicitation and the curated v2 tools.
+  `.mcpb`, the MCP Registry entry, receipt upload, elicitation and the curated v2 tools.
 
 ## Orientation
 
@@ -271,6 +272,12 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   checks it offline.
   `scripts/`: the i18n drift gate, the docs gate (`check-docs.ts`, tested by
   `test/check-docs.test.ts`), the pinned actionlint runner and `update-spec`.
+- `.github/workflows/release.yml`: on a `v*` tag. Job `build` (read-only, no OIDC): tag equals
+  `v<package.json version>` and the commit is on `main`, `bun run verify`, `npm pack`, the
+  installed tarball's `--version`, the tarball as an artifact. Job `publish` (environment `npm`,
+  installs nothing): `npm publish` of exactly that tarball (`publishConfig`: public, provenance),
+  `gh release create --generate-notes`. 0.1.0 publishes with a one-day bootstrap token
+  (`NPM_TOKEN`); later releases use npm trusted publishing (OIDC) once #66 removes it.
 - While serving, stdout belongs to the MCP protocol: log to stderr only.
 - Model-facing text (tool descriptions, guides, errors returned to the model) is English and
   stays lean: all tool descriptions together under 1,500 tokens (PRD §10).
@@ -405,7 +412,9 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
     `mcp-test` are persistent. Sent test offers are reported, never deleted.
 13. **Releases (23, 24, 25):** a tag triggers npm trusted publishing with provenance and attaches
     the `.mcpb`; the MCP Registry entry comes with 1.0. The sevDesk spec ships with attribution
-    ("© sevDesk, not MIT"); verify sevDesk's terms before the first publish.
+    ("© sevDesk, not MIT"); the terms were checked before 0.1.0 (no redistribution terms found,
+    risk accepted). 0.1.0 ships as a beta before the first real-account E2E run, published with
+    a one-day bootstrap token, since trusted publishing needs an existing package.
 
 ## How work flows here
 

@@ -2,11 +2,10 @@
 
 **Deutsch** · [English](../en/local-checkout.md) · [Übersicht](../../README.md#deutsch)
 
-Solange das Paket nicht auf npm ist, kann sein `npx`-Eintrag nicht starten. Um den ganzen Ablauf
-vorher in echten Clients auszuprobieren, führst du `setup` aus einem lokalen Checkout aus: `setup`
-gilt als installiert, wenn es aus einem Ordner unter `node_modules` läuft (wie mit `npx` oder einer
-globalen Installation), sonst als lokaler Checkout. Du brauchst [Bun](https://bun.sh) ≥ 1.4.4 und
-Node.js ≥ 22.
+Um neue Stände vor dem nächsten Release in echten Clients auszuprobieren, führst du `setup` aus
+einem lokalen Checkout aus: `setup` gilt als installiert, wenn es aus einem Ordner unter
+`node_modules` läuft (wie mit `npx` oder einer globalen Installation), sonst als lokaler Checkout.
+Du brauchst [Bun](https://bun.sh) ≥ 1.4.4 und Node.js ≥ 22.
 
 1. Klon das Repository in einen Ordner, der bleibt, wo er ist, kein temporärer Worktree, und bau
    es: `git clone https://github.com/erwins-enkel/sevdesk-mcp.git`, dann darin
@@ -46,6 +45,6 @@ Node.js ≥ 22.
    also nach dem Build, der `version` erstmals mitbringt, einmal neu. `sevdesk-mcp config` zeigt
    denselben Stand und bietet dasselbe Update im Terminal an
    ([`config`](einrichtung.md#profile-und-einstellungen-ändern-config)).
-5. Sobald das Paket veröffentlicht ist, wechselst du mit `npx @erwins-enkel/sevdesk-mcp setup` und
-   demselben Profilnamen: Ersetz das Profil (es fragt den Token erneut ab) und antworte mit Ja, wenn
-   es anbietet, den Eintrag jedes Clients durch den `npx`-Eintrag zu ersetzen.
+5. Zum Paket auf npm wechselst du mit `npx @erwins-enkel/sevdesk-mcp setup` und demselben
+   Profilnamen: Ersetz das Profil (es fragt den Token erneut ab) und antworte mit Ja, wenn es
+   anbietet, den Eintrag jedes Clients durch den `npx`-Eintrag zu ersetzen.
