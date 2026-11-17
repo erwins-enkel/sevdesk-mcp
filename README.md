@@ -20,14 +20,14 @@ lokal auf deinem Rechner, und nichts Unumkehrbares passiert ohne dein Ja.
 
 ### Was du damit machen kannst
 
-- „Mach ein Angebot an die Muster GmbH über 3 Tage KI-Workshop à 1.200 € und schick es an Frau
+- „Mach ein Angebot an die Muster GmbH über 3 Tage KI-Workshop à 950 € und schick es an Frau
   Beispiel.“ (Der Versand wartet auf dein Ja.)
 - „Welche Rechnungen sind seit mehr als 30 Tagen überfällig, und bei wem?“
 - „Wie viel Umsatz habe ich dieses Jahr mit jedem Kunden gemacht?“
 - „Leg den Kontakt Muster GmbH mit Ansprechpartnerin Erika Beispiel und Adresse an.“
 - „Speicher mir das PDF zu Rechnung RE-1042.“
-- „Prüf das Angebot AN-1006 auf Tippfehler und interne Notizen.“
-- „Mach aus Angebot AN-1007 einen Rechnungsentwurf.“
+- „Prüf das Angebot AN-1050 auf Tippfehler und interne Notizen.“
+- „Mach aus Angebot AN-1051 einen Rechnungsentwurf.“
 
 Alles, was die sevdesk-API kann, kann auch die KI: Kontakte, Angebote, Aufträge, Rechnungen,
 Gutschriften, Belege, Artikel, Tags und Exporte.
@@ -166,14 +166,14 @@ nothing irreversible happens without your yes.
 
 ### What you can do with it
 
-- "Make an offer to Muster GmbH for a 3-day AI workshop at €1,200 per day and send it to Ms
+- "Make an offer to Muster GmbH for a 3-day AI workshop at €950 per day and send it to Ms
   Beispiel." (Sending waits for your yes.)
 - "Which invoices are more than 30 days overdue, and who owes them?"
 - "How much revenue did I make with each customer this year?"
 - "Add the contact Muster GmbH with Erika Beispiel as contact person and the address."
 - "Save the PDF of invoice RE-1042 for me."
-- "Check offer AN-1006 for typos and internal notes."
-- "Turn offer AN-1007 into an invoice draft."
+- "Check offer AN-1050 for typos and internal notes."
+- "Turn offer AN-1051 into an invoice draft."
 
 Whatever the sevdesk API can do, the AI can do: contacts, offers, orders, invoices, credit notes,
 vouchers, products, tags and exports.

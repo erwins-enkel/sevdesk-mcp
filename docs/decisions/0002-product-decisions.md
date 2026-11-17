@@ -2,13 +2,13 @@
 
 - Status: accepted
 - Date: 2026-11-09
-- Deciders: Kai Osthoff (operator), bootstrap agent (phase P3 gap sweep)
+- Deciders: maintainer
 
 ## Context
 
-The bootstrap gap sweep (phase P3) checked `docs/prd/PRD-sevdesk.md` against the scaffold that
+The gap sweep checked `docs/prd/PRD-sevdesk.md` against the scaffold that
 exists today (`src/cli.ts`, `src/server.ts`, `src/i18n/`, `.env.schema`, CI) and settled the open
-product decisions with the operator in one numbered round.
+product decisions with the maintainer in one numbered round.
 
 **No design input.** There is no `docs/design` export, and the product has no web UI (0001). The
 sweep therefore covers the PRD and the scaffold only. Screen-oriented checklist items (states,
@@ -36,7 +36,7 @@ rules.
    names with their sevDesk company names, so the model asks the human when the conversation does
    not make the tenant clear. The `account` parameter lists the reachable profile names as an
    enum with the company names in its description. Every confirmation preview names the profile
-   and the company. The operator chose this over "default profile" and "only writes need
+   and the company. The maintainer chose this over "default profile" and "only writes need
    `account`". **Source:** §5.1, §7 ("sonst gilt das Standardprofil" is superseded).
 2. **What does `SEVDESK_PROFILE` mean next to `SEVDESK_API_TOKEN`?**
    **Answer:** With `SEVDESK_API_TOKEN` set, the server runs with exactly that one profile and does not
@@ -87,7 +87,7 @@ rules.
    `voucherPosDelete: null`), runs directly. Read-only mode rejects it like every write.
 7. **How is a PDF fetched without flipping the sent status?**
    **Answer:** `savePdf` always passes `preventSendBy=true`; per third-party documentation `getPdf`
-   may otherwise mark the document as sent (to verify against the live API in P4). A `getPdf` via
+   may otherwise mark the document as sent (to verify against the live API). A `getPdf` via
    `request` without `preventSendBy=true` is irreversible and needs confirmation. On the "PDF
    only" delivery path the document status stays unchanged; marking it as sent (`sendBy`) is a
    separate step that needs confirmation. **Source:** §4 A.4, §6.
@@ -182,7 +182,7 @@ rules.
     and runs `npx -y @erwins-enkel/sevdesk-mcp --profile <name>`. There is no default profile and
     no `setup --default` (decision 1). **Source:** §7.
     **Addendum (2026-11-10, issue #22):** Until the package is on npm the `npx` entry cannot start,
-    so the operator beta-tests from a local checkout. When `setup` runs from a local checkout (its
+    so the maintainer beta-tests from a local checkout. When `setup` runs from a local checkout (its
     package root does not lie under a `node_modules` folder), the entry runs the absolute path of
     the running Node executable (GUI clients often lack the user's `PATH`) with the checkout's
     built `dist/cli.js` and `--profile <name>`; an installed package keeps the `npx` entry above.
@@ -244,28 +244,22 @@ rules.
 
 ### Publishing and copy
 
-23. **May the sevDesk OpenAPI file be redistributed inside an MIT package?** Its licence is
-    unclear.
-    **Answer:** Embed it with attribution and mark it in the README as "© sevDesk, not covered by the
-    MIT licence". Verify sevDesk's terms before the first npm release (P4). If redistribution is
-    not allowed, the server downloads the spec on first start and caches it. **Source:** §5.4.
-    **Addendum (2026-11-17, the check before 0.1.0):** The spec ships inside the npm package, with
-    the attribution above. The check found no terms that cover redistribution: the spec has no
-    licence field, and sevDesk publishes no terms for it. sevDesk does state publicly that anyone
-    may build an integration on its OpenAPI without approval
-    (<https://sevdesk.de/technologie-partner-werden/>), and community projects redistribute the
-    spec. The operator accepts the remaining risk; if sevDesk objects, the spec leaves the
-    package and the fallback above applies.
+23. **How does the sevDesk OpenAPI file ship?**
+    **Answer:** Embedded with its source and attribution. sevDesk publishes the file
+    (<https://api.sevdesk.de/openapi.yaml>) and states that anyone may build an integration on its
+    OpenAPI without approval (<https://sevdesk.de/technologie-partner-werden/>). The README and
+    `spec/README.md` mark it "© sevDesk, not covered by the MIT licence"; `spec/README.md` names
+    the source. **Source:** §5.4.
 24. **How are releases published and versioned?**
     **Answer:** 0.1.0 once Priority A works end to end; 1.0.0 when the v1 row of the roadmap is
-    complete. A tag set by the operator triggers a GitHub Actions workflow that publishes with npm
+    complete. A tag set by the maintainer triggers a GitHub Actions workflow that publishes with npm
     trusted publishing (OIDC, provenance) and attaches the `.mcpb` to the GitHub release. A merged
     spec update ships as a patch release. **Source:** §5.6, §9.
     **Addendum (2026-11-17, the first release):** 0.1.0 is published as a beta while Priority A
     runs end to end against the spec-following mock; the first run against a real account (#63)
     follows, and what it finds ships as patch releases. Trusted publishing can only be set up for
     a package that exists, so the workflow publishes 0.1.0 with a granular token limited to the
-    `@erwins-enkel` scope and valid for one day, with provenance; the operator then deletes it,
+    `@erwins-enkel` scope and valid for one day, with provenance; the maintainer then deletes it,
     disallows tokens for the package and adds the trusted publisher right before the next
     release, and the token path leaves the workflow (#66). The workflow runs only from `v*` tags in
     the GitHub environment `npm`, checks that the tag matches `package.json` and points to a
@@ -288,12 +282,8 @@ rules.
     "beta": start with a test account or in read-only mode. This replaces the answer above.
 27. **Tone of the German CLI texts, and who maintains translations?**
     **Answer:** Informal "du", short and factual, gender-inclusive with a colon (as in the PRD);
-    English equally short. The implementing agent maintains both catalogs; the operator reviews
-    the German in review. **Source:** 0001 (i18n).
-    **Addendum (2026-11-09, issue #3):** The operator no longer reviews German CLI text in pull
-    requests; problems are reported afterwards as issues. This replaces "the operator reviews
-    the German in review" above. The implementing agent still maintains both catalogs and
-    follows the tone rules above.
+    English equally short. The implementing agent maintains both catalogs and follows these tone
+    rules. **Source:** 0001 (i18n).
 28. **Does the server send MCP `instructions` on connect?**
     **Answer:** Yes, a short usage note: `search` first, then `execute`; irreversible calls need
     `confirm`. It counts toward the 1,500-token budget. **Source:** §5.1, §10.
@@ -350,7 +340,7 @@ Every finding of the sweep, with where it went. "M0" refers to `## M0 candidates
 | 24  | Supported operating systems are implicit; CI runs on Linux only                                      | Decision 20, M0-2       |
 | 25  | The runtime update check contacts the npm registry, contradicting §11                                | Decision 21, P4-9       |
 | 26  | Telemetry and the data flow to the AI provider are not addressed                                     | Decision 22, P4-12      |
-| 27  | Licence for redistributing the sevDesk OpenAPI file is unclear                                       | Decision 23, P4-10      |
+| 27  | Source and attribution of the embedded sevDesk OpenAPI file are not stated                           | Decision 23, P4-10      |
 | 28  | Release process, versioning and publishing mechanics are undefined                                   | Decision 24, P4-11      |
 | 29  | Discoverability beyond npm (MCP Registry) is not addressed                                           | Decision 25, P4-11      |
 | 30  | README language is undefined                                                                         | Decision 26, P4-12      |
@@ -360,7 +350,7 @@ Every finding of the sweep, with where it went. "M0" refers to `## M0 candidates
 | 34  | §5.5 says Node ≥ 20 and `@modelcontextprotocol/sdk`; 0001 decided Node ≥ 22 and SDK v2               | Resolved in place       |
 | 35  | §5.6 appears before §5.5                                                                             | Resolved in place       |
 | 36  | `npm run update-spec` contradicts Bun as the package manager                                         | Resolved in place       |
-| 37  | npm organisation `erwins-enkel` must exist before publishing (§12)                                   | P4-11 (operator step)   |
+| 37  | npm organisation `erwins-enkel` must exist before publishing (§12)                                   | P4-11 (maintainer step) |
 | 38  | Endpoints missing or wrong in the official spec (§12)                                                | P4-10                   |
 | 39  | "Exporte, die Dateien an Dritte übergeben (falls vorhanden)" is not mapped to concrete calls         | P4-4 (backstop: dec. 6) |
 | 40  | The 1,500-token budget for tool descriptions has no measurement                                      | M0-9                    |
@@ -410,7 +400,7 @@ backlog may fold a candidate into that slice.
 
 ## P4 candidates
 
-Feature slices that the findings feed into; the backlog (phase P4) cuts and orders them.
+Feature slices that the findings feed into; the backlog cuts and orders them.
 
 1. `search` tool with the embedded spec and the guides.
 2. `execute` read path, including `sevdesk.paginate` (page size, call budget).
@@ -425,10 +415,10 @@ Feature slices that the findings feed into; the backlog (phase P4) cuts and orde
 8. Audit log wired into every write path.
 9. Update checks: daily GitHub Action (spec diff, API news, issue on breaking changes, fails
    visibly when the news page changes) and the runtime hint with its opt-out.
-10. Spec maintenance: `bun run update-spec`, the patch file for known spec errors, the licence
-    check, guides (including date formats and time zone).
+10. Spec maintenance: `bun run update-spec`, the patch file for known spec errors, the spec's
+    source and attribution, guides (including date formats and time zone).
 11. Release workflow: tag-triggered npm trusted publishing, `.mcpb` on the GitHub release, npm
-    organisation `erwins-enkel` (operator step), MCP Registry `server.json`.
+    organisation `erwins-enkel` (maintainer step), MCP Registry `server.json`.
 12. README: installation per client, safety, privacy note, German quick start, sevDesk disclaimer
     and spec attribution.
 13. File upload for receipts (`sevdesk.upload`, configured folder only).

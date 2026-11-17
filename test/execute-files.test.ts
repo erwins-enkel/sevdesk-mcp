@@ -229,7 +229,7 @@ test('a document that is no draft gets the PDF sevDesk stored, without a render'
 
 test('savePdf flags a draft whose PDF predates its last change, saves it all the same, and notes it in the run', async () => {
   await mock({
-    'GET /Order/7': document('orderNumber', 'AN-1006', DRAFT, UPDATED),
+    'GET /Order/7': document('orderNumber', 'AN-1050', DRAFT, UPDATED),
     'POST /Order/7/render': rendered(),
     'GET /Order/7/getPdf': () => ({ json: getPdfAnswer(OLDER_PDF) }),
   });
@@ -237,12 +237,12 @@ test('savePdf flags a draft whose PDF predates its last change, saves it all the
   const saved = await execute("return await sevdesk.savePdf('Order', 7)");
   const pathOnly = await execute("return (await sevdesk.savePdf('Order', 7)).path");
 
-  const path = join(downloads(), 'AN-1006.pdf');
+  const path = join(downloads(), 'AN-1050.pdf');
   expect(saved.isError).toBe(false);
   expect(saved.envelope).toEqual({
     result: {
       path,
-      fileName: 'AN-1006.pdf',
+      fileName: 'AN-1050.pdf',
       ...OLDER_FRESHNESS,
       stale: true,
       hint: 'The PDF predates the last change of the draft, so it does not show the current data, although savePdf rendered it again. Do not hand it out as current; tell the user.',
@@ -259,7 +259,7 @@ test('savePdf flags a draft whose PDF predates its last change, saves it all the
 test('a current PDF that replaces a stale one of the same name in the run takes it out of the note', async () => {
   let fetches = 0;
   await mock({
-    'GET /Order/7': document('orderNumber', 'AN-1006', DRAFT, UPDATED),
+    'GET /Order/7': document('orderNumber', 'AN-1050', DRAFT, UPDATED),
     'POST /Order/7/render': rendered(),
     'GET /Order/7/getPdf': () => {
       fetches += 1;
@@ -314,7 +314,7 @@ test('no flag for a PDF as new as the change or newer, one without a creation da
 
 test('a getPdf through request reads the document first, then saves the PDF as a new file with its freshness, from JSON or download=true', async () => {
   const sevdesk = await mock({
-    'GET /Order/7': document('orderNumber', 'AN-1006', DRAFT, UPDATED),
+    'GET /Order/7': document('orderNumber', 'AN-1050', DRAFT, UPDATED),
     'GET /Order/7/getPdf': (request) =>
       request.query.get('download') === 'true'
         ? { contentType: 'application/pdf', bytes: OLDER_PDF }

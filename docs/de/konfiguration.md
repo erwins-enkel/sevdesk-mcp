@@ -18,7 +18,7 @@ Limits gelten für jeden Lauf von `search` und `execute`.
 {
   "baseUrl": "https://my.sevdesk.de/api/v1",
   "limits": { "timeoutSeconds": 30, "memoryMb": 64, "callsPerRun": 50, "outputChars": 20000 },
-  "profiles": { "manufare": { "company": "manu·fare GmbH", "readonly": false } },
+  "profiles": { "acme": { "company": "Acme GmbH", "readonly": false } },
   "audit": true
 }
 ```

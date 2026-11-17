@@ -1,6 +1,6 @@
 # PRD: sevdesk-mcp (Code Mode)
 
-**Stand:** 2026-11-09 · Entwurf v0.2 (ergänzt um die Produktentscheidungen aus `docs/decisions/0002-product-decisions.md`, im Text als „0002 Nr. …“ zitiert) · Autor: Kai Osthoff (erwins enkel / manu·fare), erarbeitet mit Claude
+**Stand:** 2026-11-09 · Entwurf v0.2 (ergänzt um die Produktentscheidungen aus `docs/decisions/0002-product-decisions.md`, im Text als „0002 Nr. …“ zitiert) · Autor: Kai Osthoff (erwins enkel), erarbeitet mit Claude
 **Repo:** `github.com/erwins-enkel/sevdesk-mcp` (public, MIT)
 **npm:** `@erwins-enkel/sevdesk-mcp`
 
@@ -10,13 +10,11 @@
 
 Ein lokaler, quelloffener MCP-Server, der **die komplette sevDesk-API** für KI-Assistenten nutzbar macht – mit nur **zwei Tools** statt rund 150. Statt einem Tool pro Endpunkt schreibt das Modell kleine JavaScript-Schnipsel, die der Server in einer lokalen Sandbox gegen die sevDesk-API ausführt („Code Mode“, nach dem Muster von Cloudflare und Anthropic). Zurück kommt nur das Ergebnis.
 
-**Warum:** Es gibt bereits ~10 sevDesk-MCPs auf GitHub (z. B. `nikolausm/mcp-sevdesk`, `joosthel/sevdesk-mcp`), alle nach dem Muster „ein Tool pro Endpunkt“. Das füllt den Kontext des Modells mit zehntausenden Tokens Tool-Beschreibungen. Keiner nutzt Code Mode. Das ist unser Alleinstellungsmerkmal: **„Die ganze sevDesk-API in zwei Tools.“**
-
-**Nebenziele:** Material für ein YouTube-Video (manu·fare / erwins enkel) und Aufhänger für den KI-Kundendialog mit Systemhäusern.
+**Warum:** Ein Tool pro Endpunkt füllt den Kontext des Modells mit zehntausenden Tokens Tool-Beschreibungen. Code Mode bringt **die ganze sevDesk-API in zwei Tools**.
 
 ## 2. Zielgruppe
 
-- **Primär:** Kai, lokal, ein sevDesk-Konto (manu·fare).
+- **Primär:** Einzelnutzer:innen, lokal, mit einem sevDesk-Konto.
 - **Sekundär:** jede:r sevDesk-Nutzer:in, die/der den Server aus dem öffentlichen Repo installiert – daher von Anfang an **mehrmandantenfähig** und mit einfacher Einrichtung.
 
 ## 3. Unterstützte Clients
@@ -35,12 +33,12 @@ Alle per **stdio**, ein Server-Binary für alle:
 ## 4. Anwendungsfälle
 
 **Priorität A – Angebot an einen Kunden:**
-> „Mach ein Angebot an die Firma X über 3 Tage KI-Workshop à 1.200 € und schick es an Herrn Y.“
+> „Mach ein Angebot an die Firma X über 3 Tage KI-Workshop à 950 € und schick es an Herrn Y.“
 
 1. Kontakt suchen (Name, Kundennummer, E-Mail); falls nicht vorhanden, Firma + Ansprechpartner + Adresse + E-Mail anlegen.
 2. Angebot (sevDesk `Order`, `orderType: "AN"`) als Entwurf mit Positionen anlegen, Steuerregel nach System-Update 2.0.
 3. PDF abrufen und lokal ablegen, Vorschau zeigen.
-4. Versand: **Standard per sevDesk-Mail** (`sendViaEmail`, Absender/Vorlage aus sevDesk); alternativ **nur PDF** (Kai verschickt selbst, z. B. Outlook oder Post über das manu·fare-Portal). Wahl pro Angebot. Versand ist bestätigungspflichtig (siehe 6). Beim Weg „nur PDF“ bleibt der Status des Angebots unverändert; „als versendet markieren“ (`sendBy`) ist ein eigener, bestätigungspflichtiger Schritt, den das Modell anbietet (0002 Nr. 7).
+4. Versand: **Standard per sevDesk-Mail** (`sendViaEmail`, Absender/Vorlage aus sevDesk); alternativ **nur PDF** (Versand selbst, z. B. per eigenem Mailprogramm oder per Post). Wahl pro Angebot. Versand ist bestätigungspflichtig (siehe 6). Beim Weg „nur PDF“ bleibt der Status des Angebots unverändert; „als versendet markieren“ (`sendBy`) ist ein eigener, bestätigungspflichtiger Schritt, den das Modell anbietet (0002 Nr. 7).
 
 **Weitere (alles, was die API kann), z. B.:**
 - Auswerten: offene Rechnungen, Umsatz je Kunde/Zeitraum, überfällige Posten.
@@ -64,7 +62,7 @@ return Object.entries(spec.paths)
 **`execute`** – Eingaben: `code` (JS), `account` (Profilname; Pflicht, sobald mehrere Profile erreichbar sind, siehe 7), optional `confirm` (Bestätigungstoken, siehe 6; mit `confirm` entfällt `code`). Im Sandbox-Scope steht ein authentifizierter Client bereit:
 
 ```js
-const c = await sevdesk.request('GET', '/Contact', { query: { name: 'Schlecht', depth: 1 } });
+const c = await sevdesk.request('GET', '/Contact', { query: { name: 'Mustermann', depth: 1 } });
 const id = c.objects[0].id;
 const order = await sevdesk.request('POST', '/Order/Factory/saveOrder', { body: { /* … */ } });
 const file = await sevdesk.savePdf('Order', order.order.id); // legt PDF lokal ab, gibt Pfad zurück
@@ -74,7 +72,7 @@ return { orderId: order.order.id, pdf: file };
 Hilfsfunktionen im Scope (bewusst wenige):
 - `sevdesk.request(method, path, { query, body })` – einziger Weg nach außen. Nimmt nur Pfade relativ zur konfigurierten Basis-URL an (die HTTPS sein muss), damit der Token nie an einen anderen Host geht. Liefert die API kein JSON (PDF, ZIP, CSV-Export), schreibt der Host die Datei ins Ablageverzeichnis und gibt `{ path, contentType, bytes }` zurück (0002 Nr. 15). Ein `getPdf` eines Angebots, einer Rechnung oder Gutschrift wird ebenso als Datei gespeichert, auch wenn sevDesk JSON mit Base64 liefert, und bringt wie `savePdf` sein Alter mit (0002 Nr. 15, Nachtrag).
 - `sevdesk.paginate(path, query)` – sammelt `limit`/`offset`-Seiten.
-- `sevdesk.savePdf(type, id)` – holt `/…/{id}/getPdf` immer mit `preventSendBy=true` (sonst kann sevDesk das Dokument als versendet markieren; in P4 gegen die API prüfen), schreibt in das Ablageverzeichnis des Profils (Standard `~/Downloads/sevdesk/<profil>/`, pro Profil einstellbar), gibt Pfad + Dateiname zurück. Einen Entwurf rendert es vorher neu (`POST /…/{id}/render` mit `forceReload`), weil sevDesk sonst das zuletzt gerenderte PDF liefert; andere Dokumente bekommen das gespeicherte, versendete PDF (0002 Nr. 7, Nachtrag). Dateiname = sevDesk-Nummer (z. B. `AN-1042.pdf`), sonst `<Typ>-<id>.pdf`; eine gleichnamige Datei wird überschrieben (neueste Fassung). Binärdaten gehen nie in den Kontext (0002 Nr. 7, 14). Zurück kommen außerdem `bytes`, `sha256`, `pdfCreated` (aus `/CreationDate`) und `documentUpdated` (aus `update`); ist das PDF eines Entwurfs älter als seine letzte Änderung, kommen `stale: true` und ein Hinweis dazu, und die Datei wird trotzdem gespeichert (0002 Nr. 7, Nachtrag).
+- `sevdesk.savePdf(type, id)` – holt `/…/{id}/getPdf` immer mit `preventSendBy=true` (sonst kann sevDesk das Dokument als versendet markieren; gegen die API prüfen), schreibt in das Ablageverzeichnis des Profils (Standard `~/Downloads/sevdesk/<profil>/`, pro Profil einstellbar), gibt Pfad + Dateiname zurück. Einen Entwurf rendert es vorher neu (`POST /…/{id}/render` mit `forceReload`), weil sevDesk sonst das zuletzt gerenderte PDF liefert; andere Dokumente bekommen das gespeicherte, versendete PDF (0002 Nr. 7, Nachtrag). Dateiname = sevDesk-Nummer (z. B. `AN-1042.pdf`), sonst `<Typ>-<id>.pdf`; eine gleichnamige Datei wird überschrieben (neueste Fassung). Binärdaten gehen nie in den Kontext (0002 Nr. 7, 14). Zurück kommen außerdem `bytes`, `sha256`, `pdfCreated` (aus `/CreationDate`) und `documentUpdated` (aus `update`); ist das PDF eines Entwurfs älter als seine letzte Änderung, kommen `stale: true` und ein Hinweis dazu, und die Datei wird trotzdem gespeichert (0002 Nr. 7, Nachtrag).
 - `sevdesk.upload(path)` – lädt eine lokale Datei aus einem freigegebenen Ordner als Beleg-Anhang hoch (v1.x). Es gibt keinen Standardordner: Upload ist aus, bis ein Ordner konfiguriert ist; Pfade außerhalb, auch über Symlinks, werden abgelehnt (0002 Nr. 17).
 - `console.log` – wird mit dem Ergebnis zurückgegeben.
 
@@ -100,7 +98,7 @@ Für zuverlässige Nutzung auch mit kleineren/lokalen Modellen, intern auf demse
 
 ### 5.4 OpenAPI-Spezifikation und Hinweise
 
-- Die sevDesk-OpenAPI-Datei wird **zur Build-Zeit eingebettet** (Versionsstand im README), mit Skript `bun run update-spec` zum Aktualisieren. Sie wird mit Quellenangabe eingebettet und im README als „© sevDesk, nicht von der MIT-Lizenz umfasst“ gekennzeichnet. Vor dem ersten npm-Release werden die Bedingungen von sevDesk geprüft; ist die Weitergabe nicht erlaubt, lädt der Server die Spezifikation beim ersten Start von sevDesk und cacht sie (0002 Nr. 23).
+- Die sevDesk-OpenAPI-Datei wird **zur Build-Zeit eingebettet** (Versionsstand im README), mit Skript `bun run update-spec` zum Aktualisieren. sevDesk veröffentlicht sie unter `https://api.sevdesk.de/openapi.yaml`, damit jede:r ohne Freigabe eine Integration bauen kann. Sie wird mit Quellenangabe eingebettet (`spec/README.md`) und im README als „© sevDesk, nicht von der MIT-Lizenz umfasst“ gekennzeichnet (0002 Nr. 23).
 - Eine Patch-Datei korrigiert bekannte Fehler der offiziellen Spezifikation.
 - **`guides`**: kurze, kuratierte Rezepte, die `search` mit durchsucht, z. B. „Angebot anlegen (saveOrder, Pflichtfelder, orderType AN)“, „Steuerregeln nach Update 2.0 (`taxRule`)“, „Rechnung aus Angebot“, „Beleg mit Datei“, „Paginierung“. Sie machen den Unterschied zwischen „Modell rät“ und „Modell trifft beim ersten Versuch“.
 - **Nur sevDesk-System 2.0:** Der Server unterstützt ausschließlich Konten mit Buchhaltungssystem 2.0 (Steuerregeln über `taxRule`). Geprüft wird per `/Tools/bookkeepingSystemVersion` im Setup und beim ersten `execute` pro Profil (für die Sitzung gecacht, nicht beim Serverstart, damit der Start schnell bleibt und kein Netz braucht); ein 1.0-Konto bekommt eine klare Fehlermeldung statt halb funktionierender Aufrufe (0002 Nr. 12). Guides und Beispiele kennen nur die 2.0-Logik.
@@ -133,7 +131,7 @@ TypeScript, Node ≥ 22 (Node 20 ist seit 2026-04 end-of-life, siehe `docs/decis
 - jeder Schreibpfad, den die Tabelle nicht kennt (fail closed, 0002 Nr. 6)
 
 **Ablauf (zweistufig, 0002 Nr. 5):**
-1. `execute` ohne `confirm`: Bestätigungspflichtige Aufrufe werden **nicht** ausgeführt, sondern **zurückgehalten**: Sie liefern den Platzhalter `{ held: true }`, und der Lauf geht weiter (Entwürfe davor und danach werden normal angelegt). Das Ergebnis enthält eine **Vorschau** aller zurückgehaltenen Aufrufe und ein **Bestätigungstoken**, das an genau diese Operationen (Profil, Methode, Pfad, Body-Hash) gebunden ist. Die Vorschau ist Englisch und strukturiert – Beträge als Zahl mit Währungscode, Daten nach ISO 8601, Empfänger, Betreff, Dokumentnummer, Profil und Firmenname, z. B. `Offer AN-1042 to max@firma.de, subject …, 3600.00 EUR net, profile manufare (manu·fare)`; das Modell formuliert sie für den Menschen in dessen Sprache (0002 Nr. 9).
+1. `execute` ohne `confirm`: Bestätigungspflichtige Aufrufe werden **nicht** ausgeführt, sondern **zurückgehalten**: Sie liefern den Platzhalter `{ held: true }`, und der Lauf geht weiter (Entwürfe davor und danach werden normal angelegt). Das Ergebnis enthält eine **Vorschau** aller zurückgehaltenen Aufrufe und ein **Bestätigungstoken**, das an genau diese Operationen (Profil, Methode, Pfad, Body-Hash) gebunden ist. Die Vorschau ist Englisch und strukturiert – Beträge als Zahl mit Währungscode, Daten nach ISO 8601, Empfänger, Betreff, Dokumentnummer, Profil und Firmenname, z. B. `Offer AN-1042 to max@firma.de, subject …, 2850.00 EUR net, profile acme (Acme GmbH)`; das Modell formuliert sie für den Menschen in dessen Sprache (0002 Nr. 9).
 2. Das Modell zeigt die Vorschau, holt das Ja des Menschen ein und ruft `execute` mit `confirm: "<token>"` (ohne `code`) erneut auf. Der Server führt genau die gespeicherten Aufrufe in Reihenfolge aus, **ohne den Code erneut auszuführen** (sonst entstünden Entwürfe doppelt und der Body-Hash passte nicht mehr). Beim ersten Fehler bricht er ab und meldet das Ergebnis pro Aufruf. Das Token gilt einmal und 10 Minuten, liegt nur im Speicher (nach einem Serverneustart: neu anfragen); ein unbekanntes, abgelaufenes oder fremdes Token wird abgelehnt.
 3. Unterstützt der Client **MCP-Elicitation**, fragt der Server den Menschen im Bestätigungslauf zusätzlich direkt (stärker als die Zusage des Modells); Ablehnung oder Zeitüberschreitung bricht ab. Der Text ist für Menschen und daher lokalisiert (de/en). **Kommt in v1.x**, weil die Client-Unterstützung heute uneinheitlich ist; v1 verlässt sich auf das Token (0002 Nr. 8).
 
@@ -146,14 +144,14 @@ TypeScript, Node ≥ 22 (Node 20 ist seit 2026-04 end-of-life, siehe `docs/decis
 ## 7. Einrichtung und Mandanten
 
 **Setup-Assistent:** `npx @erwins-enkel/sevdesk-mcp setup`
-1. Fragt API-Token und Profilnamen (z. B. `manufare`; erlaubt sind `a–z`, `0–9` und `-`, 1 bis 32 Zeichen), prüft den Token sofort und zeigt Firmenname + Systemversion. Ein 1.0-Konto wird abgelehnt und nicht gespeichert. Fragt, ob das Profil read-only sein soll (Standard: nein).
+1. Fragt API-Token und Profilnamen (z. B. `acme`; erlaubt sind `a–z`, `0–9` und `-`, 1 bis 32 Zeichen), prüft den Token sofort und zeigt Firmenname + Systemversion. Ein 1.0-Konto wird abgelehnt und nicht gespeichert. Fragt, ob das Profil read-only sein soll (Standard: nein).
 2. Speichert den Token im **Schlüsselbund des Betriebssystems** (macOS Keychain, Windows Credential Manager, Linux Secret Service). Keine Klartextdatei. Gibt es keinen Schlüsselbund (headless Linux, WSL, Docker), bricht `setup` ab und erklärt, warum: Ein Token in einer Klartextdatei kann jeder Prozess und jedes Backup lesen, und er gibt vollen Zugriff auf die Buchhaltung. Für solche Umgebungen verweist es auf `SEVDESK_API_TOKEN` (0002 Nr. 4).
 3. Erkennt installierte Clients (Claude Desktop, Claude Code, ChatGPT/Codex, OpenCode) und trägt den Server auf Wunsch ein – ohne Token, nur mit Profilnamen. Vor dem Schreiben legt es eine Sicherungskopie der Client-Konfiguration an, fragt pro Client nach und überschreibt einen bestehenden Eintrag nie stillschweigend. Der Eintrag heißt `sevdesk` (bzw. `sevdesk-<profil>`, wenn es mehrere gibt) und startet `npx -y @erwins-enkel/sevdesk-mcp --profile <name>` (0002 Nr. 18).
 4. `setup --add` für weitere Profile, `setup --list`, `setup --remove` (löscht Profil und Token und bietet an, die Client-Einträge zu entfernen, die das Profil nutzen).
 5. Ohne Terminal (kein TTY) bricht `setup` mit einem Hinweis auf `SEVDESK_API_TOKEN` ab; nicht-interaktive Flags gibt es nicht. Die Ausgabe ist reiner Text: Status nie nur über Farbe, `NO_COLOR` wird beachtet, keine reinen Spinner (0002 Nr. 19).
 
 **Mandanten (0002 Nr. 1):** beliebig viele Profile. Der Server rät den Mandanten nie, und es gibt kein Standardprofil:
-- `--profile manufare` legt einen Server-Eintrag auf ein Profil fest; `execute` lehnt jedes andere `account` ab, damit das Modell nicht selbst den Mandanten wechselt.
+- `--profile acme` legt einen Server-Eintrag auf ein Profil fest; `execute` lehnt jedes andere `account` ab, damit das Modell nicht selbst den Mandanten wechselt.
 - Ohne Festlegung und mit genau einem Profil gilt dieses.
 - Sind mehrere Profile erreichbar, ist `account` Pflicht. Ein Aufruf ohne `account` scheitert mit `account_required` und listet die Profilnamen mit ihren sevDesk-Firmennamen; ist der Mandant aus dem Gespräch nicht eindeutig, fragt das Modell den Menschen. Das Feld `account` führt die erreichbaren Profilnamen als Auswahl (Enum), mit den Firmennamen in der Beschreibung.
 - Ohne jedes Profil startet der Server trotzdem: `search` funktioniert (liest nur die Spezifikation), `execute` antwortet mit einem Setup-Hinweis (0002 Nr. 12).
@@ -165,11 +163,11 @@ TypeScript, Node ≥ 22 (Node 20 ist seit 2026-04 end-of-life, siehe `docs/decis
 
 - **Unit-Tests:** Sandbox-Grenzen, Bestätigungs-Klassifizierung (jeder Pfad der Spezifikation muss eingeordnet sein; neuer unklassifizierter Schreibpfad = Test rot), Token-Bindung.
 - **Mock-Tests:** simulierte sevDesk-API aus der OpenAPI-Spezifikation.
-- **E2E gegen das echte manu·fare-Konto** (von Kai freigegeben), nur Kontakte und Angebote, **keine Rechnungen** (Nummernlücken):
+- **E2E gegen ein echtes sevDesk-Konto**, nur Kontakte und Angebote, **keine Rechnungen** (Nummernlücken):
   - Läuft nur lokal und manuell (`bun run test:e2e`, Token aus `SEVDESK_E2E_TOKEN`), nie in der CI, weil das Repo öffentlich ist (0002 Nr. 29).
   - Jedes Testobjekt trägt Testkontakt „MCP Test GmbH“, Tag `mcp-test` und eine Lauf-ID im Kopftext. Testkontakt und Tag sind dauerhaft: einmal angelegt, nie gelöscht.
   - Aufräumen löscht **nur**, was im selben Lauf angelegt wurde **und** markiert ist **und** noch Entwurf ist. Fehlt eine Bedingung: Abbruch, nichts wird gelöscht.
-  - Kein Versand an echte Empfänger; Mailversand nur an eine Kai-eigene Testadresse aus `SEVDESK_E2E_MAIL_TO`, die nie im Repo steht. Fehlt sie, wird der Mail-Test übersprungen. Ein per Mail versendetes Testangebot ist kein Entwurf mehr und bleibt nach der Regel oben stehen; der Lauf listet es am Ende zum manuellen Löschen auf.
+  - Kein Versand an echte Empfänger; Mailversand nur an eine eigene Testadresse aus `SEVDESK_E2E_MAIL_TO`, die nie im Repo steht. Fehlt sie, wird der Mail-Test übersprungen. Ein per Mail versendetes Testangebot ist kein Entwurf mehr und bleibt nach der Regel oben stehen; der Lauf listet es am Ende zum manuellen Löschen auf.
 - **Client-Smoke-Tests:** Priorität-A-Ablauf manuell in Claude Desktop und ChatGPT Desktop.
 
 ## 9. Roadmap
@@ -179,9 +177,9 @@ TypeScript, Node ≥ 22 (Node 20 ist seit 2026-04 end-of-life, siehe `docs/decis
 | **v1** | `search` + `execute`, QuickJS-Sandbox, nur System 2.0, täglicher Spec-/Versions-Check, Bestätigungslogik, Setup-Assistent + Schlüsselbund, Profile, eingebettete Spezifikation + Hinweise, Tests, README, Veröffentlichung auf GitHub + npm, `.mcpb`, Eintrag in der offiziellen MCP Registry (`server.json`) |
 | v1.x | Datei-Upload für Belege, OpenCode/PyAgent-Anleitungen, Elicitation |
 | **v2** | `find_contact`, `get_document_pdf`, `create_offer` |
-| später | evtl. Remote-Variante (HTTP) für ChatGPT Web / Teams; Video-Begleitmaterial |
+| später | evtl. Remote-Variante (HTTP) für ChatGPT Web / Teams |
 
-**Veröffentlichung (0002 Nr. 24, 25):** npm-Version 0.1.0, sobald Priorität A durchgängig läuft; 1.0.0, wenn die v1-Zeile komplett ist, ab dann auch in der MCP Registry. Ein Tag von Kai löst eine GitHub Action aus, die per npm Trusted Publishing (OIDC, Provenance) veröffentlicht und das `.mcpb` an das GitHub-Release hängt. Ein gemergtes Spec-Update erscheint als Patch-Release.
+**Veröffentlichung (0002 Nr. 24, 25):** npm-Version 0.1.0, sobald Priorität A durchgängig läuft; 1.0.0, wenn die v1-Zeile komplett ist, ab dann auch in der MCP Registry. Ein Tag löst eine GitHub Action aus, die per npm Trusted Publishing (OIDC, Provenance) veröffentlicht und das `.mcpb` an das GitHub-Release hängt. Ein gemergtes Spec-Update erscheint als Patch-Release.
 
 ## 10. Erfolgskriterien
 
@@ -199,15 +197,15 @@ TypeScript, Node ≥ 22 (Node 20 ist seit 2026-04 end-of-life, siehe `docs/decis
 
 ## 12. Offene Punkte
 
-- npm-Organisation `erwins-enkel` auf npmjs.com anlegen (Kai, vor Veröffentlichung). – Bleibt ein manueller Schritt von Kai vor dem ersten Release.
-- ~~Kai-eigene Testadresse für Mail-E2E festlegen.~~ – Geklärt: kommt aus `SEVDESK_E2E_MAIL_TO`, steht nie im Repo (0002 Nr. 29).
-- Prüfen, welche Endpunkte in der offiziellen OpenAPI-Datei fehlen oder falsch beschrieben sind. – Aufgabe im Backlog (Patch-Datei, siehe 5.4), zusammen mit der Lizenzprüfung (0002 Nr. 23).
+- ~~npm-Organisation `erwins-enkel` auf npmjs.com anlegen.~~ – Erledigt: 0.1.0 ist auf npm veröffentlicht.
+- ~~Eigene Testadresse für Mail-E2E festlegen.~~ – Geklärt: kommt aus `SEVDESK_E2E_MAIL_TO`, steht nie im Repo (0002 Nr. 29).
+- Prüfen, welche Endpunkte in der offiziellen OpenAPI-Datei fehlen oder falsch beschrieben sind. – Aufgabe im Backlog (Patch-Datei, siehe 5.4).
 - ~~Ablageverzeichnis für PDFs bestätigen (Standard `~/Downloads/sevdesk/`).~~ – Bestätigt: `~/Downloads/sevdesk/<profil>/`, pro Profil einstellbar (0002 Nr. 14).
 
 ## 13. Texte und Sprache
 
 - Texte für das Modell (Tool-Namen, Beschreibungen, Guides, Fehler, Vorschau) sind Englisch und knapp (Dialog-Entscheidung 3 unten; `docs/decisions/0001-foundation.md`).
-- Texte für Menschen (CLI, Setup, Elicitation) gibt es auf Deutsch und Englisch. Deutsch: duzen, knapp, sachlich, geschlechtergerecht mit Doppelpunkt; Englisch ebenso knapp. Der umsetzende Agent pflegt beide Kataloge, Kai prüft das Deutsch im Review (0002 Nr. 27).
+- Texte für Menschen (CLI, Setup, Elicitation) gibt es auf Deutsch und Englisch. Deutsch: duzen, knapp, sachlich, geschlechtergerecht mit Doppelpunkt; Englisch ebenso knapp. Der umsetzende Agent pflegt beide Kataloge (0002 Nr. 27).
 - README auf Englisch mit einem kurzen deutschen Abschnitt „Schnellstart“ (Installation und Sicherheit) (0002 Nr. 26).
 
 ## Entscheidungen aus dem Dialog (2026-11-09)
@@ -224,7 +222,7 @@ TypeScript, Node ≥ 22 (Node 20 ist seit 2026-04 end-of-life, siehe `docs/decis
 
 ## Entscheidungen aus dem Gap-Sweep (2026-11-09)
 
-Die 29 Produktentscheidungen aus dem Abgleich PRD ↔ Gerüst (Phase P3, ohne Design-Export) stehen mit Frage, Antwort und Quelle in `docs/decisions/0002-product-decisions.md` und sind oben in die Abschnitte eingearbeitet. Die wichtigsten:
+Die 29 Produktentscheidungen aus dem Abgleich PRD ↔ Gerüst (ohne Design-Export) stehen mit Frage, Antwort und Quelle in `docs/decisions/0002-product-decisions.md` und sind oben in die Abschnitte eingearbeitet. Die wichtigsten:
 
 1. Bei mehreren Profilen ist `account` Pflicht; der Server rät den Mandanten nie, ein Standardprofil gibt es nicht.
 2. Unumkehrbare Aufrufe werden zurückgehalten; die Bestätigung führt genau die gespeicherten Aufrufe aus, ohne den Code erneut auszuführen.

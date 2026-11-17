@@ -70,12 +70,12 @@ const USER = { id: '11', objectName: 'SevUser', fullname: 'Erika Muster' };
 const PIECE = { id: '1', objectName: 'Unity', name: 'Stk' };
 const FLAT = { id: '9', objectName: 'Unity', name: 'Pauschal' };
 
-/** The offer AN-1006 with `references` over the embedded contact and contact person. */
+/** The offer AN-1050 with `references` over the embedded contact and contact person. */
 function offer(references: Record<string, unknown> = {}) {
   return {
     id: '7',
     objectName: 'Order',
-    orderNumber: 'AN-1006',
+    orderNumber: 'AN-1050',
     orderType: 'AN',
     status: '100',
     orderDate: '2026-11-10T00:00:00+01:00',
@@ -84,7 +84,7 @@ function offer(references: Record<string, unknown> = {}) {
     contact: CONTACT,
     contactPerson: USER,
     address: 'Beispiel GmbH\nTeststraße 1\n10115 Berlin',
-    header: 'Angebot AN-1006',
+    header: 'Angebot AN-1050',
     headText: '<p>Vielen Dank f&uuml;r Ihre Anfrage.</p>',
     footText: '<p>G&uuml;ltig 30&nbsp;Tage.</p>',
     paymentTerms: '14 Tage netto',
@@ -142,7 +142,7 @@ function compactOffer(positionTexts: [string | null, string | null] = ['Eiche, g
     type: 'Order',
     id: '7',
     kind: 'Offer',
-    number: 'AN-1006',
+    number: 'AN-1050',
     status: '100',
     statusText: 'draft',
     date: '2026-11-10',
@@ -151,7 +151,7 @@ function compactOffer(positionTexts: [string | null, string | null] = ['Eiche, g
     contact: { id: '5', name: 'Beispiel GmbH', customerNumber: '1042' },
     contactPerson: { id: '11', name: 'Erika Muster' },
     address: 'Beispiel GmbH\nTeststraße 1\n10115 Berlin',
-    header: 'Angebot AN-1006',
+    header: 'Angebot AN-1050',
     headText: 'Vielen Dank für Ihre Anfrage.',
     footText: 'Gültig 30 Tage.',
     taxRule: '1',
