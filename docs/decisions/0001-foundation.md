@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-09
-- Deciders: Kai Osthoff (operator), bootstrap agent
+- Deciders: maintainer
 
 ## Context
 
@@ -16,7 +16,7 @@ were checked against that shape before deciding.
 
 ### Design export: none, UI artefacts skipped
 
-There is no `docs/design`. The operator chose to proceed without one: the product has no web
+There is no `docs/design`. The maintainer chose to proceed without one: the product has no web
 UI, so there are no design tokens, favicon, `theme-color` or Open Graph card. The `.mcpb`
 package icon is added once a real logo/mark exists. Never invent one.
 
@@ -79,7 +79,7 @@ published package runs on Node.
   uses `serveStdio(createServer)`, which serves 2025-era `initialize` clients (Claude Desktop,
   ChatGPT Desktop today) and modern ones from the same factory.
 - **ESLint with TypeScript 7.** TS 7 is the Go-native compiler and ships no JS compiler API;
-  typescript-eslint 8.x requires `typescript <6.1`. The operator chose a lint-only shim:
+  typescript-eslint 8.x requires `typescript <6.1`. The maintainer chose a lint-only shim:
   `typescript` stays 7.0.2 for typecheck and build, and `eslint-ts6-shim.js` (a
   `module.registerHooks` resolve hook) gives the lint packages `@typescript/typescript6`.
   Typed rules (`strictTypeChecked`) work. ESLint must run on Node, not the Bun runtime.
@@ -97,5 +97,5 @@ published package runs on Node.
   first reads them.
 - **actionlint** is not an npm package. `scripts/actionlint.sh` downloads the pinned release
   (v1.7.12) once into `node_modules/.cache` and verifies its SHA-256 before running it.
-- **Forge settings** (branch protection, required checks) are applied by the operator from
-  Shepherd's Readiness tab, not by this scaffold.
+- **Forge settings** (branch protection, required checks) are applied by the maintainer in the
+  repository settings, not by this scaffold.

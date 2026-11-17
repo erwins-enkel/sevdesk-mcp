@@ -2,7 +2,9 @@
 
 `sevdesk-openapi.json` is the official sevDesk OpenAPI specification, fetched from
 <https://api.sevdesk.de/openapi.yaml>, corrected by `patches.json` and stored with all `$ref`s
-resolved. The `search` tool runs the model's code against it.
+resolved. The `search` tool runs the model's code against it. sevDesk publishes the file so that
+anyone can build an integration against its API without approval
+([sevDesk: Technologie-Partner werden](https://sevdesk.de/technologie-partner-werden/)).
 
 **© sevDesk, not covered by the MIT licence** of this project.
 

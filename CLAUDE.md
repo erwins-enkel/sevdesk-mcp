@@ -286,10 +286,6 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 
 ## Pinned stack
 
-- Use `svelte@5` (npm, resolved 5.57.3 on 2026-11-09), NEVER an older version.
-- Use `@sveltejs/kit@3` (npm, resolved 3.1.1 on 2026-11-09), NEVER an older version.
-- Use `tailwindcss@4` (npm, resolved 4.3.5 on 2026-11-09), NEVER an older version.
-- Use `vite@8` (npm, resolved 8.3.7 on 2026-11-09), NEVER an older version.
 - Use `typescript@7` (npm, resolved 7.0.2 on 2026-11-09), NEVER an older version.
 - Use `prettier@3` (npm, resolved 3.9.10 on 2026-11-09), NEVER an older version.
 - Use `eslint@10` (npm, resolved 10.14.0 on 2026-11-09), NEVER an older version.
@@ -297,20 +293,15 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
 - Use `lint-staged@17` (npm, resolved 17.6.0 on 2026-11-09), NEVER an older version.
 - Use `fallow@3` (npm, resolved 3.41.0 on 2026-11-09), NEVER an older version.
 - Use `vitest@5` (npm, resolved 5.1.0 on 2026-11-09), NEVER an older version.
-- Use `@playwright/test@1` (npm, resolved 1.65.0 on 2026-11-09), NEVER an older version.
 - Use `bun@1` (npm, resolved 1.4.4 on 2026-11-09), NEVER an older version.
-- Use Rust toolchain `1.99.1` (stable on 2026-11-09, pinned in rust-toolchain.toml), NEVER an older one.
-- Use Swift toolchain `6.4.2` (stable on 2026-11-09, pinned in .swift-version), NEVER an older one.
 
 ## Foundation decisions
 
 Recorded at bootstrap (2026-11-09); details in `docs/decisions/0001-foundation.md`.
 
-1. **Pins in use:** bun, typescript, eslint, prettier, husky, lint-staged, fallow, vitest.
-   Not used (no web UI, no Rust/Swift): svelte, @sveltejs/kit, tailwindcss, @playwright/test,
-   Rust, Swift; vite only arrives transitively through vitest. Every other package is pinned
-   exactly to the registry's current stable at the time it was added; Dependabot keeps them
-   current.
+1. **Pins:** the packages in `## Pinned stack` are pinned by major line. Every other package is
+   pinned exactly to the registry's current stable at the time it was added; Dependabot keeps
+   them current.
 2. **Design:** there is no `docs/design` export and the product has no web UI, so there are
    no design tokens, favicon or Open Graph card. The `.mcpb` icon is added once a real
    logo/mark exists; never invent one.
@@ -350,7 +341,7 @@ Recorded at bootstrap (2026-11-09); details in `docs/decisions/0001-foundation.m
 
 ## Product decisions
 
-Recorded in the P3 gap sweep (2026-11-09); numbers refer to
+Recorded in the gap sweep (2026-11-09); numbers refer to
 `docs/decisions/0002-product-decisions.md`, which also lists the M0 candidates.
 
 1. **Tenant (1, 2, 12):** never guess. `SEVDESK_API_TOKEN` set → that one profile, keychain not
@@ -411,14 +402,14 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
     `SEVDESK_E2E_MAIL_TO`; skip the mail test without it). Fixtures "MCP Test GmbH" and
     `mcp-test` are persistent. Sent test offers are reported, never deleted.
 13. **Releases (23, 24, 25):** a tag triggers npm trusted publishing with provenance and attaches
-    the `.mcpb`; the MCP Registry entry comes with 1.0. The sevDesk spec ships with attribution
-    ("© sevDesk, not MIT"); the terms were checked before 0.1.0 (no redistribution terms found,
-    risk accepted). 0.1.0 ships as a beta before the first real-account E2E run, published with
-    a one-day bootstrap token, since trusted publishing needs an existing package.
+    the `.mcpb`; the MCP Registry entry comes with 1.0. The sevDesk spec ships as sevDesk
+    publishes it, with attribution ("© sevDesk, not MIT") and its source in `spec/README.md`.
+    0.1.0 ships as a beta before the first real-account E2E run, published with a one-day
+    bootstrap token, since trusted publishing needs an existing package.
 
 ## How work flows here
 
-> Tooling guardrails (lint/types/tests/CI): see Shepherd's Readiness tab.
+> Tooling guardrails (lint/types/tests/CI): see `## Verify`.
 
 - **Unit of work:** GitHub issues, grouped into epics. One issue is one PR.
 - **Vertical slice:** a capability reachable through an MCP tool (`search`, `execute`) or the
@@ -431,9 +422,8 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
   lands with the first slice that uses it. `audit:dead` (fallow) fails on unused files and
   exports, so a building block without a consumer does not pass the gate.
 - **Done:** `bun run verify` is green; see `## Verify`.
-- **German copy:** the operator does not review German CLI text in PRs and reports problems
-  afterwards. The implementing agent still keeps `en.json` and `de.json` in step and follows
-  the copy rules (product decision 11; 0002 decision 27).
+- **German copy:** the implementing agent keeps `en.json` and `de.json` in step and follows the
+  copy rules (product decision 11; 0002 decision 27).
 - **User docs (0002 decision 26 addendum):** `README.md` is the landing page, German
   (`## Deutsch`) first, then the English mirror (`## English`) with the same sections; it holds no
   reference tables. The details live in page pairs `docs/de/*.md` ↔ `docs/en/*.md`, each starting
@@ -469,12 +459,6 @@ env vars vs `.env.schema`), `lint:actions` (actionlint on `.github/workflows/`).
   and stale variables. Read it as a literal `process.env.NAME` so the audit can see it.
 - New CLI message: add the key to every catalog in `src/i18n/`.
 - New dependency: query the current stable (`npm view <pkg> version`) and pin it exactly.
-
-## Design conformance
-
-Every UI change ships a light AND dark screenshot next to the matching reference screen from
-`docs/design`. (Today there is no UI and no `docs/design`; this applies as soon as either
-exists.)
 
 ## What the guardrails can't catch
 
