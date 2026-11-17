@@ -116,7 +116,7 @@ GET /Contact returns only organisations unless depth is 1. Positions are not par
 - sumSource "sevDesk": the line sums as sevDesk sent them; "derived": quantity × priceNet (and priceGross) less the discount percentage, exact to the cent; null: they could not be derived.
 - headText, footText and the position texts come as plain text; sevdesk.getDocument(type, id, { html: true }) keeps their HTML.
 To proofread a document, read the header, headText, footText and every position's name and text: internal notes slip in there.
-The id from a document number: GET /Order with { orderNumber: "AN-1006" }, GET /Invoice with { invoiceNumber }, GET /CreditNote with { creditNoteNumber }. Numbers are not unique: when several documents match, ask the user which one.`,
+The id from a document number: GET /Order with { orderNumber: "AN-1050" }, GET /Invoice with { invoiceNumber }, GET /CreditNote with { creditNoteNumber }. Numbers are not unique: when several documents match, ask the user which one.`,
   },
 
   dates: {

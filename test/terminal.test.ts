@@ -75,7 +75,7 @@ test('styles leave the text as it is without colour', () => {
 });
 
 test('the width counts the characters a reader sees and skips SGR', () => {
-  expect(widthOf('manu·fare')).toBe(9);
+  expect(widthOf('Muster·AG')).toBe(9);
   expect(widthOf('\u001b[1m✔ ok\u001b[22m')).toBe(4);
   // e and a combining acute accent are one character.
   expect(widthOf('Cafe\u0301')).toBe(4);
@@ -85,9 +85,9 @@ test('columns pad every column but the last, so no line ends in spaces', () => {
   expect(
     columns([
       ['acme', 'Acme GmbH', 'read and write'],
-      ['manufare', 'manu·fare', 'read-only'],
+      ['muster', 'Muster·AG', 'read-only'],
     ]),
-  ).toEqual(['acme      Acme GmbH  read and write', 'manufare  manu·fare  read-only']);
+  ).toEqual(['acme    Acme GmbH  read and write', 'muster  Muster·AG  read-only']);
   expect(
     columns([
       ['Config file', '/a'],
