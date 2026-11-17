@@ -16,9 +16,13 @@ instead of sent:
    kind, number, date, net and gross amount with the currency, and the recipient; the mail
    subject; the profile and its company). The assistant shows you the preview.
 3. Only after your yes does it call `execute` with `confirm` set to the token, and no code. The
-   server then sends exactly the held calls, in order, each once and never retried. It stops at
-   the first call sevdesk does not accept and reports every call as `sent`, `failed` or
-   `not_sent`. A call sevdesk accepted (2xx) is `sent` even if its answer cannot be read.
+   server first reads every document of the preview again. If one changed since the preview,
+   through a later run or in sevdesk itself, or cannot be read, nothing is sent and the token is
+   used up; a new run gives a fresh preview. Only the document as the preview read it is
+   compared, not its positions or the contact it names. Otherwise the server sends exactly the
+   held calls, in order, each once and never retried. It stops at the first call sevdesk does not
+   accept and reports every call as `sent`, `failed` or `not_sent`. A call sevdesk accepted (2xx)
+   is `sent` even if its answer cannot be read.
 
 Deleting includes a write whose body names something to delete in a key ending in `Delete`, such
 as `orderPosDelete` (positions) or `discountDelete` (discounts) of a factory save like
@@ -28,8 +32,9 @@ runs directly.
 A token works once, for 10 minutes, for the profile that held the calls, and only until the server
 restarts. If the run fails, its held calls are dropped and no token is issued. Held calls, and the
 reads of the documents they act on for the preview, count towards
-[`limits.callsPerRun`](configuration.md). The profile of `SEVDESK_API_TOKEN` has no company in the
-config file, so its preview names only the profile.
+[`limits.callsPerRun`](configuration.md). The reads before a confirmation and its calls together
+run within [`limits.timeoutSeconds`](configuration.md). The profile of `SEVDESK_API_TOKEN` has no
+company in the config file, so its preview names only the profile.
 
 ## Read-only mode
 

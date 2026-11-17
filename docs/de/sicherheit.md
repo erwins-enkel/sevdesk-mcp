@@ -17,10 +17,15 @@ sevdesk-Spezifikation nicht kennt), wird zurückgehalten statt gesendet:
    Empfänger:in; der Mail-Betreff; das Profil und seine Firma). Der Assistent zeigt dir die
    Vorschau.
 3. Erst nach deinem Ja ruft er `execute` mit `confirm` auf, gesetzt auf den Token, ohne Code. Der
-   Server sendet dann genau die zurückgehaltenen Aufrufe, in der Reihenfolge, jeden einmal und
-   ohne Wiederholung. Er hört beim ersten Aufruf auf, den sevdesk nicht annimmt, und meldet jeden
-   Aufruf als `sent`, `failed` oder `not_sent`. Ein Aufruf, den sevdesk angenommen hat (2xx), ist
-   `sent`, auch wenn sich seine Antwort nicht lesen lässt.
+   Server liest zuerst jedes Dokument der Vorschau noch einmal. Hat sich eins seit der Vorschau
+   geändert, durch einen späteren Lauf oder in sevdesk selbst, oder lässt es sich nicht lesen,
+   sendet er nichts und der Token ist verbraucht; ein neuer Lauf bringt eine frische Vorschau.
+   Verglichen wird nur das Dokument, wie die Vorschau es gelesen hat, nicht seine Positionen oder
+   der Kontakt, auf den es verweist. Sonst sendet der Server genau die zurückgehaltenen Aufrufe,
+   in der Reihenfolge, jeden einmal und ohne Wiederholung. Er hört beim ersten Aufruf auf, den
+   sevdesk nicht annimmt, und meldet jeden Aufruf als `sent`, `failed` oder `not_sent`. Ein
+   Aufruf, den sevdesk angenommen hat (2xx), ist `sent`, auch wenn sich seine Antwort nicht lesen
+   lässt.
 
 Zum Löschen zählt auch ein Schreibaufruf, dessen Body in einem Schlüssel auf `Delete` etwas zum
 Löschen nennt, etwa `orderPosDelete` (Positionen) oder `discountDelete` (Rabatte) eines
@@ -30,8 +35,10 @@ nichts gelöscht und der Save läuft direkt.
 Ein Token gilt einmal, 10 Minuten lang, für das Profil, das die Aufrufe zurückgehalten hat, und
 nur bis zum Neustart des Servers. Scheitert der Lauf, verfallen seine zurückgehaltenen Aufrufe und
 es gibt keinen Token. Zurückgehaltene Aufrufe und das Lesen der betroffenen Dokumente für die
-Vorschau zählen zu [`limits.callsPerRun`](konfiguration.md). Das Profil von `SEVDESK_API_TOKEN`
-hat keine Firma in der Konfigurationsdatei; seine Vorschau nennt deshalb nur das Profil.
+Vorschau zählen zu [`limits.callsPerRun`](konfiguration.md). Das erneute Lesen vor einer
+Bestätigung und ihre Aufrufe laufen zusammen innerhalb von
+[`limits.timeoutSeconds`](konfiguration.md). Das Profil von `SEVDESK_API_TOKEN` hat keine Firma in
+der Konfigurationsdatei; seine Vorschau nennt deshalb nur das Profil.
 
 ## Nur-Lesen-Modus
 

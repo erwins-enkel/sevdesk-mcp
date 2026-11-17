@@ -173,8 +173,10 @@ test('confirm sends the held call once, exactly as held, without running the cod
     contentType: 'application/json',
     body: JSON.stringify(MAIL),
   });
+  // The confirmation read the offer again before sending: unchanged since the preview.
   expect(snippetCalls(sevdesk.requests)).toEqual([
     'POST /Order/Factory/saveOrder',
+    'GET /Order/42',
     'GET /Order/42',
     `POST ${SEND}`,
   ]);
@@ -381,6 +383,114 @@ test('a preview read that fails issues no token and sends nothing', async () => 
   });
   expect(envelope).not.toHaveProperty('confirmation');
   expect(sends(sevdesk.requests)).toEqual([]);
+});
+
+/** Confirms `token` again: it was used up, so it is rejected as unknown. */
+async function expectUsedUp(client: Client, token: string) {
+  const again = await call(client, { confirm: token });
+  expect(again.isError).toBe(true);
+  expect(again.envelope.error).toMatchObject({ kind: 'invalid_confirmation' });
+}
+
+test('confirm sends nothing when a later run changed the draft after the preview; the token is used up', async () => {
+  const address = 'Andere GmbH\nHauptstraße 2\n20095 Hamburg';
+  let offer = OFFER;
+  const sevdesk = await mock({
+    'GET /Order/42': () => ({ json: { objects: [offer] } }),
+    'PUT /Order/42': ({ body }) => {
+      offer = { ...offer, ...(JSON.parse(body) as object) };
+      return { json: { objects: offer } };
+    },
+  });
+  const client = await open();
+  const { token } = await hold(client);
+  const changed = await call(client, {
+    code: `return sevdesk.request('PUT', '/Order/42', { body: ${JSON.stringify({ address })} });`,
+  });
+  expect(changed.isError).toBe(false);
+
+  const { isError, envelope } = await call(client, { confirm: token });
+
+  expect(isError).toBe(true);
+  expect(envelope).toEqual({
+    error: {
+      kind: 'document_changed',
+      message:
+        '/Order/42 changed after the preview, so the confirmation was rejected. Nothing was sent and the token is used up.',
+      method: 'GET',
+      path: '/Order/42',
+      hint: expect.stringContaining('fresh preview') as string,
+    },
+  });
+  // The confirmation read the offer again and sent nothing.
+  expect(snippetCalls(sevdesk.requests)).toEqual([
+    'POST /Order/Factory/saveOrder',
+    'GET /Order/42',
+    'PUT /Order/42',
+    'GET /Order/42',
+  ]);
+  await expectUsedUp(client, token);
+  expect(sends(sevdesk.requests)).toEqual([]);
+});
+
+test('confirm sends nothing when a previewed document cannot be read again; the token is used up', async () => {
+  let deleted = false;
+  const sevdesk = await mock({
+    'GET /Order/42': () =>
+      deleted
+        ? { status: 404, json: { objects: null, error: { message: 'Not found' } } }
+        : { json: { objects: [OFFER] } },
+  });
+  const client = await open();
+  const { token } = await hold(client);
+  deleted = true;
+
+  const { isError, envelope } = await call(client, { confirm: token });
+
+  expect(isError).toBe(true);
+  expect(envelope).toEqual({
+    error: {
+      kind: 'api_error',
+      message:
+        'GET /Order/42 returned HTTP 404. The confirmation was rejected: nothing was sent and the token is used up.',
+      status: 404,
+      method: 'GET',
+      path: '/Order/42',
+      sevdeskMessage: 'Not found',
+      hint: expect.stringContaining('fresh preview') as string,
+    },
+  });
+  await expectUsedUp(client, token);
+  expect(sends(sevdesk.requests)).toEqual([]);
+});
+
+test('confirm reads every previewed document before the first call: a change to the second stops the first', async () => {
+  const second = '/Order/43/sendViaEmail';
+  let other = { ...OFFER, id: '43', orderNumber: 'AN-1043' };
+  const sevdesk = await mock({
+    'GET /Order/43': () => ({ json: { objects: [other] } }),
+  });
+  const client = await open();
+  const { token } = await hold(
+    client,
+    `for (const id of [42, 43]) await sevdesk.request('POST', '/Order/' + id + '/sendViaEmail', { body: ${JSON.stringify(MAIL)} });
+     return 'held';`,
+  );
+  // Changed in sevDesk itself, not through the server.
+  other = { ...other, sumNet: '4000', sumGross: '4760' };
+
+  const { isError, envelope } = await call(client, { confirm: token });
+
+  expect(isError).toBe(true);
+  expect(envelope.error).toMatchObject({ kind: 'document_changed', path: '/Order/43' });
+  expect(snippetCalls(sevdesk.requests)).toEqual([
+    'GET /Order/42',
+    'GET /Order/43',
+    'GET /Order/42',
+    'GET /Order/43',
+  ]);
+  expect(sends(sevdesk.requests)).toEqual([]);
+  expect(sends(sevdesk.requests, second)).toEqual([]);
 });
 
 test('a held call on no document is previewed as the call itself, without a read', async () => {

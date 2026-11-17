@@ -190,8 +190,10 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   sends them, else derived exactly in BigInt decimals, `sumSource` saying which).
   `src/confirm.ts`: `previewHeld()`, the structured English preview of held calls (decision 9;
   document kind, number, ISO date, amount with currency, recipient, subject), and
-  `createConfirmations()`, the in-memory token store (single use, 10 minutes, bound to the profile
-  and the exact stored calls). `src/downloads.ts`: `fileStem()` (a file name that cannot leave its
+  `createConfirmations()`, the in-memory token store (single use, 10 minutes, bound to the profile,
+  the exact stored calls and the answers the preview read), and `changedSincePreview()`, which
+  `confirm` runs before the first call: a previewed document that changed or cannot be read sends
+  nothing (issue #73). `src/downloads.ts`: `fileStem()` (a file name that cannot leave its
   directory) and `saveFile()` (temp file, then rename; replace or next free name;
   `download_error`). `src/pdf-freshness.ts`: `pdfFreshness()`, a saved PDF's `sha256`,
   `pdfCreated` (its last literal-string `/CreationDate` with an offset, else null) and
@@ -355,7 +357,9 @@ Recorded in the gap sweep (2026-11-09); numbers refer to
    is `savePdf`'s render of a draft (issue #49). Then `execute` carries `readOnlyHint`.
 3. **Confirmation (5, 6, 7):** irreversible calls are held (`{ held: true }`, the run continues);
    one token per run covers all held calls (single use, 10 min, in memory, bound to profile +
-   method + path + body hash). `execute({ confirm })` replays exactly the stored calls without
+   method + path + body hash and the documents the preview read, re-read before the first call:
+   a change or a failed read sends nothing and uses the token up). `execute({ confirm })` replays
+   exactly the stored calls without
    re-running code, stops at the first failure, reports per call. Classification fails closed:
    unknown write paths, `status` in the body of PUT/POST on Invoice/Order/CreditNote/Voucher, and
    `getPdf` without `preventSendBy=true` all need confirmation; only a new draft (a factory save

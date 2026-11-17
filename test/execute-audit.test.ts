@@ -153,6 +153,7 @@ test('executed, held and confirmed write calls each leave one line; reads leave 
     'GET /Contact',
     'POST /Contact',
     'GET /Order/42',
+    'GET /Order/42',
     `POST ${SEND}`,
     `GET ${PDF}`,
   ]);
@@ -240,6 +241,7 @@ test('with "audit": false no audit file is written', async () => {
   expect(confirmed.isError).toBe(false);
   expect(snippetCalls(sevdesk.requests)).toEqual([
     'POST /Contact',
+    'GET /Order/42',
     'GET /Order/42',
     `POST ${SEND}`,
   ]);
@@ -346,7 +348,11 @@ test('confirm with an unwritable audit log sends nothing and keeps the token val
   rmSync(auditDir());
   const confirmed = await call(client, { confirm: token });
   expect(confirmed.isError).toBe(false);
-  expect(snippetCalls(sevdesk.requests)).toEqual(['GET /Order/42', `POST ${SEND}`]);
+  expect(snippetCalls(sevdesk.requests)).toEqual([
+    'GET /Order/42',
+    'GET /Order/42',
+    `POST ${SEND}`,
+  ]);
   expect(auditLines()).toEqual([
     line({
       method: 'POST',
@@ -386,7 +392,11 @@ test('a confirmed call whose line cannot be written stops the replay with audit_
     { method: 'POST', path: SEND, outcome: 'sent', status: 201, objectId: '9' },
     { method: 'GET', path: PDF, outcome: 'not_sent' },
   ]);
-  expect(snippetCalls(sevdesk.requests)).toEqual(['GET /Order/42', `POST ${SEND}`]);
+  expect(snippetCalls(sevdesk.requests)).toEqual([
+    'GET /Order/42',
+    'GET /Order/42',
+    `POST ${SEND}`,
+  ]);
 });
 
 test('several processes appending at once leave only whole lines', async () => {
