@@ -1,7 +1,30 @@
 {
   "name": "@erwins-enkel/sevdesk-mcp",
   "version": "0.0.0",
-  "description": "The whole sevDesk API in two MCP tools (Code Mode). Not developed or endorsed by sevDesk.",
+  "description": "The whole sevdesk API in two MCP tools for Claude, ChatGPT & co. (Code Mode). Local and open source. Not developed or endorsed by sevdesk.",
+  "keywords": [
+    "sevdesk",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "claude",
+    "chatgpt",
+    "codex",
+    "opencode",
+    "ai",
+    "llm",
+    "code-mode",
+    "accounting",
+    "bookkeeping",
+    "invoicing",
+    "buchhaltung",
+    "rechnungen",
+    "angebote"
+  ],
+  "homepage": "https://github.com/erwins-enkel/sevdesk-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/erwins-enkel/sevdesk-mcp/issues"
+  },
   "license": "MIT",
   "author": "Kai Osthoff",
   "repository": {
@@ -58,11 +81,12 @@
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "check:i18n": "node scripts/check-i18n.ts",
+    "check:docs": "node scripts/check-docs.ts",
     "update-spec": "node scripts/update-spec.ts",
     "prepare": "husky",
     "audit:dead": "fallow",
     "audit:env": "varlock audit",
     "lint:actions": "bash scripts/actionlint.sh",
-    "verify": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build && bun run check:i18n && bun run audit:dead && bun run audit:env && bun run lint:actions"
+    "verify": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build && bun run check:i18n && bun run check:docs && bun run audit:dead && bun run audit:env && bun run lint:actions"
   }
 }

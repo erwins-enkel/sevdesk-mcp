@@ -118,9 +118,10 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   (temp file then rename, keeps the mode, follows a symlink), with `readJsonFile()` and
   `writeJsonFile()` on top, shared by the config file and the client configs.
   `src/config.ts`: `loadConfig()` reads `config.json` there (`baseUrl`, `limits`, `profiles`
-  without tokens, `audit`; documented in the README). No file means `DEFAULT_CONFIG`; an
-  unreadable or invalid file is an `invalid_config` error that both tools return instead of
-  running. A new config key extends `toConfig()` and the README table. `saveProfile()` adds or
+  without tokens, `audit`; documented in `docs/en/configuration.md` and
+  `docs/de/konfiguration.md`). No file means `DEFAULT_CONFIG`; an unreadable or invalid file is an
+  `invalid_config` error that both tools return instead of running. A new config key extends
+  `toConfig()` and the key tables of both configuration pages. `saveProfile()` adds or
   updates one profile, `deleteProfile()` removes one, `setProfileKey()` sets or removes a profile's
   `readonly` or `downloadDir` and `setAudit()` sets `audit`; all keep every other key.
 - `src/reload.ts`: `serveWithReload()`, behind `--reload`: serves MCP through a child running the
@@ -254,7 +255,8 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   `cleanup.ts`: `cleanUp()` deletes only this run's
   tagged drafts, all or none (`cleanupGuard()`), through `confirm`; `test/e2e-cleanup.test.ts`
   checks it offline.
-  `scripts/`: the i18n drift gate, the pinned actionlint runner and `update-spec`.
+  `scripts/`: the i18n drift gate, the docs gate (`check-docs.ts`, tested by
+  `test/check-docs.test.ts`), the pinned actionlint runner and `update-spec`.
 - While serving, stdout belongs to the MCP protocol: log to stderr only.
 - Model-facing text (tool descriptions, guides, errors returned to the model) is English and
   stays lean: all tool descriptions together under 1,500 tokens (PRD §10).
@@ -409,6 +411,14 @@ Recorded in the P3 gap sweep (2026-11-09); numbers refer to
 - **German copy:** the operator does not review German CLI text in PRs and reports problems
   afterwards. The implementing agent still keeps `en.json` and `de.json` in step and follows
   the copy rules (product decision 11; 0002 decision 27).
+- **User docs (0002 decision 26 addendum):** `README.md` is the landing page, German
+  (`## Deutsch`) first, then the English mirror (`## English`) with the same sections; it holds no
+  reference tables. The details live in page pairs `docs/de/*.md` ↔ `docs/en/*.md`, each starting
+  with a line that links its counterpart; contributor docs are `CONTRIBUTING.md` (English). A
+  user-visible change updates both languages in the same PR, German by the copy rules above.
+  User docs write the brand "sevdesk"; code, CLI text and quoted program output keep their
+  spelling. `bun run check:docs` checks the pairs, the heading parity and every relative link
+  and anchor.
 
 ## Verify
 
@@ -418,7 +428,7 @@ bun run verify    # the full gate: identical to the pre-push hook and the CI `qu
 ```
 
 `bun run verify` runs, in order: `format:check`, `lint`, `typecheck`, `test`, `build`,
-`check:i18n`, `audit:dead` (fallow: dead code, duplication, complexity), `audit:env` (varlock:
+`check:i18n`, `check:docs`, `audit:dead` (fallow: dead code, duplication, complexity), `audit:env` (varlock:
 env vars vs `.env.schema`), `lint:actions` (actionlint on `.github/workflows/`).
 
 - Fix formatting: `bun run format`. One test file: `bunx vitest run test/cli.test.ts`.

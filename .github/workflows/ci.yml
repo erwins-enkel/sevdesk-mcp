@@ -51,6 +51,9 @@ jobs:
       - name: i18n catalog parity
         if: runner.os == 'Linux'
         run: bun run check:i18n
+      - name: Docs pairs and links
+        if: runner.os == 'Linux'
+        run: bun run check:docs
       - name: Dead-code audit (fallow)
         if: runner.os == 'Linux'
         run: bun run audit:dead

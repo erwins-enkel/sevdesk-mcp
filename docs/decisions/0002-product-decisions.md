@@ -252,6 +252,13 @@ rules.
 26. **README language?**
     **Answer:** English, plus a short German "Schnellstart" section (installation and safety).
     **Source:** §2.
+    **Addendum (2026-11-17):** The README is the landing page for marketing, search and AI
+    search: German first (`## Deutsch`), then an English mirror with the same sections (`## English`).
+    The reference detail lives in paired pages, `docs/de/*.md` and `docs/en/*.md`, and the
+    contributor docs in `CONTRIBUTING.md` (English); `bun run check:docs` keeps the pairs, their
+    headings and every relative link in step. User docs write the brand as "sevdesk", as sevdesk
+    does itself; code, CLI text and these decision records keep "sevDesk". The status reads
+    "beta": start with a test account or in read-only mode. This replaces the answer above.
 27. **Tone of the German CLI texts, and who maintains translations?**
     **Answer:** Informal "du", short and factual, gender-inclusive with a colon (as in the PRD);
     English equally short. The implementing agent maintains both catalogs; the operator reviews
