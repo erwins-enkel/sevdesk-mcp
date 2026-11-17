@@ -22,6 +22,11 @@ sevdesk-Spezifikation nicht kennt), wird zurückgehalten statt gesendet:
    Aufruf als `sent`, `failed` oder `not_sent`. Ein Aufruf, den sevdesk angenommen hat (2xx), ist
    `sent`, auch wenn sich seine Antwort nicht lesen lässt.
 
+Zum Löschen zählt auch ein Schreibaufruf, dessen Body in einem Schlüssel auf `Delete` etwas zum
+Löschen nennt, etwa `orderPosDelete` (Positionen) oder `discountDelete` (Rabatte) eines
+Factory-Saves wie `POST /Order/Factory/saveOrder`. Steht im Schlüssel `null` oder nichts, wird
+nichts gelöscht und der Save läuft direkt.
+
 Ein Token gilt einmal, 10 Minuten lang, für das Profil, das die Aufrufe zurückgehalten hat, und
 nur bis zum Neustart des Servers. Scheitert der Lauf, verfallen seine zurückgehaltenen Aufrufe und
 es gibt keinen Token. Zurückgehaltene Aufrufe und das Lesen der betroffenen Dokumente für die

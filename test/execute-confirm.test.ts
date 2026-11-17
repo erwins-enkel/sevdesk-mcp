@@ -440,3 +440,36 @@ test('a held call takes a call of the budget; the call over it is not held and e
   });
   expect(snippetCalls(sevdesk.requests)).toEqual([]);
 });
+
+test('a factory save that deletes positions is held: nothing reaches sevDesk before confirm, which sends it once as held', async () => {
+  const save = '/Order/Factory/saveOrder';
+  const body = {
+    order: { id: 42, objectName: 'Order' },
+    orderPosSave: [],
+    orderPosDelete: [{ id: 7, objectName: 'OrderPos' }],
+  };
+  const sevdesk = await mock();
+  const client = await open();
+
+  const { isError, envelope } = await call(client, {
+    code: `return sevdesk.request('POST', '${save}', { body: ${JSON.stringify(body)} })`,
+  });
+
+  expect(isError).toBe(false);
+  expect(envelope).toMatchObject({ result: { held: true } });
+  expect(envelope).not.toHaveProperty('writes');
+  const { token, held } = envelope.confirmation as Confirmation;
+  expect(held).toEqual([{ method: 'POST', path: save, body }]);
+  expect(snippetCalls(sevdesk.requests)).toEqual([]);
+
+  const confirmed = await call(client, { confirm: token });
+
+  expect(confirmed.isError).toBe(false);
+  expect(confirmed.envelope).toMatchObject({
+    confirmed: [{ method: 'POST', path: save, outcome: 'sent', status: 201 }],
+  });
+  const [sent, ...others] = sends(sevdesk.requests, save);
+  expect(others).toEqual([]);
+  expect(sent).toMatchObject({ method: 'POST', body: JSON.stringify(body) });
+  expect(snippetCalls(sevdesk.requests)).toEqual([`POST ${save}`]);
+});

@@ -18,8 +18,10 @@ type Effect = 'read' | 'reversible' | 'irreversible';
  * can mark the document as sent unless `preventSendBy=true` (decision 7). No operation hands files
  * to a third party: every export returns its file or job id to the caller, and a DATEV export
  * that enshrines its documents is caught by its enshrine flag (`ENSHRINE_FLAG`). A reversible
- * write can still change a document's status, which `statusChange` catches (decision 6). `render`
- * is reversible: it renders the stored PDF again from the document's data and changes no status.
+ * write can still delete what its body names, which `deletion` catches (a factory save's
+ * `orderPosDelete`, …), or change a document's status, which `statusChange` catches (decision 6).
+ * `render` is reversible: it renders the stored PDF again from the document's data and changes no
+ * status.
  */
 export const OPERATIONS: Record<string, Effect> = {
   'GET /Tools/bookkeepingSystemVersion': 'read',
@@ -209,6 +211,10 @@ const IRREVERSIBLE_SEGMENT = /^(?:send|enshrine|bookamount|cancel|reset)/i;
 // `enshrineDocuments` on `/Export/createDatevCsvZipExportJob`), unless set to false.
 const ENSHRINE_FLAG = /^enshrine/i;
 
+// Body keys naming objects a write deletes: `invoicePosDelete`, `orderPosDelete`,
+// `creditNotePosDelete`, `voucherPosDelete` and `discountDelete` of the factory saves, case ignored.
+const DELETE_KEY = /delete$/i;
+
 /**
  * The document types whose status a write can change (decision 6), with the status of a draft.
  * `sevdesk.savePdf` renders a draft's PDF again before fetching it.
@@ -300,10 +306,31 @@ function statusChange(method: string, path: string, body: unknown): string | und
   return `${method} ${path} sets a status in its body, which changes the document's status. Only a new draft (without id) may carry status ${draft}; leave status out to change other fields.`;
 }
 
+/** Whether a body value names nothing: absent, null, or an empty string, array or object. */
+function isEmpty(value: unknown): boolean {
+  if (value === undefined || value === null || value === '') return true;
+  if (Array.isArray(value)) return value.length === 0;
+  return isRecord(value) && Object.keys(value).length === 0;
+}
+
+/**
+ * Why a write's body deletes data (issue #70), or undefined: a key at its top level ending in
+ * `Delete` (`DELETE_KEY`) whose value is not empty, such as `orderPosDelete` of saveOrder, which
+ * deletes positions as `DELETE /OrderPos/{orderPosId}` does. Any other value counts as naming
+ * something (fail closed).
+ */
+function deletion(method: string, path: string, body: unknown): string | undefined {
+  if (!isRecord(body)) return undefined;
+  const key = Object.keys(body).find((name) => DELETE_KEY.test(name) && !isEmpty(body[name]));
+  return key === undefined
+    ? undefined
+    : `${method} ${path} deletes data: ${key} in its body is not empty.`;
+}
+
 /**
  * Why a write changes data irreversibly, or undefined for a reversible one: every DELETE, a write
  * path the table does not know (fail closed, decision 6), an irreversible operation of the table,
- * or a status change in the body.
+ * a body that names something to delete, or a status change in the body.
  */
 function writeReason(method: string, path: string, body: unknown): string | undefined {
   if (method === 'DELETE') return `DELETE ${path} deletes data.`;
@@ -312,7 +339,7 @@ function writeReason(method: string, path: string, body: unknown): string | unde
     return `${method} ${path} is not a write path of the sevDesk API spec, so it counts as irreversible. Find the path with search.`;
   }
   if (effect === 'irreversible') return `${method} ${path} ${SENDS}`;
-  return statusChange(method, path, body);
+  return deletion(method, path, body) ?? statusChange(method, path, body);
 }
 
 /**

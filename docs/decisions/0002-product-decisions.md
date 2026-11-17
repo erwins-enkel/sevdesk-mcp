@@ -78,6 +78,13 @@ rules.
    (`POST /{Type}/Factory/save{Type}`) of a new document (without id) with the draft status (100,
    vouchers 50) runs directly, since these saves require a status. **Source:** §6
    ("Statusänderungen auf Rechnungen").
+   **Addendum (2026-11-17, issue #70):** a write whose body names something to delete is a delete.
+   The factory saves take `invoicePosDelete`, `orderPosDelete`, `creditNotePosDelete`,
+   `voucherPosDelete` and `discountDelete`, which delete positions and discounts as
+   `DELETE /OrderPos/{orderPosId}` does. So a key at the body's top level ending in `Delete` (case
+   ignored) with a value other than `null` or an empty string, array or object makes any POST or
+   PUT irreversible. A save without such a key, or with it `null` or empty (the voucher guide sends
+   `voucherPosDelete: null`), runs directly. Read-only mode rejects it like every write.
 7. **How is a PDF fetched without flipping the sent status?**
    **Answer:** `savePdf` always passes `preventSendBy=true`; per third-party documentation `getPdf`
    may otherwise mark the document as sent (to verify against the live API in P4). A `getPdf` via

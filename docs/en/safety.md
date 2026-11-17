@@ -20,6 +20,11 @@ instead of sent:
    the first call sevdesk does not accept and reports every call as `sent`, `failed` or
    `not_sent`. A call sevdesk accepted (2xx) is `sent` even if its answer cannot be read.
 
+Deleting includes a write whose body names something to delete in a key ending in `Delete`, such
+as `orderPosDelete` (positions) or `discountDelete` (discounts) of a factory save like
+`POST /Order/Factory/saveOrder`. Set to `null` or left empty, the key deletes nothing and the save
+runs directly.
+
 A token works once, for 10 minutes, for the profile that held the calls, and only until the server
 restarts. If the run fails, its held calls are dropped and no token is issued. Held calls, and the
 reads of the documents they act on for the preview, count towards

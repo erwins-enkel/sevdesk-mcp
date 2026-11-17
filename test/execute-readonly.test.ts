@@ -29,6 +29,11 @@ const BLOCKED: [string, string, object?][] = [
   ['DELETE', '/Contact/1'],
   ['POST', '/Order/42/sendViaEmail', { body: { toEmail: 'max@example.com', subject: 'AN-1042' } }],
   ['POST', '/Invoice/7/render', { body: { forceReload: true } }],
+  [
+    'POST',
+    '/Order/Factory/saveOrder',
+    { body: { order: { id: 42 }, orderPosDelete: [{ id: 7, objectName: 'OrderPos' }] } },
+  ],
   ['GET', '/Order/42/getPdf'],
 ];
 

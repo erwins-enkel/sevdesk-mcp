@@ -91,6 +91,30 @@ test.each([
   },
   { name: 'a contact status', method: 'PUT', path: '/Contact/1', body: { status: 1000 } },
   { name: 'a forced re-render of an order', path: '/Order/1/render', body: { forceReload: true } },
+  {
+    name: 'a new voucher draft with voucherPosDelete null, as the guide sends it',
+    path: '/Voucher/Factory/saveVoucher',
+    body: { voucher: { status: 50 }, voucherPosSave: [], voucherPosDelete: null },
+  },
+  {
+    name: 'an order save with an empty orderPosDelete',
+    path: '/Order/Factory/saveOrder',
+    body: { order: { id: 5, objectName: 'Order' }, orderPosSave: [], orderPosDelete: [] },
+  },
+  {
+    name: 'an invoice save with invoicePosDelete null and an empty discountDelete',
+    path: '/Invoice/Factory/saveInvoice',
+    body: { invoice: { id: 5, objectName: 'Invoice' }, invoicePosDelete: null, discountDelete: {} },
+  },
+  {
+    name: 'a credit note save with an empty creditNotePosDelete and discountDelete null',
+    path: '/CreditNote/Factory/saveCreditNote',
+    body: {
+      creditNote: { id: 5, objectName: 'CreditNote' },
+      creditNotePosDelete: '',
+      discountDelete: null,
+    },
+  },
 ])('$name runs directly', ({ method = 'POST', path, body }) => {
   expect(confirmationReason(method, path, none, body)).toBeUndefined();
 });
@@ -126,4 +150,72 @@ test.each([
   { name: 'a named segment where the spec has an id', method: 'PUT', path: '/Order/sendAll' },
 ])('$name needs confirmation', ({ method = 'POST', path, body }) => {
   expect(confirmationReason(method, path, none, body)).toEqual(expect.any(String));
+});
+
+const position = (objectName: string) => ({ id: 7, objectName });
+
+test.each([
+  {
+    name: 'an invoice save with invoicePosDelete',
+    path: '/Invoice/Factory/saveInvoice',
+    body: { invoice: { id: 5, objectName: 'Invoice' }, invoicePosDelete: [position('InvoicePos')] },
+    key: 'invoicePosDelete',
+  },
+  {
+    name: 'an invoice save with discountDelete',
+    path: '/Invoice/Factory/saveInvoice',
+    body: { invoice: { id: 5, objectName: 'Invoice' }, discountDelete: position('Discounts') },
+    key: 'discountDelete',
+  },
+  {
+    name: 'an order save with orderPosDelete',
+    path: '/Order/Factory/saveOrder',
+    body: { order: { id: 5, objectName: 'Order' }, orderPosDelete: [position('OrderPos')] },
+    key: 'orderPosDelete',
+  },
+  {
+    name: 'a credit note save with creditNotePosDelete',
+    path: '/CreditNote/Factory/saveCreditNote',
+    body: {
+      creditNote: { id: 5, objectName: 'CreditNote' },
+      creditNotePosDelete: position('CreditNotePos'),
+    },
+    key: 'creditNotePosDelete',
+  },
+  {
+    name: 'a credit note save with discountDelete',
+    path: '/CreditNote/Factory/saveCreditNote',
+    body: {
+      creditNote: { id: 5, objectName: 'CreditNote' },
+      discountDelete: [position('Discounts')],
+    },
+    key: 'discountDelete',
+  },
+  {
+    name: 'a new voucher draft with voucherPosDelete',
+    path: '/Voucher/Factory/saveVoucher',
+    body: { voucher: { status: 50 }, voucherPosDelete: position('VoucherPos') },
+    key: 'voucherPosDelete',
+  },
+  {
+    name: 'a delete key in other case',
+    path: '/Order/Factory/saveOrder',
+    body: { order: { id: 5, objectName: 'Order' }, OrderPosDelete: [position('OrderPos')] },
+    key: 'OrderPosDelete',
+  },
+  {
+    name: 'a delete key on another write path',
+    method: 'PUT',
+    path: '/Order/5',
+    body: { header: 'x', orderPosDelete: [position('OrderPos')] },
+    key: 'orderPosDelete',
+  },
+  {
+    name: 'a delete key whose list holds only null',
+    path: '/Order/Factory/saveOrder',
+    body: { order: { id: 5, objectName: 'Order' }, orderPosDelete: [null] },
+    key: 'orderPosDelete',
+  },
+])('$name deletes data and needs confirmation', ({ method = 'POST', path, body, key }) => {
+  expect(confirmationReason(method, path, none, body)).toContain(`${key} in its body`);
 });
