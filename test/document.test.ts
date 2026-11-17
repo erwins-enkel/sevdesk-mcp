@@ -179,6 +179,9 @@ describe('plain text from HTML', () => {
       '<div><strong>fett</strong> und <span style="x">mehr</span></div>',
       'fett und mehr',
     ],
+    ['a "<" before no tag stays text', 'a < b und 3<4', 'a < b und 3<4'],
+    ['a tag cut off at the end is removed', '<p>Text</p><scr', 'Text'],
+    ['a tag that removing another one forms is removed too', '<<b>script>alert(1)', 'alert(1)'],
     ['CRLF, trailing spaces and blank lines', 'A   \r\nB\r\n\r\n\r\n\r\nC  ', 'A\nB\n\nC'],
     ['an unknown entity stays as it is', 'a &foo; b', 'a &foo; b'],
   ])('%s', (_, html, text) => {

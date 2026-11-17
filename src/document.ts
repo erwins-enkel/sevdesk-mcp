@@ -178,20 +178,38 @@ function unityOf(unity: unknown) {
   return { id: code(unity.id), name: text(unity.name) };
 }
 
+// A tag as a browser reads one: `<` and a letter, `/`, `!` or `?`, up to the next `>` or the end of
+// the text. A `<` before anything else (`a < b`) is text.
+const TAG = /<[a-z/!?][^>]*(?:>|$)/gi;
+
+/**
+ * `html` without its tags, removed until none is left: removing one can join its neighbours into
+ * another.
+ */
+function withoutTags(html: string): string {
+  let text = html;
+  let previous: string;
+  do {
+    previous = text;
+    text = text.replace(TAG, '');
+  } while (text !== previous);
+  return text;
+}
+
 /**
  * A text as plain text: line breaks for `<br>` and the end of paragraphs, list items and rows, `- `
- * for a list item, no other tags, HTML entities decoded (sevDesk's editor may store an umlaut as
- * `&uuml;`), trailing spaces and runs of blank lines removed. A text without content is null.
+ * for a list item, no other tags (`withoutTags`), HTML entities decoded (sevDesk's editor may store
+ * an umlaut as `&uuml;`), trailing spaces and runs of blank lines removed. A text without content
+ * is null.
  */
 function htmlToText(value: unknown): string | null {
   if (typeof value !== 'string') return null;
-  const stripped = value
+  const marked = value
     .replace(/\r\n?/g, '\n')
     .replace(/<br\b[^>]*>/gi, '\n')
     .replace(/<li\b[^>]*>/gi, '- ')
-    .replace(/<\/(?:p|div|li|h[1-6]|tr|ul|ol)\s*>/gi, '\n')
-    .replace(/<[^>]*>/g, '');
-  const plain = decodeHTML(stripped)
+    .replace(/<\/(?:p|div|li|h[1-6]|tr|ul|ol)\s*>/gi, '\n');
+  const plain = decodeHTML(withoutTags(marked))
     .replace(/\u00a0/g, ' ')
     .split('\n')
     .map((line) => line.trimEnd())
