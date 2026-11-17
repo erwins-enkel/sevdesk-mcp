@@ -1,6 +1,6 @@
 {
   "name": "@erwins-enkel/sevdesk-mcp",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The whole sevdesk API in two MCP tools for Claude, ChatGPT & co. (Code Mode). Local and open source. Not developed or endorsed by sevdesk.",
   "keywords": [
     "sevdesk",
@@ -39,6 +39,10 @@
     "dist",
     "spec"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "packageManager": "bun@1.4.4",
   "engines": {
     "bun": ">=1.4.4",
