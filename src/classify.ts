@@ -215,6 +215,10 @@ const ENSHRINE_FLAG = /^enshrine/i;
 // `creditNotePosDelete`, `voucherPosDelete` and `discountDelete` of the factory saves, case ignored.
 const DELETE_KEY = /delete$/i;
 
+// Query keys naming a status (issue #71): `status`, `invoice[status]` and any other key containing
+// it, case ignored. No documented query parameter of a write contains it (`invoice[id]`, …).
+const STATUS_KEY = /status/i;
+
 /**
  * The document types whose status a write can change (decision 6), with the status of a draft.
  * `sevdesk.savePdf` renders a draft's PDF again before fetching it.
@@ -288,15 +292,26 @@ function isNewDraft(
 }
 
 /**
- * Why a write's body changes a document's status (decision 6), or undefined: a `status` at the top
- * level of the body or in its document object (`order` of saveOrder, `invoice` of saveInvoice, …)
- * on an Invoice, Order, CreditNote or Voucher path. Only a new draft may carry a status
+ * Why a write changes a document's status (decision 6), or undefined, on an Invoice, Order,
+ * CreditNote or Voucher path: a query key naming a status (`STATUS_KEY`, issue #71), whatever the
+ * body holds, or a `status` at the top level of the body or in its document object (`order` of
+ * saveOrder, `invoice` of saveInvoice, …). Only a new draft may carry a status, in its body
  * (`isNewDraft`).
  */
-function statusChange(method: string, path: string, body: unknown): string | undefined {
+function statusChange(
+  method: string,
+  path: string,
+  params: URLSearchParams,
+  body: unknown,
+): string | undefined {
   const [, type = ''] = path.split('/');
   const draft = DRAFT_STATUS.get(type);
-  if (draft === undefined || !isRecord(body)) return undefined;
+  if (draft === undefined) return undefined;
+  const key = [...params.keys()].find((name) => STATUS_KEY.test(name));
+  if (key !== undefined) {
+    return `query.${key} of ${method} ${path} names a status, which can change the document's status. Leave it out of the query; a new draft carries its status in the body.`;
+  }
+  if (!isRecord(body)) return undefined;
   const document = body[type.charAt(0).toLowerCase() + type.slice(1)];
   if (body.status === undefined) {
     const status = isRecord(document) ? document.status : undefined;
@@ -329,16 +344,21 @@ function deletion(method: string, path: string, body: unknown): string | undefin
 /**
  * Why a write changes data irreversibly, or undefined for a reversible one: every DELETE, a write
  * path the table does not know (fail closed, decision 6), an irreversible operation of the table,
- * a body that names something to delete, or a status change in the body.
+ * a body that names something to delete, or a status change in the query or body.
  */
-function writeReason(method: string, path: string, body: unknown): string | undefined {
+function writeReason(
+  method: string,
+  path: string,
+  params: URLSearchParams,
+  body: unknown,
+): string | undefined {
   if (method === 'DELETE') return `DELETE ${path} deletes data.`;
   const effect = effectOf(method, path);
   if (effect === undefined) {
     return `${method} ${path} is not a write path of the sevDesk API spec, so it counts as irreversible. Find the path with search.`;
   }
   if (effect === 'irreversible') return `${method} ${path} ${SENDS}`;
-  return deletion(method, path, body) ?? statusChange(method, path, body);
+  return deletion(method, path, body) ?? statusChange(method, path, params, body);
 }
 
 /**
@@ -353,7 +373,8 @@ export function confirmationReason(
   params: URLSearchParams,
   body: unknown,
 ): string | undefined {
-  const reason = method === 'GET' ? readReason(path, params) : writeReason(method, path, body);
+  const reason =
+    method === 'GET' ? readReason(path, params) : writeReason(method, path, params, body);
   if (reason !== undefined) return reason;
   const flag = [...params].find(([key, value]) => ENSHRINE_FLAG.test(key) && value !== 'false');
   return flag ? `query.${flag[0]}=${flag[1]} enshrines the exported documents.` : undefined;

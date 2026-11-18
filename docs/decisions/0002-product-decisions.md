@@ -93,6 +93,15 @@ rules.
    ignored) with a value other than `null` or an empty string, array or object makes any POST or
    PUT irreversible. A save without such a key, or with it `null` or empty (the voucher guide sends
    `voucherPosDelete: null`), runs directly. Read-only mode rejects it like every write.
+   **Addendum (2026-11-17, issue #71):** a status can also be named in the query of a write. The
+   spec documents bracketed query parameters on writes (`invoice[id]` and `invoice[objectName]` on
+   `POST /Invoice/Factory/createInvoiceReminder`, `order[id]` and `order[objectName]` on two Order
+   factories), so sevDesk may read document fields from a write's query. Whether it applies a
+   status passed that way is unverified; the rule fails closed either way. A POST or PUT on
+   Invoice, Order, CreditNote or Voucher with a query key containing `status` (case ignored, e.g.
+   `status`, `invoice[status]`) is irreversible whatever the body holds, so a new draft carries its
+   status in the body only. The documented query parameters run directly, and GETs (status
+   filters) are unaffected. Read-only mode rejects it like every write.
    **Addendum (2026-11-17, issue #72):** fail closed holds for reads too. The spec has GETs that
    change data (`sendByWithRender`, `getPdf` without `preventSendBy=true`), so a GET whose path is
    no operation of the patched spec is treated as irreversible: `request` holds it, `paginate`

@@ -32,6 +32,12 @@ Löschen nennt, etwa `orderPosDelete` (Positionen) oder `discountDelete` (Rabatt
 Factory-Saves wie `POST /Order/Factory/saveOrder`. Steht im Schlüssel `null` oder nichts, wird
 nichts gelöscht und der Save läuft direkt.
 
+Den Status eines Dokuments ändert auch ein Schreibaufruf auf ein Angebot, eine Rechnung, eine
+Gutschrift oder einen Beleg mit `status` im Body oder mit einem Query-Parameter, dessen Name
+`status` enthält (etwa `status` oder `invoice[status]`, Groß-/Kleinschreibung egal). Nur der
+Factory-Save eines neuen Entwurfs darf den Entwurfsstatus tragen, und zwar im Body; ein Status in
+der Query wird immer zurückgehalten.
+
 Auch ein Lesezugriff wird zurückgehalten, wenn die Spezifikation seinen Pfad nicht kennt, denn
 manche GETs der Spezifikation ändern ebenfalls Daten, etwa `getPdf`. Die einzige Ausnahme ist
 `GET /SevClient`, mit dem der Server den Firmennamen liest.
