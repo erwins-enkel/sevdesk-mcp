@@ -29,6 +29,11 @@ as `orderPosDelete` (positions) or `discountDelete` (discounts) of a factory sav
 `POST /Order/Factory/saveOrder`. Set to `null` or left empty, the key deletes nothing and the save
 runs directly.
 
+Changing a document's status includes a write on an order, invoice, credit note or voucher with
+`status` in its body, or with a query parameter whose name contains `status` (such as `status` or
+`invoice[status]`, case ignored). Only the factory save of a new draft may carry the draft status,
+in its body; a status in the query is always held.
+
 A read is held too when the specification does not know its path, since some GETs of the
 specification change data as well, such as `getPdf`. The one exception is `GET /SevClient`, which
 the server reads for the company name.

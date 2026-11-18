@@ -583,3 +583,32 @@ test('a factory save that deletes positions is held: nothing reaches sevDesk bef
   expect(sent).toMatchObject({ method: 'POST', body: JSON.stringify(body) });
   expect(snippetCalls(sevdesk.requests)).toEqual([`POST ${save}`]);
 });
+
+test('a new draft whose query names a status is held: nothing reaches sevDesk before confirm, which sends it once with that query', async () => {
+  const save = '/Order/Factory/saveOrder';
+  const body = { order: { objectName: 'Order', orderType: 'AN', status: 100 }, orderPosSave: [] };
+  const sevdesk = await mock();
+  const client = await open();
+
+  const { isError, envelope } = await call(client, {
+    code: `return sevdesk.request('POST', '${save}', { query: { 'order[status]': 1000 }, body: ${JSON.stringify(body)} })`,
+  });
+
+  expect(isError).toBe(false);
+  expect(envelope).toMatchObject({ result: { held: true } });
+  expect(envelope).not.toHaveProperty('writes');
+  const { token, held } = envelope.confirmation as Confirmation;
+  expect(held).toEqual([{ method: 'POST', path: save, query: { 'order[status]': '1000' }, body }]);
+  expect(snippetCalls(sevdesk.requests)).toEqual([]);
+
+  const confirmed = await call(client, { confirm: token });
+
+  expect(confirmed.isError).toBe(false);
+  expect(confirmed.envelope).toMatchObject({
+    confirmed: [{ method: 'POST', path: save, outcome: 'sent', status: 201 }],
+  });
+  const [sent, ...others] = sends(sevdesk.requests, save);
+  expect(others).toEqual([]);
+  expect(sent?.query.get('order[status]')).toBe('1000');
+  expect(snippetCalls(sevdesk.requests)).toEqual([`POST ${save}`]);
+});

@@ -269,3 +269,99 @@ test.each([
 ])('$name deletes data and needs confirmation', ({ method = 'POST', path, body, key }) => {
   expect(confirmationReason(method, path, none, body)).toContain(`${key} in its body`);
 });
+
+/** A call with query parameters; `method` defaults to POST. */
+interface QueryCall {
+  name: string;
+  method?: string;
+  path: string;
+  query: Record<string, string>;
+  body?: unknown;
+}
+
+test.each<QueryCall>([
+  {
+    name: 'a top-level status on an order update',
+    method: 'PUT',
+    path: '/Order/1',
+    query: { status: '1000' },
+    body: { header: 'x' },
+  },
+  {
+    name: 'a bracketed status on an invoice PUT without a body',
+    method: 'PUT',
+    path: '/Invoice/1/changeParameter',
+    query: { 'invoice[status]': '1000' },
+  },
+  {
+    name: 'a top-level status in other case on a new order draft',
+    path: '/Order/Factory/saveOrder',
+    query: { Status: '200' },
+    body: { order: { status: 100 } },
+  },
+  {
+    name: 'a bracketed status on a new invoice draft',
+    path: '/Invoice/Factory/saveInvoice',
+    query: { 'invoice[status]': '1000' },
+    body: { invoice: { status: 100 } },
+  },
+  {
+    name: 'a bracketed status in other case on a credit note update',
+    method: 'PUT',
+    path: '/CreditNote/1',
+    query: { 'creditNote[STATUS]': '1000' },
+  },
+  {
+    name: 'a status on a voucher update',
+    method: 'PUT',
+    path: '/Voucher/1',
+    query: { status: '1000' },
+  },
+  {
+    name: "another type's status on an invoice write",
+    path: '/Invoice/Factory/createInvoiceFromOrder',
+    query: { 'order[status]': '1000' },
+    body: { order: { id: 1, objectName: 'Order' } },
+  },
+])(
+  '$name names a status in its query and needs confirmation',
+  ({ method = 'POST', path, query, body }) => {
+    const [key = ''] = Object.keys(query);
+
+    expect(confirmationReason(method, path, new URLSearchParams(query), body)).toContain(
+      `query.${key}`,
+    );
+  },
+);
+
+test.each<QueryCall>([
+  {
+    name: 'an invoice reminder by invoice[id] and invoice[objectName]',
+    path: '/Invoice/Factory/createInvoiceReminder',
+    query: { 'invoice[id]': '5', 'invoice[objectName]': 'Invoice' },
+  },
+  {
+    name: 'a packing list by order[id] and order[objectName]',
+    path: '/Order/Factory/createPackingListFromOrder',
+    query: { 'order[id]': '5', 'order[objectName]': 'Order' },
+  },
+  {
+    name: 'a contract note by order[id] and order[objectName]',
+    path: '/Order/Factory/createContractNoteFromOrder',
+    query: { 'order[id]': '5', 'order[objectName]': 'Order' },
+  },
+  {
+    name: 'an invoice list filtered by status',
+    method: 'GET',
+    path: '/Invoice',
+    query: { status: '1000' },
+  },
+  {
+    name: 'a status in the query of a contact update',
+    method: 'PUT',
+    path: '/Contact/1',
+    query: { status: '1000' },
+  },
+])('$name runs directly', ({ method = 'POST', path, query, body }) => {
+  expect(confirmationReason(method, path, new URLSearchParams(query), body)).toBeUndefined();
+});

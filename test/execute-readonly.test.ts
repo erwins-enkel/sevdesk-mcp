@@ -37,6 +37,7 @@ const BLOCKED: [string, string, object?][] = [
     '/Order/Factory/saveOrder',
     { body: { order: { id: 42 }, orderPosDelete: [{ id: 7, objectName: 'OrderPos' }] } },
   ],
+  ['PUT', '/Order/42', { query: { 'order[status]': 1000 } }],
   ['GET', '/Order/42/getPdf'],
   ['GET', '/Invoice/7/getHistory'],
 ];

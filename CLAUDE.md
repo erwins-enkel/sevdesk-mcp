@@ -208,7 +208,7 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   operation of the patched spec (`METHOD /path template`) the effect `read`, `reversible` or
   `irreversible`; `confirmationReason()` says why a call needs confirmation (DELETE, the table,
   unknown paths, GETs too except `GET /SevClient` (`UNDOCUMENTED_READS`), `getPdf` without
-  exactly one `preventSendBy=true`, a status change in the body, an enshrine flag).
+  exactly one `preventSendBy=true`, a status change in the body or query, an enshrine flag).
   `test/classify.test.ts` fails on any spec operation the table lacks, so a spec update that adds
   a path needs a classification here.
 - `spec/sevdesk-openapi.json`: the embedded sevDesk OpenAPI spec (`$ref`s resolved, © sevDesk,
@@ -362,11 +362,12 @@ Recorded in the gap sweep (2026-11-09); numbers refer to
    a change or a failed read sends nothing and uses the token up). `execute({ confirm })` replays
    exactly the stored calls without
    re-running code, stops at the first failure, reports per call. Classification fails closed:
-   unknown paths (GETs too, except `GET /SevClient`), `status` in the body of PUT/POST on
-   Invoice/Order/CreditNote/Voucher, and `getPdf` without `preventSendBy=true` all need
-   confirmation; only a new draft (a factory save without id, with the draft status) may carry a
-   status. `savePdf` always sets `preventSendBy=true` and renders a draft again first (`render` is
-   reversible), so its PDF is never stale; marking as sent (`sendBy`) is its own confirmed step.
+   unknown paths (GETs too, except `GET /SevClient`), `status` in the body or a query key of
+   PUT/POST on Invoice/Order/CreditNote/Voucher, and `getPdf` without `preventSendBy=true` all
+   need confirmation; only a new draft (a factory save without id, with the draft status in its
+   body) may carry a status. `savePdf` always sets `preventSendBy=true` and renders a draft again
+   first (`render` is reversible), so its PDF is never stale; marking as sent (`sendBy`) is its
+   own confirmed step.
 4. **Preview (9):** English, structured: amount as number + currency code, ISO 8601 dates,
    recipient, subject, document number, profile and company name.
 5. **Retries (10):** GET on 429/5xx, any method on 429; never POST/PUT/DELETE on 5xx, never a
