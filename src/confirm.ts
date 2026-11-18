@@ -1,6 +1,7 @@
 // The confirmation of held calls (PRD §6, decisions 5 and 9): the preview the human confirms and
 // the in-memory, single-use tokens that let `execute({ confirm })` send exactly those calls.
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import {
   DOCUMENTS,
   type DocumentType,
@@ -130,6 +131,47 @@ export async function previewHeld(
   return previews;
 }
 
+/** What a confirmation rejected before sending advises: a new run for a fresh preview. */
+const FRESH_PREVIEW =
+  "Run only the irreversible calls again (e.g. the send on the draft's id) for a fresh preview, show it to the user and confirm its new token.";
+
+/**
+ * Reads each document the preview was built from again with `read`, in order, before the first
+ * confirmed call is sent (issue #73), and resolves to the error that stops the confirmation: the
+ * first read that fails, or the first answer that differs from the one in `documents` (compared
+ * whole, key order ignored). Undefined when every document is unchanged. Objects the preview did
+ * not read are not checked.
+ */
+export async function changedSincePreview(
+  documents: ReadonlyMap<string, unknown>,
+  read: (path: string) => Promise<unknown>,
+): Promise<SnippetError | undefined> {
+  for (const [path, previewed] of documents) {
+    let current: unknown;
+    try {
+      current = await read(path);
+    } catch (error) {
+      if (!(error instanceof HostError)) throw error;
+      const { message, hint } = error.error;
+      return {
+        ...error.error,
+        message: `${message} The confirmation was rejected: nothing was sent and the token is used up.`,
+        hint: hint ?? FRESH_PREVIEW,
+      };
+    }
+    if (!isDeepStrictEqual(current, previewed)) {
+      return {
+        kind: 'document_changed',
+        message: `${path} changed after the preview, so the confirmation was rejected. Nothing was sent and the token is used up.`,
+        method: 'GET',
+        path,
+        hint: FRESH_PREVIEW,
+      };
+    }
+  }
+  return undefined;
+}
+
 /** The token is not (or no longer) in the store. */
 const UNKNOWN_TOKEN: SnippetError = {
   kind: 'invalid_confirmation',
@@ -140,15 +182,18 @@ const UNKNOWN_TOKEN: SnippetError = {
 interface Pending {
   profile: string;
   calls: Call[];
+  /** The answers the preview was built from, by path, as `read` resolved them. */
+  documents: ReadonlyMap<string, unknown>;
   /** Epoch milliseconds; from then on the token is expired. */
   expiresAt: number;
 }
 
 /**
  * The confirmation tokens of one server (decision 5): in memory only, so a restart forgets them.
- * `issue` stores a run's held calls for its profile under a fresh token, valid for 10 minutes.
- * `take` hands them out once: an unknown, used or expired token is rejected, as is a token of
- * another profile, which stays valid for its own.
+ * `issue` stores a run's held calls for its profile, with the document answers their preview was
+ * built from, under a fresh token, valid for 10 minutes. `take` hands them out once: an unknown,
+ * used or expired token is rejected, as is a token of another profile, which stays valid for its
+ * own.
  */
 export function createConfirmations() {
   const pending = new Map<string, Pending>();
@@ -164,11 +209,17 @@ export function createConfirmations() {
       profile: { name: string; company?: string },
       calls: Call[],
       held: Preview[],
+      documents: ReadonlyMap<string, unknown>,
     ): Confirmation {
       purge();
       const token = randomUUID();
       const expiresAt = Date.now() + TOKEN_TTL_MS;
-      pending.set(token, { profile: profile.name, calls: [...calls], expiresAt });
+      pending.set(token, {
+        profile: profile.name,
+        calls: [...calls],
+        documents: new Map(documents),
+        expiresAt,
+      });
       const expires = new Date(expiresAt).toISOString();
       return { token, expiresAt: expires, profile: profile.name, company: profile.company, held };
     },
@@ -176,7 +227,9 @@ export function createConfirmations() {
     take(
       token: string,
       profile: string,
-    ): { ok: true; calls: Call[] } | { ok: false; error: SnippetError } {
+    ):
+      | { ok: true; calls: Call[]; documents: ReadonlyMap<string, unknown> }
+      | { ok: false; error: SnippetError } {
       purge();
       const entry = pending.get(token);
       if (entry === undefined) return { ok: false, error: UNKNOWN_TOKEN };
@@ -191,7 +244,7 @@ export function createConfirmations() {
         };
       }
       pending.delete(token);
-      return { ok: true, calls: entry.calls };
+      return { ok: true, calls: entry.calls, documents: entry.documents };
     },
   };
 }

@@ -738,7 +738,7 @@ function recording(log: AuditLog, failed: (error: SnippetError) => void): AuditL
  * the code), retried as decision 10 allows. A reversible write runs and enters `writes`, the run's
  * ledger. An irreversible call through `request` is held (decision 5): it is not sent, enters
  * `held` and resolves to `{ held: true }`; `paginate` and `savePdf` refuse one. A held call takes
- * a call of the budget, as does each `readDocument`, the host's read for the confirmation preview.
+ * a call of the budget, as does each `readDocument`, the host's read of a previewed document.
  * The call over `maxCalls` is not sent (or held) and ends the run, so `paginate` never returns a
  * partial list. With `readOnly` set (decision 3) every write and every irreversible call fails
  * with `read_only` before it is sent or held; reads and `savePdf` run, the render of a draft
@@ -1018,7 +1018,10 @@ export function createClient({
     return compactDocument(type, document, positions, { html });
   };
 
-  /** The JSON of `GET path`, a document a held call acts on, read for the confirmation preview. */
+  /**
+   * The JSON of `GET path`, a document a held call acts on: read for the confirmation preview, and
+   * again before the confirmed calls are sent, to compare (issue #73).
+   */
   const readDocument = async (path: string, signal: AbortSignal): Promise<unknown> => {
     const call = prepare(baseUrl, ['GET', path], gate);
     const hint =

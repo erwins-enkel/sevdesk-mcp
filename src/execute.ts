@@ -1,7 +1,7 @@
 import { type CallToolResult, fromJsonSchema, type McpServer } from '@modelcontextprotocol/server';
 import { type AuditLog, auditLog, NO_AUDIT } from './audit.ts';
 import { type Config, DEFAULT_CONFIG, type LoadedConfig } from './config.ts';
-import { createConfirmations, previewHeld } from './confirm.ts';
+import { changedSincePreview, createConfirmations, previewHeld } from './confirm.ts';
 import { confirmedResult, errorResult, toToolResult } from './envelope.ts';
 import { readToken } from './keychain.ts';
 import { defaultDownloadDir } from './paths.ts';
@@ -91,9 +91,9 @@ function readOnlySwitch(): boolean {
  * it returns the config error and sends nothing. Reversible writes run, and the result lists every
  * write the run sent. Irreversible calls are held (decision 5): a run that succeeds returns their
  * previews and a token, which `confirm` (on the same profile, instead of `code`) redeems once to
- * send exactly those calls. Read-only mode (decision 3), from `SEVDESK_READONLY` (read once per
- * server) or the profile's `readonly`, rejects every write and irreversible call, and every
- * `confirm`. Every write call gets a line in the profile's audit log (decision 16) unless the
+ * send exactly those calls, unless a document the preview read changed since. Read-only mode
+ * (decision 3), from `SEVDESK_READONLY` (read once per server) or the profile's `readonly`,
+ * rejects every write and irreversible call, and every `confirm`. Every write call gets a line in the profile's audit log (decision 16) unless the
  * config file turns it off; a log that cannot be written fails the call. The tool carries the
  * read-only annotation when the switch is on or the pinned profile is read-only, otherwise the
  * destructive one.
@@ -166,7 +166,9 @@ export function registerExecuteTool(
    * running any code (decision 5). The bookkeeping system was checked by the run that held them. A
    * read-only profile is rejected before the token is looked at, so no token gets past read-only.
    * An audit log that cannot be written is rejected before the token is taken, so the token stays
-   * valid for when it is fixed.
+   * valid for when it is fixed. Once the token is taken (used up), each document the preview read
+   * is read again; when one changed or cannot be read, nothing is sent (issue #73). The reads and
+   * the calls share the one timeout.
    */
   async function confirmHeld(token: string, profile: Profile): Promise<CallToolResult> {
     const readOnly = readOnlyReason(profile);
@@ -188,6 +190,17 @@ export function registerExecuteTool(
     if (!taken.ok) return errorResult(taken.error);
     const signal = AbortSignal.timeout(config.limits.timeoutMs);
     const { token: apiToken, downloadDir } = profile;
+    const { readDocument } = createClient({
+      baseUrl: config.baseUrl,
+      token: apiToken,
+      maxCalls: config.maxCalls,
+      downloadDir,
+      audit,
+    });
+    const changed = await changedSincePreview(taken.documents, (path) =>
+      readDocument(path, signal),
+    );
+    if (changed !== undefined) return errorResult(changed);
     return confirmedResult(
       await replay(taken.calls, { token: apiToken, downloadDir, signal, audit }),
     );
@@ -195,9 +208,10 @@ export function registerExecuteTool(
 
   /**
    * Runs `code` for `profile`. When the run succeeds with held calls, their previews (reading each
-   * document they act on, after the run) and a token come back; when the run or a preview read
-   * fails, the held calls are dropped and no token is issued (fail closed). When any audit line of
-   * the run could not be written, the run fails with that `audit_error`, whatever the code did.
+   * document they act on, after the run) and a token come back, the token keeping the answers the
+   * preview read for the confirmation to compare; when the run or a preview read fails, the held
+   * calls are dropped and no token is issued (fail closed). When any audit line of the run could
+   * not be written, the run fails with that `audit_error`, whatever the code did.
    */
   async function run(code: string, profile: Profile): Promise<CallToolResult> {
     const {
@@ -238,9 +252,15 @@ export function registerExecuteTool(
       return toToolResult(outcome, outputChars, writes, dropped, stale);
     }
     const signal = AbortSignal.timeout(timeoutMs);
+    const documents = new Map<string, unknown>();
+    const read = async (path: string) => {
+      const answer = await readDocument(path, signal);
+      documents.set(path, answer);
+      return answer;
+    };
     try {
-      const previews = await previewHeld(held, (path) => readDocument(path, signal));
-      const confirmation = confirmations.issue(profile, held, previews);
+      const previews = await previewHeld(held, read);
+      const confirmation = confirmations.issue(profile, held, previews, documents);
       return toToolResult(outcome, outputChars, writes, { confirmation }, stale);
     } catch (error) {
       if (!(error instanceof HostError)) throw error;

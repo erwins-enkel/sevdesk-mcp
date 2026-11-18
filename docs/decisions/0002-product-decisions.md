@@ -71,6 +71,14 @@ rules.
    failure and reports a result per call. The token is single-use, valid for 10 minutes, bound to
    the profile and to method, path and body hash of each held call, and kept in memory only (a
    server restart means asking again). **Source:** §6.
+   **Addendum (2026-11-17, issue #73):** the token is also bound to the documents its preview
+   read: it keeps each `GET /{Type}/{id}` answer the preview was built from. Before the first
+   confirmed call, `confirm` reads each of them again, within the same timeout as the calls, and
+   compares the whole answer (key order ignored). If one differs or a read fails, nothing is sent,
+   the token is used up (a new run gives a fresh preview), and the error names the document
+   (`document_changed`, or the read's own error). Only what the preview read is compared, not the
+   positions or the contact's record, and nothing is locked in sevDesk. The token is taken before
+   the reads, so two confirmations of one token can never both send.
 6. **What about write paths the classification table does not know?**
    **Answer:** Fail closed: an unknown write path is treated as irreversible. A status change is
    recognised by a `status` field in the body of a PUT or POST on Invoice, Order, CreditNote or
