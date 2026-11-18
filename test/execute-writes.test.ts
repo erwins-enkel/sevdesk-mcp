@@ -230,6 +230,16 @@ const irreversible: { name: string; calls: [string, string, object?][] }[] = [
       ['GET', '/Invoice/1/getPdf'],
       ['GET', '/Order/1/getPdf', { query: { preventSendBy: false } }],
       ['GET', '/Order/1/GETPDF', { query: { download: true } }],
+      ['GET', '/Invoice/1/getPdf', { query: { preventSendBy: true, PreventSendBy: false } }],
+    ],
+  },
+  {
+    name: 'an unknown read path',
+    calls: [
+      ['GET', '/Missing'],
+      ['GET', '/Invoice/1/getHistory'],
+      ['GET', '/Voucher/1/getPdf', { query: { preventSendBy: true } }],
+      ['get', '/contact'],
     ],
   },
   {

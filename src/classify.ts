@@ -203,9 +203,9 @@ const TEMPLATES: Template[] = Object.entries(OPERATIONS).map(([operation, effect
 // `/Order/sendAll` is not an instance of `/Order/{orderId}`.
 const ID = /^\d+$/;
 
-// Segments naming an irreversible operation. Every GET is also checked by its segment names, case
-// ignored, so a GET the spec lacks is caught too: the spec is incomplete, and such a GET still runs.
-const IRREVERSIBLE_SEGMENT = /^(?:send|enshrine|bookamount|cancel|reset)/i;
+// The one GET the spec lacks that runs as a read: `companyName()` reads the account's company from
+// `GET /SevClient`. Any other GET the spec lacks needs confirmation (issue #72).
+const UNDOCUMENTED_READS = new Set(['/SevClient']);
 
 // Query flags that enshrine every exported document (`enshrine` on `/Export/datevCSV`,
 // `enshrineDocuments` on `/Export/createDatevCsvZipExportJob`), unless set to false.
@@ -250,23 +250,22 @@ function effectOf(method: string, path: string): Effect | undefined {
 }
 
 /**
- * Why a GET changes data irreversibly, or undefined for a read: `getPdf` without
- * `preventSendBy=true` (decision 7), an irreversible operation of the table, or a segment naming
- * one.
+ * Why a GET changes data irreversibly, or undefined for a read: a path the table does not know
+ * other than `UNDOCUMENTED_READS` (fail closed, decision 6: the spec has GETs that change data, so
+ * an unknown one may too), `getPdf` without exactly one `preventSendBy` key, case ignored, set to
+ * `true` (decision 7), or an irreversible operation of the table.
  */
 function readReason(path: string, params: URLSearchParams): string | undefined {
-  const segments = path.split('/');
-  if (segments.some((segment) => segment.toLowerCase() === 'getpdf')) {
-    if (params.get('preventSendBy') === 'true') return undefined;
-    return 'getPdf without preventSendBy=true can mark the document as sent. To fetch only the PDF, pass { query: { preventSendBy: true } } or use sevdesk.savePdf.';
+  const effect = effectOf('GET', path);
+  if (effect === undefined && !UNDOCUMENTED_READS.has(path)) {
+    return `GET ${path} is not a GET path of the sevDesk API spec, so it counts as irreversible. Find the path with search.`;
   }
-  if (
-    effectOf('GET', path) === 'irreversible' ||
-    segments.some((segment) => IRREVERSIBLE_SEGMENT.test(segment))
-  ) {
-    return `GET ${path} ${SENDS}`;
+  if (path.split('/').some((segment) => segment.toLowerCase() === 'getpdf')) {
+    const keys = [...params.keys()].filter((key) => key.toLowerCase() === 'preventsendby');
+    if (keys.length === 1 && params.get('preventSendBy') === 'true') return undefined;
+    return 'getPdf without preventSendBy=true, or with another key that differs from it only in case, can mark the document as sent. To fetch only the PDF, pass { query: { preventSendBy: true } } or use sevdesk.savePdf.';
   }
-  return undefined;
+  return effect === 'irreversible' ? `GET ${path} ${SENDS}` : undefined;
 }
 
 /**

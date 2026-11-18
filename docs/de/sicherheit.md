@@ -6,8 +6,8 @@
 
 Lesen sowie Entwürfe anlegen oder ändern läuft direkt. Alles, was sich nicht rückgängig machen
 lässt (löschen, versenden, festschreiben, buchen, stornieren, zurücksetzen, den Status eines
-Dokuments ändern, `getPdf` ohne `preventSendBy=true` und jeder Schreibpfad, den die
-sevdesk-Spezifikation nicht kennt), wird zurückgehalten statt gesendet:
+Dokuments ändern, `getPdf` ohne `preventSendBy=true` und jeder Pfad, den die
+sevdesk-Spezifikation nicht kennt, ob lesend oder schreibend), wird zurückgehalten statt gesendet:
 
 1. Der Aufruf im Code ergibt `{ held: true }` und der Code läuft weiter; Entwürfe davor und danach
    entstehen wie gewohnt.
@@ -32,6 +32,10 @@ Löschen nennt, etwa `orderPosDelete` (Positionen) oder `discountDelete` (Rabatt
 Factory-Saves wie `POST /Order/Factory/saveOrder`. Steht im Schlüssel `null` oder nichts, wird
 nichts gelöscht und der Save läuft direkt.
 
+Auch ein Lesezugriff wird zurückgehalten, wenn die Spezifikation seinen Pfad nicht kennt, denn
+manche GETs der Spezifikation ändern ebenfalls Daten, etwa `getPdf`. Die einzige Ausnahme ist
+`GET /SevClient`, mit dem der Server den Firmennamen liest.
+
 Ein Token gilt einmal, 10 Minuten lang, für das Profil, das die Aufrufe zurückgehalten hat, und
 nur bis zum Neustart des Servers. Scheitert der Lauf, verfallen seine zurückgehaltenen Aufrufe und
 es gibt keinen Token. Zurückgehaltene Aufrufe und das Lesen der betroffenen Dokumente für die
@@ -52,16 +56,16 @@ der beiden Schalter an ist; keiner kann den anderen ausschalten:
   diesen Schalter nicht; für es gilt nur `SEVDESK_READONLY`.
 
 Im Nur-Lesen-Modus scheitert jeder Aufruf, der kein GET ist, und jeder Aufruf, der zur Bestätigung
-zurückgehalten würde (auch ein GET wie `getPdf` ohne `preventSendBy=true`), mit einem
-`read_only`-Fehler. So ein Aufruf wird sofort abgelehnt, nie zurückgehalten, also bringt ihn kein
-Bestätigungstoken durch, und auch `execute` mit `confirm` wird abgelehnt. Lesen und
-`sevdesk.savePdf` funktionieren weiter (`savePdf` setzt immer `preventSendBy=true`). Das Rendern,
-das `savePdf` für einen Entwurf sendet, ist der eine Schreibaufruf, den der Nur-Lesen-Modus
-durchlässt: Es ändert keinen Status, hält das PDF aktuell und steht in `writes` und im Audit-Log.
-Dasselbe Rendern über `sevdesk.request` wird abgelehnt. Ist `SEVDESK_READONLY` an oder ist der
-Server mit `--profile` auf ein Nur-Lesen-Profil festgelegt, trägt `execute` die MCP-Annotation
-`readOnlyHint`. Der Server liest beide Schalter beim Start; starte ihn nach einer Änderung also
-neu.
+zurückgehalten würde (auch ein GET wie `getPdf` ohne `preventSendBy=true` oder ein GET auf einen
+Pfad, den die Spezifikation nicht kennt), mit einem `read_only`-Fehler. So ein Aufruf wird sofort
+abgelehnt, nie zurückgehalten, also bringt ihn kein Bestätigungstoken durch, und auch `execute` mit
+`confirm` wird abgelehnt. Lesen und `sevdesk.savePdf` funktionieren weiter (`savePdf` setzt immer
+`preventSendBy=true`). Das Rendern, das `savePdf` für einen Entwurf sendet, ist der eine
+Schreibaufruf, den der Nur-Lesen-Modus durchlässt: Es ändert keinen Status, hält das PDF aktuell und
+steht in `writes` und im Audit-Log. Dasselbe Rendern über `sevdesk.request` wird abgelehnt. Ist
+`SEVDESK_READONLY` an oder ist der Server mit `--profile` auf ein Nur-Lesen-Profil festgelegt, trägt
+`execute` die MCP-Annotation `readOnlyHint`. Der Server liest beide Schalter beim Start; starte ihn
+nach einer Änderung also neu.
 
 ## Audit-Log
 
