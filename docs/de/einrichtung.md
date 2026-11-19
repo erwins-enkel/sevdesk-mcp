@@ -89,6 +89,11 @@ gescheiterte Verbindungsprüfung).
 
 ## MCP-Clients
 
+Für Claude Desktop gibt es ab Version 0.1.1 auch eine Erweiterung (`.mcpb`), die ohne `setup`
+auskommt und genau ein Konto verbindet
+([Installation](installation.md#claude-desktop-windows-und-macos)). Nutz für Claude Desktop nur
+einen der beiden Wege, sonst hat es zwei sevdesk-Server.
+
 `setup` trägt den Server in diese Clients ein, wenn sie installiert sind, und `setup --remove`
 bietet an, ihre Einträge wieder zu entfernen:
 

@@ -49,6 +49,7 @@
     "node": ">=22"
   },
   "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2",
     "@commitlint/cli": "21.2.4",
     "@commitlint/config-conventional": "21.2.4",
     "@eslint/js": "10.0.1",
@@ -79,6 +80,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "build:watch": "tsc -p tsconfig.build.json --watch",
+    "build:mcpb": "node scripts/build-mcpb.ts",
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -92,6 +94,6 @@
     "audit:dead": "fallow",
     "audit:env": "varlock audit",
     "lint:actions": "bash scripts/actionlint.sh",
-    "verify": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build && bun run check:i18n && bun run check:docs && bun run audit:dead && bun run audit:env && bun run lint:actions"
+    "verify": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run build && bun run build:mcpb && bun run check:i18n && bun run check:docs && bun run audit:dead && bun run audit:env && bun run lint:actions"
   }
 }

@@ -3,7 +3,8 @@ name: Release
 # A pushed tag vX.Y.Z publishes the package to npm and creates the GitHub release (decision 24,
 # CONTRIBUTING.md#releasing). Every step fails the run: nothing is published unless the tag
 # matches package.json, the commit is on main, `bun run verify` passes and the packed tarball
-# installs and reports the version. The tested tarball is what gets published.
+# installs and reports the version. The tested tarball is what gets published. The GitHub release
+# carries the Claude Desktop extension `sevdesk-mcp.mcpb` (scripts/mcpb.ts), built in `build`.
 # `build` installs dependencies and runs their code, so it gets no write or OIDC permission;
 # `publish` installs nothing and is the only job with them.
 on:
@@ -67,6 +68,13 @@ jobs:
           name: package
           path: ${{ runner.temp }}/release/${{ steps.pack.outputs.tarball }}
           if-no-files-found: error
+      - name: Claude Desktop extension
+        run: bun run build:mcpb
+      - uses: actions/upload-artifact@v7
+        with:
+          name: extension
+          path: build/mcpb/sevdesk-mcp.mcpb
+          if-no-files-found: error
 
   publish:
     needs: build
@@ -80,6 +88,10 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: package
+          path: ${{ runner.temp }}/release
+      - uses: actions/download-artifact@v8
+        with:
+          name: extension
           path: ${{ runner.temp }}/release
       - uses: actions/setup-node@v7
         with:
@@ -96,4 +108,4 @@ jobs:
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" "$RUNNER_TEMP/release/sevdesk-mcp.mcpb" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"

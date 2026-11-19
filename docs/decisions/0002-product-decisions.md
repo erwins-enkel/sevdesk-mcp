@@ -294,6 +294,21 @@ rules.
     dependencies has no write or OIDC permission; the publishing job installs nothing. It creates the GitHub
     release with generated notes; the `.mcpb` joins it with its own slice. Every release goes to
     the dist-tag `latest`. The steps are in `CONTRIBUTING.md` (`## Releasing`).
+    **Addendum (2026-11-19, the `.mcpb`):** From 0.1.1 every GitHub release carries
+    `sevdesk-mcp.mcpb`, so that people without a developer background can use Claude Desktop
+    without a terminal or Node.js (Claude Desktop runs it with its built-in Node.js). The bundle
+    holds the package as published, with `dist` compiled anew, under its own
+    `node_modules/@erwins-enkel/sevdesk-mcp`, so it runs as an installed package (`search` and
+    `execute`, no `version`); its production dependencies come from `bun.lock` without optional
+    ones, so it carries no native keychain binary and one bundle serves Windows and macOS. Its form
+    asks for the API token (sensitive: Claude Desktop keeps it in the OS keychain and starts the
+    server with it in `SEVDESK_API_TOKEN`, decision 2) and for read-only (off by default, as in
+    `setup`; passed as `SEVDESK_READONLY`); the profile is named `claude-desktop`. The job `build`
+    builds it and the job `publish` attaches it. The asset keeps the name `sevdesk-mcp.mcpb`, so
+    `releases/latest/download/sevdesk-mcp.mcpb` stays a working link for the installation guide.
+    ChatGPT Desktop has no such package: its guide installs Node.js and runs `setup` through `npx`
+    (`npx.cmd` on Windows, where PowerShell often blocks `npx`), and never puts a token into its
+    configuration.
 25. **Listing in the official MCP Registry (`server.json`)?**
     **Answer:** Yes, from 1.0. **Source:** §1.
 26. **README language?**

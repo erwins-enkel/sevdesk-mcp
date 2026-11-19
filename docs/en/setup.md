@@ -85,6 +85,10 @@ connection check).
 
 ## MCP clients
 
+From version 0.1.1, Claude Desktop also has an extension (`.mcpb`) that needs no `setup` and
+connects exactly one account ([installing](installation.md#claude-desktop-windows-and-macos)). Use
+only one of the two ways for Claude Desktop, or it gets two sevdesk servers.
+
 `setup` registers the server in these clients when they are installed, and `setup --remove` offers
 to remove their entries again:
 

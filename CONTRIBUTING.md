@@ -50,13 +50,17 @@ ships as a patch release.
 3. The workflow stops unless the tag is `v` plus the version in `package.json` and points to a
    commit on `main`. It runs `bun run verify`, packs the package, installs the tarball and checks
    that `sevdesk-mcp --version` prints the version, publishes exactly that tarball to npm (public,
-   with provenance, dist-tag `latest`) and creates the GitHub release with generated notes.
+   with provenance, dist-tag `latest`) and creates the GitHub release with generated notes and the
+   Claude Desktop extension `sevdesk-mcp.mcpb`. The installation guide links
+   `releases/latest/download/sevdesk-mcp.mcpb`, so keep that file name and do not mark releases as
+   pre-releases.
 
 If the run fails before "Publish to npm", nothing is published: fix the cause on `main`, delete the
 tag (`git push origin :refs/tags/vX.Y.Z`, `git tag -d vX.Y.Z`), tag the fixed commit and push it
-again. If only the GitHub release fails, create it by hand:
-`gh release create vX.Y.Z --verify-tag --generate-notes --title vX.Y.Z`. A published npm version
-cannot be replaced; a broken release is fixed by the next patch release. `publishConfig` in
+again. If only the GitHub release fails, create it by hand with the extension from the run's
+artifact `extension` (`gh run download <run id> --name extension`):
+`gh release create vX.Y.Z sevdesk-mcp.mcpb --verify-tag --generate-notes --title vX.Y.Z`. A
+published npm version cannot be replaced; a broken release is fixed by the next patch release. `publishConfig` in
 `package.json` requires provenance, so `npm publish` works only from the workflow.
 
 One-time setup:
@@ -77,6 +81,11 @@ One-time setup:
   published within 2 days expires. Before that,
   [#66](https://github.com/erwins-enkel/sevdesk-mcp/issues/66) removes the bootstrap token from
   the workflow.
+
+`bun run build:mcpb` builds the extension locally into `build/mcpb/sevdesk-mcp.mcpb`
+([`scripts/mcpb.ts`](scripts/mcpb.ts)): the package as published, installed under the bundle's
+`node_modules`, with a manifest whose form asks for the API token and read-only. CI uploads it as
+the artifact `sevdesk-mcp-mcpb`.
 
 ## Documentation
 
