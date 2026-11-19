@@ -22,6 +22,10 @@ describe('the manifest of the Claude Desktop extension', () => {
     expect(manifest.manifest_version).toBe('0.3');
   });
 
+  test("names sevdesk's privacy policy, the one service that gets account data", () => {
+    expect(manifest.privacy_policies).toEqual(['https://sevdesk.de/datenschutz/']);
+  });
+
   test('takes version and Node range from package.json', () => {
     expect(manifest.version).toBe(pkg.version);
     expect(manifest.compatibility.runtimes.node).toBe(pkg.engines.node);

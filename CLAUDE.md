@@ -277,9 +277,9 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   checks it offline.
   `scripts/`: the i18n drift gate, the docs gate (`check-docs.ts`, tested by
   `test/check-docs.test.ts`), the pinned actionlint runner, `update-spec` and the Claude Desktop
-  extension. `mcpb.ts`: `mcpbManifest()` (MCPB 0.3, everything but the form from `package.json`;
-  the form asks for the token, passed as `SEVDESK_API_TOKEN`, and read-only, passed as
-  `SEVDESK_READONLY`; profile `claude-desktop`) and `buildMcpb()` (the published files with a fresh
+  extension. `mcpb.ts`: `mcpbManifest()` (MCPB 0.3, everything but the form and sevdesk's privacy
+  policy from `package.json`; the form asks for the token, passed as `SEVDESK_API_TOKEN`, and
+  read-only, passed as `SEVDESK_READONLY`; profile `claude-desktop`) and `buildMcpb()` (the published files with a fresh
   `dist` under the bundle's `node_modules/@erwins-enkel/sevdesk-mcp`, so `launchKind()` is `npx`;
   production dependencies from `bun.lock` without optional ones, so no native keychain binary and
   one bundle for Windows and macOS); `build-mcpb.ts` writes `build/mcpb/sevdesk-mcp.mcpb`

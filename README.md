@@ -74,8 +74,9 @@ unter Erweiterungen → API) und einen der KI-Clients unten.
 
 - **Claude Desktop (Windows und macOS), ab Version 0.1.1:** Lade
   [sevdesk-mcp.mcpb](https://github.com/erwins-enkel/sevdesk-mcp/releases/latest/download/sevdesk-mcp.mcpb)
-  herunter, installier die Datei in Claude Desktop unter Einstellungen → Extensions → Advanced
-  settings → Install Extension… und gib deinen API-Token ein. Kein Terminal, kein Node.js.
+  herunter, installier die Datei in Claude Desktop unter Einstellungen → Desktop app → Extensions:
+  Manage → Advanced settings → Install Extension… und gib deinen API-Token ein. Kein Terminal,
+  kein Node.js.
 - **Jeder Client, auch ChatGPT Desktop, Codex, Claude Code und OpenCode:** Mit
   [Node.js](https://nodejs.org) ≥ 22 führst du in einem Terminal aus (unter Windows `npx.cmd`
   statt `npx`):
@@ -85,7 +86,8 @@ unter Erweiterungen → API) und einen der KI-Clients unten.
   ```
 
   `setup` fragt nach Profilname und API-Token, legt den Token im Schlüsselbund ab und trägt den
-  Server in deine installierten KI-Clients ein. Danach startest du den Client neu.
+  Server in deine installierten KI-Clients ein (OpenCode 2: Befehl von Hand eintragen). Danach
+  startest du den Client neu.
 
 Den Nur-Lesen-Modus schaltest du für den Anfang am besten ein. Schritt für Schritt:
 [Installation ohne Vorkenntnisse](docs/de/installation.md); Details:
@@ -232,8 +234,8 @@ Erweiterungen → API, i.e. Extensions → API) and one of the AI clients below.
 
 - **Claude Desktop (Windows and macOS), from version 0.1.1:** download
   [sevdesk-mcp.mcpb](https://github.com/erwins-enkel/sevdesk-mcp/releases/latest/download/sevdesk-mcp.mcpb),
-  install the file in Claude Desktop under Settings → Extensions → Advanced settings → Install
-  Extension… and enter your API token. No terminal, no Node.js.
+  install the file in Claude Desktop under Settings → Desktop app → Extensions: Manage → Advanced
+  settings → Install Extension… and enter your API token. No terminal, no Node.js.
 - **Any client, including ChatGPT Desktop, Codex, Claude Code and OpenCode:** with
   [Node.js](https://nodejs.org) ≥ 22, run in a terminal (on Windows `npx.cmd` instead of `npx`):
 
@@ -242,7 +244,8 @@ Erweiterungen → API, i.e. Extensions → API) and one of the AI clients below.
   ```
 
   `setup` asks for a profile name and the API token, stores the token in the OS keychain and
-  registers the server in your installed AI clients. Then restart the client.
+  registers the server in your installed AI clients (OpenCode 2: add the command by hand). Then
+  restart the client.
 
 To start with, turn read-only mode on. Step by step:
 [installing without technical knowledge](docs/en/installation.md); details:

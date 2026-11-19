@@ -41,6 +41,9 @@ export const MCPB_FILE = 'sevdesk-mcp.mcpb';
 // (~/Downloads/sevdesk/claude-desktop).
 const PROFILE = 'claude-desktop';
 
+// sevdesk's privacy policy: the extension sends the account's data to sevdesk and nowhere else.
+const SEVDESK_PRIVACY_POLICY = 'https://sevdesk.de/datenschutz/';
+
 const root = fileURLToPath(new URL('..', import.meta.url));
 
 /** This repository's package.json. */
@@ -56,7 +59,10 @@ function entryOf(pkg: PackageJson): string {
   return `node_modules/${pkg.name}/${bin.replace(/^\.\//, '')}`;
 }
 
-/** The extension's manifest (MCPB 0.3), everything but the form taken from package.json. */
+/**
+ * The extension's manifest (MCPB 0.3): everything but the form and sevdesk's privacy policy taken
+ * from package.json.
+ */
 export function mcpbManifest(pkg: PackageJson) {
   const entry = entryOf(pkg);
   return {
@@ -71,6 +77,8 @@ export function mcpbManifest(pkg: PackageJson) {
     support: pkg.bugs.url,
     license: pkg.license,
     keywords: pkg.keywords,
+    // The one service the extension sends account data to.
+    privacy_policies: [SEVDESK_PRIVACY_POLICY],
     server: {
       type: 'node',
       entry_point: entry,
@@ -97,7 +105,7 @@ export function mcpbManifest(pkg: PackageJson) {
         type: 'boolean',
         title: 'Read-only',
         description:
-          'Only reads from sevdesk: no new contacts, offers or invoices, nothing sent or deleted. Recommended while you try it out.',
+          'Only reads from sevdesk: nothing is created, changed, sent or deleted. One exception: saving the PDF of a draft first renders it again in sevdesk, without changing its status. Recommended while you try it out.',
         default: false,
       },
     },

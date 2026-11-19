@@ -13,14 +13,18 @@ own Node.js, and you need no terminal.
 
 1. Download the latest
    [sevdesk-mcp.mcpb](https://github.com/erwins-enkel/sevdesk-mcp/releases/latest/download/sevdesk-mcp.mcpb).
-2. In Claude Desktop, open the settings, then **Extensions**, then **Advanced settings**, and click
-   **Install Extension…**. Pick the downloaded file. Depending on the version and language, the
-   menu items may be named a little differently.
+2. In Claude Desktop, open the settings, then **Desktop app**, and click **Manage** next to
+   **Extensions**. Then **Advanced settings**, and in the **Extension Developer** section click
+   **Install Extension…**. Pick the downloaded file. In older versions, **Extensions** is right in
+   the settings; depending on the version and language, the menu items may be named a little
+   differently.
 3. Claude Desktop asks for two settings:
    - **sevdesk API token:** your API token. Claude Desktop keeps it in your system's keychain
      (Windows Credential Manager, macOS Keychain); the AI never sees it.
    - **Read-only:** turn this on to start with. The AI then only reads from sevdesk and cannot
-     create, send or delete anything. You can turn it off later in the extension's settings.
+     create, change, send or delete anything. One exception: when it saves the PDF of a draft, it
+     has sevdesk render the draft again first, without changing its status
+     ([more](safety.md#read-only-mode)). You can turn it off later in the extension's settings.
 4. Done. Ask Claude, for example: "Which invoices are more than 30 days overdue?"
 
 PDFs and exports go to `~/Downloads/sevdesk/claude-desktop/` (on Windows
@@ -59,11 +63,17 @@ Node.js and enter one command once.
    token goes into your system's keychain, never into a file.
 5. Restart the AI client.
 
-If `setup` does not list ChatGPT Desktop, the folder `.codex` in your user folder is missing. Then
-add the server in ChatGPT yourself: in the settings under MCP servers, as a new STDIO server with
+If `setup` does not list ChatGPT Desktop, it does not find its config folder: the folder in the
+environment variable `CODEX_HOME` when that is set to an absolute path, else `.codex` in your user
+folder. Then add the server in ChatGPT yourself: in the settings under MCP servers, as a new STDIO server with
 the command `npx` and the arguments `-y @erwins-enkel/sevdesk-mcp --profile <name>`, with your
 profile name instead of `<name>`. The server reads the token from the keychain; it does not belong
-in that form. More on profiles and clients: [setup and profiles](setup.md).
+in that form.
+
+`setup` does not edit OpenCode 2 yet (its config has a section `servers` under `mcp`): it reports
+the file and prints the command for other clients at the end,
+`npx -y @erwins-enkel/sevdesk-mcp --profile <name>`. Add that in OpenCode yourself as a local MCP
+server. More on profiles and clients: [setup and profiles](setup.md).
 
 ## Windows: not in WSL
 
@@ -72,6 +82,6 @@ keychain there, and `setup` would not find the AI clients of Windows.
 
 ## Removing
 
-Remove the extension in Claude Desktop under Extensions. Remove a profile from `setup` with
+Remove the extension in Claude Desktop under Settings → Desktop app → Extensions (**Manage**). Remove a profile from `setup` with
 `npx.cmd -y @erwins-enkel/sevdesk-mcp setup --remove <name>` (macOS: `npx`); it deletes the token
 from the keychain and offers to remove the entries in the clients.
