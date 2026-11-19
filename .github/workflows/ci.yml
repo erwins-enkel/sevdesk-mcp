@@ -48,6 +48,16 @@ jobs:
         run: bun run test
       - name: Build
         run: bun run build
+      - name: Claude Desktop extension
+        if: runner.os == 'Linux'
+        run: bun run build:mcpb
+      - name: Upload the Claude Desktop extension
+        if: runner.os == 'Linux' && matrix.node == 24
+        uses: actions/upload-artifact@v7
+        with:
+          name: sevdesk-mcp-mcpb
+          path: build/mcpb/sevdesk-mcp.mcpb
+          if-no-files-found: error
       - name: i18n catalog parity
         if: runner.os == 'Linux'
         run: bun run check:i18n
