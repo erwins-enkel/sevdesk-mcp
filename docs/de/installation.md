@@ -65,12 +65,14 @@ installierst Node.js und gibst einmal einen Befehl ein.
    soll. Der Token landet im Schlüsselbund deines Systems, nie in einer Datei.
 5. Starte den KI-Client neu.
 
-Taucht ChatGPT Desktop bei `setup` nicht auf, findet `setup` dessen Konfigurationsordner nicht:
-den Ordner in der Umgebungsvariable `CODEX_HOME`, wenn sie mit einem absoluten Pfad gesetzt ist,
-sonst `.codex` in deinem Benutzerordner. Dann trägst du den Server in ChatGPT selbst ein: in den Einstellungen bei den MCP-Servern als
-neuen STDIO-Server mit dem Befehl `npx` und den Argumenten
-`-y @erwins-enkel/sevdesk-mcp --profile <name>`, mit deinem Profilnamen statt `<name>`. Den Token
-liest der Server aus dem Schlüsselbund; er gehört nicht in dieses Formular.
+Taucht ChatGPT Desktop bei `setup` nicht auf, hat `setup` dessen Konfigurationsordner nicht
+gefunden. Ist die Umgebungsvariable `CODEX_HOME` leer oder nicht gesetzt, sucht `setup` den Ordner
+`.codex` in deinem Benutzerordner; ist sie gesetzt, nur den Ordner, den sie nennt, und bei einem
+relativen Pfad lässt es ChatGPT Desktop ganz aus, auch wenn `.codex` existiert. Dann trägst du den
+Server in ChatGPT selbst ein: in den Einstellungen bei den MCP-Servern als neuen STDIO-Server mit
+dem Befehl `npx` und den Argumenten `-y @erwins-enkel/sevdesk-mcp --profile <name>`, mit deinem
+Profilnamen statt `<name>`. Den Token liest der Server aus dem Schlüsselbund; er gehört nicht in
+dieses Formular.
 
 OpenCode 2 (in dessen Konfiguration steht unter `mcp` ein Abschnitt `servers`) bearbeitet `setup`
 noch nicht: Es meldet die Datei und zeigt am Ende den Befehl für andere Clients,

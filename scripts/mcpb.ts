@@ -41,7 +41,8 @@ export const MCPB_FILE = 'sevdesk-mcp.mcpb';
 // (~/Downloads/sevdesk/claude-desktop).
 const PROFILE = 'claude-desktop';
 
-// sevdesk's privacy policy: the extension sends the account's data to sevdesk and nowhere else.
+// sevdesk's privacy policy: the extension sends account data to the sevdesk API, the default
+// `baseUrl`; a config file's `baseUrl` can point the server at another HTTPS URL instead.
 const SEVDESK_PRIVACY_POLICY = 'https://sevdesk.de/datenschutz/';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -77,7 +78,7 @@ export function mcpbManifest(pkg: PackageJson) {
     support: pkg.bugs.url,
     license: pkg.license,
     keywords: pkg.keywords,
-    // The one service the extension sends account data to.
+    // Where account data goes by default (the sevdesk API).
     privacy_policies: [SEVDESK_PRIVACY_POLICY],
     server: {
       type: 'node',
