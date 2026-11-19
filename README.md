@@ -70,22 +70,32 @@ Cloudflare und Anthropic).
 ### Schnellstart
 
 Du brauchst ein sevdesk-Konto mit dem Buchhaltungssystem 2.0 und dessen API-Token (in sevdesk
-unter Erweiterungen → API), [Node.js](https://nodejs.org) ≥ 22 und einen der KI-Clients unten.
+unter Erweiterungen → API) und einen der KI-Clients unten.
 
-```sh
-npx @erwins-enkel/sevdesk-mcp setup
-```
+- **Claude Desktop (Windows und macOS), ab Version 0.1.1:** Lade
+  [sevdesk-mcp.mcpb](https://github.com/erwins-enkel/sevdesk-mcp/releases/latest/download/sevdesk-mcp.mcpb)
+  herunter, installier die Datei in Claude Desktop unter Einstellungen → Extensions → Advanced
+  settings → Install Extension… und gib deinen API-Token ein. Kein Terminal, kein Node.js.
+- **Jeder Client, auch ChatGPT Desktop, Codex, Claude Code und OpenCode:** Mit
+  [Node.js](https://nodejs.org) ≥ 22 führst du in einem Terminal aus (unter Windows `npx.cmd`
+  statt `npx`):
 
-`setup` fragt nach Profilname und API-Token, legt den Token im Schlüsselbund ab und trägt den
-Server in deine installierten KI-Clients ein. Auf die Frage nach dem Nur-Lesen-Modus antwortest du
-für den Anfang am besten mit Ja. Danach startest du den Client neu und legst los. Details:
+  ```sh
+  npx @erwins-enkel/sevdesk-mcp setup
+  ```
+
+  `setup` fragt nach Profilname und API-Token, legt den Token im Schlüsselbund ab und trägt den
+  Server in deine installierten KI-Clients ein. Danach startest du den Client neu.
+
+Den Nur-Lesen-Modus schaltest du für den Anfang am besten ein. Schritt für Schritt:
+[Installation ohne Vorkenntnisse](docs/de/installation.md); Details:
 [Einrichtung und Profile](docs/de/einrichtung.md).
 
 ### Unterstützte KI-Clients
 
 | Client                          | Einrichtung                                                     |
 | ------------------------------- | --------------------------------------------------------------- |
-| Claude Desktop                  | automatisch mit `setup`                                         |
+| Claude Desktop                  | Erweiterung (`.mcpb`) oder automatisch mit `setup`              |
 | Claude Code                     | automatisch mit `setup`                                         |
 | ChatGPT Desktop und Codex CLI   | automatisch mit `setup` (beide teilen sich eine Konfiguration)  |
 | OpenCode                        | automatisch mit `setup` (OpenCode 2: Befehl von Hand eintragen) |
@@ -127,8 +137,9 @@ sich sagen, welches gemeint ist.
 
 #### Brauche ich Programmierkenntnisse?
 
-Nein. Den Code schreibt die KI; du sagst in normaler Sprache, was du willst. Für die Installation
-reicht ein Befehl im Terminal.
+Nein. Den Code schreibt die KI; du sagst in normaler Sprache, was du willst. Für Claude Desktop
+installierst du eine Erweiterung, für die anderen Clients reicht ein Befehl im Terminal
+([Anleitung](docs/de/installation.md)).
 
 #### Ersetzt sevdesk-mcp meine Steuerberatung?
 
@@ -136,6 +147,8 @@ Nein. Der Server prüft nicht, ob etwas steuerlich richtig ist; er führt aus, w
 
 ### Dokumentation
 
+- [Installation ohne Vorkenntnisse](docs/de/installation.md): Claude Desktop per Erweiterung,
+  ChatGPT Desktop und andere Clients per Node.js
 - [Einrichtung und Profile](docs/de/einrichtung.md): `setup`, `config`, MCP-Clients, mehrere
   Konten
 - [Konfiguration](docs/de/konfiguration.md): `config.json`, Limits, Download-Ordner
@@ -215,22 +228,31 @@ called Code Mode (modelled on Cloudflare and Anthropic).
 ### Quick start
 
 You need a sevdesk account on bookkeeping system 2.0 and its API token (in sevdesk under
-Erweiterungen → API, i.e. Extensions → API), [Node.js](https://nodejs.org) ≥ 22 and one of the
-AI clients below.
+Erweiterungen → API, i.e. Extensions → API) and one of the AI clients below.
 
-```sh
-npx @erwins-enkel/sevdesk-mcp setup
-```
+- **Claude Desktop (Windows and macOS), from version 0.1.1:** download
+  [sevdesk-mcp.mcpb](https://github.com/erwins-enkel/sevdesk-mcp/releases/latest/download/sevdesk-mcp.mcpb),
+  install the file in Claude Desktop under Settings → Extensions → Advanced settings → Install
+  Extension… and enter your API token. No terminal, no Node.js.
+- **Any client, including ChatGPT Desktop, Codex, Claude Code and OpenCode:** with
+  [Node.js](https://nodejs.org) ≥ 22, run in a terminal (on Windows `npx.cmd` instead of `npx`):
 
-`setup` asks for a profile name and the API token, stores the token in the OS keychain and
-registers the server in your installed AI clients. To start with, answer yes when it asks about
-read-only mode. Then restart the client and go. Details: [setup and profiles](docs/en/setup.md).
+  ```sh
+  npx @erwins-enkel/sevdesk-mcp setup
+  ```
+
+  `setup` asks for a profile name and the API token, stores the token in the OS keychain and
+  registers the server in your installed AI clients. Then restart the client.
+
+To start with, turn read-only mode on. Step by step:
+[installing without technical knowledge](docs/en/installation.md); details:
+[setup and profiles](docs/en/setup.md).
 
 ### Supported AI clients
 
 | Client                        | Setup                                                        |
 | ----------------------------- | ------------------------------------------------------------ |
-| Claude Desktop                | automatic with `setup`                                       |
+| Claude Desktop                | extension (`.mcpb`) or automatic with `setup`                |
 | Claude Code                   | automatic with `setup`                                       |
 | ChatGPT Desktop and Codex CLI | automatic with `setup` (both share one config)               |
 | OpenCode                      | automatic with `setup` (OpenCode 2: add the command by hand) |
@@ -272,8 +294,9 @@ asks which one is meant.
 
 #### Do I need to know how to program?
 
-No. The AI writes the code; you say in plain words what you want. Installing takes one command
-in a terminal.
+No. The AI writes the code; you say in plain words what you want. For Claude Desktop you install
+an extension; for the other clients one command in a terminal is enough
+([guide](docs/en/installation.md)).
 
 #### Does sevdesk-mcp replace my tax advisor?
 
@@ -282,6 +305,8 @@ you approve.
 
 ### Documentation
 
+- [Installing without technical knowledge](docs/en/installation.md): Claude Desktop through an
+  extension, ChatGPT Desktop and other clients through Node.js
 - [Setup and profiles](docs/en/setup.md): `setup`, `config`, MCP clients, several accounts
 - [Configuration](docs/en/configuration.md): `config.json`, limits, download folder
 - [Safety and privacy](docs/en/safety.md): confirmation, read-only mode, audit log

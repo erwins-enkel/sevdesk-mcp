@@ -30,8 +30,10 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   Priority A runs end to end against the spec-following mock in `bun run test`, and by hand
   against a real account with `bun run test:e2e`, which also records the real answers' shapes that
   `bun run test` checks the spec and the mock against (no run has recorded them yet, so those
-  checks are skipped). Not built yet (PRD §9): the update checks, the
-  `.mcpb`, the MCP Registry entry, receipt upload, elicitation and the curated v2 tools.
+  checks are skipped). From 0.1.1 every GitHub release carries the Claude Desktop extension
+  `sevdesk-mcp.mcpb` (install without terminal or Node.js, the token in the extension's form;
+  `docs/*/installation.md`). Not built yet (PRD §9): the update checks, the MCP Registry entry,
+  receipt upload, elicitation and the curated v2 tools.
 
 ## Orientation
 
@@ -274,12 +276,21 @@ result goes back into the context. Published as `@erwins-enkel/sevdesk-mcp` (MIT
   tagged drafts, all or none (`cleanupGuard()`), through `confirm`; `test/e2e-cleanup.test.ts`
   checks it offline.
   `scripts/`: the i18n drift gate, the docs gate (`check-docs.ts`, tested by
-  `test/check-docs.test.ts`), the pinned actionlint runner and `update-spec`.
+  `test/check-docs.test.ts`), the pinned actionlint runner, `update-spec` and the Claude Desktop
+  extension. `mcpb.ts`: `mcpbManifest()` (MCPB 0.3, everything but the form from `package.json`;
+  the form asks for the token, passed as `SEVDESK_API_TOKEN`, and read-only, passed as
+  `SEVDESK_READONLY`; profile `claude-desktop`) and `buildMcpb()` (the published files with a fresh
+  `dist` under the bundle's `node_modules/@erwins-enkel/sevdesk-mcp`, so `launchKind()` is `npx`;
+  production dependencies from `bun.lock` without optional ones, so no native keychain binary and
+  one bundle for Windows and macOS); `build-mcpb.ts` writes `build/mcpb/sevdesk-mcp.mcpb`
+  (`bun run build:mcpb`). `test/mcpb.test.ts` checks the manifest against the mcpb schema and
+  starts the server from the unpacked bundle.
 - `.github/workflows/release.yml`: on a `v*` tag. Job `build` (read-only, no OIDC): tag equals
   `v<package.json version>` and the commit is on `main`, `bun run verify`, `npm pack`, the
-  installed tarball's `--version`, the tarball as an artifact. Job `publish` (environment `npm`,
-  installs nothing): `npm publish` of exactly that tarball (`publishConfig`: public, provenance),
-  `gh release create --generate-notes`. 0.1.0 publishes with a one-day bootstrap token
+  installed tarball's `--version`, the tarball as an artifact, then `bun run build:mcpb` and the
+  extension as the artifact `extension`. Job `publish` (environment `npm`, installs nothing):
+  `npm publish` of exactly that tarball (`publishConfig`: public, provenance),
+  `gh release create --generate-notes` with `sevdesk-mcp.mcpb`. 0.1.0 publishes with a one-day bootstrap token
   (`NPM_TOKEN`); later releases use npm trusted publishing (OIDC) once #66 removes it.
 - While serving, stdout belongs to the MCP protocol: log to stderr only.
 - Model-facing text (tool descriptions, guides, errors returned to the model) is English and
@@ -408,7 +419,7 @@ Recorded in the gap sweep (2026-11-09); numbers refer to
     `SEVDESK_E2E_MAIL_TO`; skip the mail test without it). Fixtures "MCP Test GmbH" and
     `mcp-test` are persistent. Sent test offers are reported, never deleted.
 13. **Releases (23, 24, 25):** a tag triggers npm trusted publishing with provenance and attaches
-    the `.mcpb`; the MCP Registry entry comes with 1.0. The sevDesk spec ships as sevDesk
+    `sevdesk-mcp.mcpb` (from 0.1.1; keep that name, no pre-releases); the MCP Registry entry comes with 1.0. The sevDesk spec ships as sevDesk
     publishes it, with attribution ("© sevDesk, not MIT") and its source in `spec/README.md`.
     0.1.0 ships as a beta before the first real-account E2E run, published with a one-day
     bootstrap token, since trusted publishing needs an existing package.
@@ -447,7 +458,7 @@ bun run verify    # the full gate: identical to the pre-push hook and the CI `qu
 ```
 
 `bun run verify` runs, in order: `format:check`, `lint`, `typecheck`, `test`, `build`,
-`check:i18n`, `check:docs`, `audit:dead` (fallow: dead code, duplication, complexity), `audit:env` (varlock:
+`build:mcpb` (the Claude Desktop extension), `check:i18n`, `check:docs`, `audit:dead` (fallow: dead code, duplication, complexity), `audit:env` (varlock:
 env vars vs `.env.schema`), `lint:actions` (actionlint on `.github/workflows/`).
 
 - Fix formatting: `bun run format`. One test file: `bunx vitest run test/cli.test.ts`.
